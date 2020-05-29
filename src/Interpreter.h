@@ -149,6 +149,10 @@ protected:
     void *pending_condvar_awake;
     /* Thread local global values are stored here. */
     std::map<GlobalValue*,GenericValue> ThreadLocalValues;
+    //sarbojit
+    Function *F_inner;
+    std::vector<GenericValue> ArgVals_inner;
+    //sarbojit
   };
   /* All threads that are or have been running during this execution
    * have an entry in Threads, in the order in which they were
@@ -594,6 +598,15 @@ protected:  // Helper functions
   virtual void callFree(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callAssertFail(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callAtexit(Function *F, const std::vector<GenericValue> &ArgVals);
+  //sarbojit
+  //qt functions
+  virtual void callQThreadCreate(Function *F, const std::vector<GenericValue> &ArgVals);
+  virtual void callQThreadStart(Function *F, const std::vector<GenericValue> &ArgVals);
+  virtual void callQThreadWait(Function *F, const std::vector<GenericValue> &ArgVals);
+  //virtual void callQThreadQuit(Function *F, const std::vector<GenericValue> &ArgVals);
+  //virtual void callQThreadPostMsg(Function *F, const std::vector<GenericValue> &ArgVals);
+  //virtual void callQThreadExec();
+  //sarbojit
 };
 
 } // End llvm namespace

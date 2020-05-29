@@ -2962,6 +2962,74 @@ void Interpreter::callAssertFail(Function *F,
   abort();
 }
 
+//sarbojit
+//===------------------------------------------------===//
+//...................Qt functions.......................//
+//===------------------------------------------------===//
+
+void Interpreter::callQThreadCreate(Function *F,
+				    const std::vector<GenericValue> &ArgVals) {
+  // Return 0 (success)
+  GenericValue Result;
+  Result.IntVal = APInt(F->getReturnType()->getIntegerBitWidth(),0);
+  returnValueToCaller(F->getReturnType(),Result);//return 0 on success
+
+  // Save thread ID to the location pointed to by the first argument
+  {
+    int new_tid = Threads.size();
+    GenericValue *Ptr = (GenericValue*)GVTOP(ArgVals[0]);
+    if(Ptr){
+      Type *ity = static_cast<PointerType*>(F->arg_begin()->getType())->getElementType();
+      GenericValue TIDVal = tid_to_pthread_t(ity,new_tid);
+      StoreValueToMemory(TIDVal,Ptr,ity);
+    }else{
+      /* Allow null pointers in first argument. For convenience. */
+    }
+  }
+
+  // Add a new stack for the new thread
+  int tid = newThread(CPS.spawn(Threads[CurrentThread].cpid));
+
+
+  // Build stack frame for the call
+  Function *F_inner = (Function*)GVTOP(ArgVals[1]);//function to be executed by the thread
+  std::vector<GenericValue> ArgVals_inner;
+  if(F_inner->arg_size() == 1 &&
+     F_inner->arg_begin()->getType() == Type::getInt8PtrTy(F->getContext())){
+    ArgVals_inner.push_back(ArgVals[2]);//argument of the function
+  }else if(F_inner->arg_size()){
+    std::string _err;
+    llvm::raw_string_ostream err(_err);
+    err << "Unsupported: function passed as argument to pthread_create has type: "
+        << *F_inner->getType();
+    throw std::logic_error(err.str().c_str());
+  }
+  Threads[tid].F_inner=F_inner;
+  Threads[tid].ArgVals_inner=ArgVals_inner;
+}
+
+void Interpreter::callQThreadStart(Function *F,
+				   const std::vector<GenericValue> &ArgVals) {
+  // Memory fence
+  TB.fence();
+
+  TB.spawn();//callback to TraceBuilder
+  int caller_thread = CurrentThread;
+  CurrentThread = pthread_t_to_tid(F->arg_begin()->getType(), ArgVals[0]);
+  callFunction(Threads[CurrentThread].F_inner,
+	       Threads[CurrentThread].ArgVals_inner);
+  //handling messages
+  //callQThreadExec()
+  // Return to caller
+  CurrentThread = caller_thread;
+}
+
+void Interpreter::callQThreadWait(Function *F,
+				  const std::vector<GenericValue> &ArgVals) {
+  callPthreadJoin(F,ArgVals);
+}
+//sarbojit
+
 //===----------------------------------------------------------------------===//
 // callFunction - Execute the specified function...
 //
@@ -3032,6 +3100,43 @@ void Interpreter::callFunction(Function *F,
     callAssertFail(F,ArgVals);
     return;
   }
+  //sarbojit
+  //Qt functions----
+  else if(F->getName().str() == "_ZN7QThread6createIRFvvEJEEEPS_OT_DpOT0_" ||
+	  F->getName().str() == "_Z14qthread_createPiPFPvS0_ES0_"){
+    callQThreadCreate(F, ArgVals);
+    dbgs()<<"Handling dummy QThread_create function\n";
+    return;
+  }
+  else if(F->getName().str() == "_ZN7QThread5startENS_8PriorityE" ||
+	  F->getName().str() == "_Z13qthread_starti"){
+    dbgs()<<"Handling dummy QThread_start function\n";
+    callQThreadStart(F, ArgVals);
+    return;
+  }
+  else if(F->getName().str() == "_ZN7QThread4waitEm" ||
+	  F->getName().str() == "_Z12qthread_waiti"){
+    dbgs()<<"Handling dummy QThread_wait function\n";
+    callQThreadWait(F, ArgVals);
+    return;
+  }
+  else if((F->getName().str() == "_Z18qthread_post_eventiPFPvS_ES_")){
+    dbgs()<<"Handling dummy QThread_post_event function\n";
+    //callQThreadPostMsg(F, ArgVals);
+    return;
+  }	  
+  else if(F->getName().str() == "pthread_once" ||
+	  F->getName().str() == "_ZN16QCoreApplicationC1ERiPPci") { //||
+          //F->getName().str() == "_ZN16QCoreApplicationD1Ev" ||
+          //F->getName().str() == "_ZN7QThreadC1EP7QObject" ||
+          //F->getName().str() == "_ZN7QThreadD1Ev" ||
+          //F->getName().str() == "_ZN7QThreadC1EP7QObject" |
+          //F->getName().str() == "_ZN7QObjectD2Ev" ||
+          //F->getName().str() == "_ZN7QObject12moveToThreadEP7QThread"){
+          //Ignore some functions for now
+    return;
+  }
+  //sarbojit
 
   assert((ECStack()->empty() || ECStack()->back().Caller.getInstruction() == 0 ||
           ECStack()->back().Caller.arg_size() == ArgVals.size()) &&
