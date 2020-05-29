@@ -75,6 +75,7 @@
 
 #include <random>
 #include <stdexcept>
+#include <queue>
 
 namespace llvm {
 
@@ -116,7 +117,8 @@ protected:
   /* A Thread object keeps track of each running thread. */
   class Thread{
   public:
-    Thread() : AssumeBlocked(false), RandEng(42), pending_mutex_lock(0), pending_condvar_awake(0) {};
+    Thread() : AssumeBlocked(false), RandEng(42), pending_mutex_lock(0),
+    pending_condvar_awake(0), quitQ(false){};//sarbojit
     /* The complex thread identifier of this thread. */
     CPid cpid;
     /* The runtime stack of executing code. The top of the stack is the
@@ -150,6 +152,14 @@ protected:
     /* Thread local global values are stored here. */
     std::map<GlobalValue*,GenericValue> ThreadLocalValues;
     //sarbojit
+    /*QThread extension*/
+    struct Msg{
+      Function *F_msg;
+      std::vector<GenericValue> ArgVals_msg;
+    };
+    std::queue<struct Msg> queue;
+    bool quitQ;
+    bool handler_mode;
     Function *F_inner;
     std::vector<GenericValue> ArgVals_inner;
     //sarbojit
