@@ -49,6 +49,7 @@ public:
   virtual void debug_print() const ;
 
   virtual void spawn();
+  virtual void post(const int tgt_proc);//sarbojit
   virtual void store(const SymData &ml);
   virtual void atomic_store(const SymData &ml);
   virtual void compare_exchange
@@ -178,6 +179,10 @@ protected:
      * NULL if !sleeping.
      */
     sym_ty *sleep_sym;
+    //sarbojit
+    /* contains last post event posted message to this thread's queue */
+    int last_post;
+    //sarbojit
 
     /* The iid-index of the last event of this thread, or 0 if it has not
      * executed any events yet.

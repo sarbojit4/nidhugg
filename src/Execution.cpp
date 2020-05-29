@@ -3028,6 +3028,16 @@ void Interpreter::callQThreadWait(Function *F,
 				  const std::vector<GenericValue> &ArgVals) {
   callPthreadJoin(F,ArgVals);
 }
+
+void Interpreter::callQThreadPostMsg(Function *F,
+				      const std::vector<GenericValue> &ArgVals) {
+  int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
+  TB.post(tid);//arguments
+  Thread::Msg msg;
+  msg.F_msg = (Function*)GVTOP(ArgVals[1]);
+  msg.ArgVals_msg.push_back(ArgVals[2]);
+  Threads[tid].queue.push(msg);//insert new event to queue
+}
 //sarbojit
 
 //===----------------------------------------------------------------------===//

@@ -614,7 +614,7 @@ protected:  // Helper functions
   virtual void callQThreadStart(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callQThreadWait(Function *F, const std::vector<GenericValue> &ArgVals);
   //virtual void callQThreadQuit(Function *F, const std::vector<GenericValue> &ArgVals);
-  //virtual void callQThreadPostMsg(Function *F, const std::vector<GenericValue> &ArgVals);
+  virtual void callQThreadPostMsg(Function *F, const std::vector<GenericValue> &ArgVals);
   //virtual void callQThreadExec();
   //sarbojit
 };

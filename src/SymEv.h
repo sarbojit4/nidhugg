@@ -58,6 +58,7 @@ struct SymEv {
     C_DELETE,
 
     SPAWN,
+    POST,//sarbojit
     JOIN,
 
     UNOBS_STORE,
@@ -104,6 +105,7 @@ struct SymEv {
   static SymEv CDelete(SymAddrSize addr) { return {C_DELETE, addr}; }
 
   static SymEv Spawn(int proc) { return {SPAWN, proc}; }
+  static SymEv Post(int tgt_proc) { return {POST, tgt_proc}; }//sarbojit
   static SymEv Join(int proc) { return {JOIN, proc}; }
 
   static SymEv UnobsStore(SymData addr) {
