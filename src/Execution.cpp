@@ -2961,11 +2961,8 @@ void Interpreter::callAssertFail(Function *F,
   TB.assertion_error(err);
   abort();
 }
-
-//sarbojit
-//===------------------------------------------------===//
+ 
 //...................Qt functions.......................//
-//===------------------------------------------------===//
 
 void Interpreter::callQThreadCreate(Function *F,
 				    const std::vector<GenericValue> &ArgVals) {
@@ -2992,11 +2989,11 @@ void Interpreter::callQThreadCreate(Function *F,
 
 
   // Build stack frame for the call
-  Function *F_inner = (Function*)GVTOP(ArgVals[1]);//function to be executed by the thread
+  Function *F_inner = (Function*)GVTOP(ArgVals[1]);
   std::vector<GenericValue> ArgVals_inner;
   if(F_inner->arg_size() == 1 &&
      F_inner->arg_begin()->getType() == Type::getInt8PtrTy(F->getContext())){
-    ArgVals_inner.push_back(ArgVals[2]);//argument of the function
+    ArgVals_inner.push_back(ArgVals[2]);
   }else if(F_inner->arg_size()){
     std::string _err;
     llvm::raw_string_ostream err(_err);
@@ -3038,7 +3035,6 @@ void Interpreter::callQThreadPostMsg(Function *F,
   msg.ArgVals_msg.push_back(ArgVals[2]);
   Threads[tid].queue.push(msg);//insert new event to queue
 }
-//sarbojit
 
 //===----------------------------------------------------------------------===//
 // callFunction - Execute the specified function...
@@ -3110,7 +3106,6 @@ void Interpreter::callFunction(Function *F,
     callAssertFail(F,ArgVals);
     return;
   }
-  //sarbojit
   //Qt functions----
   else if(F->getName().str() == "_ZN7QThread6createIRFvvEJEEEPS_OT_DpOT0_" ||
 	  F->getName().str() == "_Z14qthread_createPiPFPvS0_ES0_"){
@@ -3146,7 +3141,6 @@ void Interpreter::callFunction(Function *F,
           //Ignore some functions for now
     return;
   }
-  //sarbojit
 
   assert((ECStack()->empty() || ECStack()->back().Caller.getInstruction() == 0 ||
           ECStack()->back().Caller.arg_size() == ArgVals.size()) &&

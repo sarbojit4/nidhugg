@@ -120,10 +120,8 @@ public:
 
   /* The current event spawned a new thread. */
   virtual void spawn() = 0;
-  //sarbojit
   /* The current event posts msg to another thread */
   virtual void post(const int tgt_th) = 0;
-  //sarbojit
   /* Perform a store to ml. */
   virtual void store(const SymData &ml) = 0;
   /* Perform an atomic store to ml.

@@ -118,7 +118,7 @@ protected:
   class Thread{
   public:
     Thread() : AssumeBlocked(false), RandEng(42), pending_mutex_lock(0),
-    pending_condvar_awake(0), quitQ(false){};//sarbojit
+    pending_condvar_awake(0), quitQ(false){};
     /* The complex thread identifier of this thread. */
     CPid cpid;
     /* The runtime stack of executing code. The top of the stack is the
@@ -151,7 +151,6 @@ protected:
     void *pending_condvar_awake;
     /* Thread local global values are stored here. */
     std::map<GlobalValue*,GenericValue> ThreadLocalValues;
-    //sarbojit
     /*QThread extension*/
     struct Msg{
       Function *F_msg;
@@ -162,7 +161,6 @@ protected:
     bool handler_mode;
     Function *F_inner;
     std::vector<GenericValue> ArgVals_inner;
-    //sarbojit
   };
   /* All threads that are or have been running during this execution
    * have an entry in Threads, in the order in which they were
@@ -608,7 +606,6 @@ protected:  // Helper functions
   virtual void callFree(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callAssertFail(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callAtexit(Function *F, const std::vector<GenericValue> &ArgVals);
-  //sarbojit
   //qt functions
   virtual void callQThreadCreate(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callQThreadStart(Function *F, const std::vector<GenericValue> &ArgVals);
@@ -616,7 +613,6 @@ protected:  // Helper functions
   //virtual void callQThreadQuit(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callQThreadPostMsg(Function *F, const std::vector<GenericValue> &ArgVals);
   //virtual void callQThreadExec();
-  //sarbojit
 };
 
 } // End llvm namespace

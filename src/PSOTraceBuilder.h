@@ -44,7 +44,7 @@ public:
   virtual void debug_print() const ;
 
   virtual void spawn();
-  virtual void post(const int tgt_th);//sarbojit  : to be implemented later
+  virtual void post(const int tgt_th);//to be implemented later
   virtual void store(const SymData &ml);
   virtual void atomic_store(const SymData &ml);
   virtual void compare_exchange
