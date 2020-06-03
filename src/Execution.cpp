@@ -3120,7 +3120,7 @@ void Interpreter::callFunction(Function *F,
     return;
   }
   else if(F->getName().str() == "_ZN7QThread4waitEm" ||
-	  F->getName().str() == "_Z12qthread_waiti"){
+	  F->getName().str() == "_Z12qthread_waitiPv"){
     dbgs()<<"Handling dummy QThread_wait function\n";
     callQThreadWait(F, ArgVals);
     return;
