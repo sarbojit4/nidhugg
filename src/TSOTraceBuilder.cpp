@@ -626,6 +626,7 @@ void TSOTraceBuilder::spawn(){
 }
 void TSOTraceBuilder::post(const int tgt_th) {
   if(dryrun) return;
+  curev().may_conflict = true;
   record_symbolic(SymEv::Post(tgt_th));
   add_happens_after(prefix_idx, threads[tgt_th].last_post);
   threads[tgt_th].last_post=prefix_idx;
