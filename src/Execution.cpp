@@ -3107,27 +3107,27 @@ void Interpreter::callFunction(Function *F,
     return;
   }
   //Qt functions----
-  else if(F->getName().str() == "_ZN7QThread6createIRFvvEJEEEPS_OT_DpOT0_" ||
+  else if(F->getName().str() == "qthread_create" ||
 	  F->getName().str() == "_Z14qthread_createPiPFPvS0_ES0_"){
     callQThreadCreate(F, ArgVals);
     dbgs()<<"Handling dummy QThread_create function\n";
     return;
   }
-  else if(F->getName().str() == "_ZN7QThread5startENS_8PriorityE" ||
+  else if(F->getName().str() == "qthread_start" ||
 	  F->getName().str() == "_Z13qthread_starti"){
     dbgs()<<"Handling dummy QThread_start function\n";
     callQThreadStart(F, ArgVals);
     return;
   }
-  else if(F->getName().str() == "_ZN7QThread4waitEm" ||
+  else if(F->getName().str() == "qthread_wait" ||
 	  F->getName().str() == "_Z12qthread_waitiPv"){
     dbgs()<<"Handling dummy QThread_wait function\n";
     callQThreadWait(F, ArgVals);
     return;
   }
-  else if((F->getName().str() == "_Z18qthread_post_eventiPFPvS_ES_")){
+  else if((F->getName().str() == "qthread_post_event")){
     dbgs()<<"Handling dummy QThread_post_event function\n";
-    //callQThreadPostMsg(F, ArgVals);
+    callQThreadPostMsg(F, ArgVals);
     return;
   }	  
   else if(F->getName().str() == "pthread_once" ||
