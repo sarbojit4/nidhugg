@@ -38,6 +38,7 @@ struct SymEv {
     LOAD,
     STORE,
     FULLMEM, /* Observe & clobber everything */
+    POST,
 
     RMW,
     CMPXHG,
@@ -58,7 +59,6 @@ struct SymEv {
     C_DELETE,
 
     SPAWN,
-    POST,
     JOIN,
 
     UNOBS_STORE,
@@ -81,6 +81,7 @@ struct SymEv {
 
   static SymEv Load(SymAddrSize addr) { return {LOAD, addr}; }
   static SymEv Store(SymData addr) { return {STORE, std::move(addr)}; }
+  static SymEv Post(int tgt_proc) { return {POST, tgt_proc}; }
   static SymEv Rmw(SymData addr) { return {RMW, std::move(addr)}; }
   static SymEv CmpXhg(SymData addr, SymData::block_type expected) {
     return {CMPXHG, addr, expected};
@@ -105,7 +106,6 @@ struct SymEv {
   static SymEv CDelete(SymAddrSize addr) { return {C_DELETE, addr}; }
 
   static SymEv Spawn(int proc) { return {SPAWN, proc}; }
-  static SymEv Post(int tgt_proc) { return {POST, tgt_proc}; }
   static SymEv Join(int proc) { return {JOIN, proc}; }
 
   static SymEv UnobsStore(SymData addr) {

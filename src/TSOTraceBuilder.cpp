@@ -625,11 +625,32 @@ void TSOTraceBuilder::spawn(){
   record_symbolic(SymEv::Spawn(threads.size() / 2 - 1));
 }
 void TSOTraceBuilder::post(const int tgt_th) {
-  if(dryrun) return;
+  IPid tpid = tgt_th*2;
+  if(dryrun) {
+    assert(prefix_idx+1 < int(prefix.len()));
+    assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
+    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    VecSet<int> &A = threads[pid].sleep_posts;
+    A.insert(tpid);
+    return;
+  }
+
   curev().may_conflict = true;
-  record_symbolic(SymEv::Post(tgt_th));
-  add_happens_after(prefix_idx, threads[tgt_th].last_post);
-  threads[tgt_th].last_post=prefix_idx;
+  record_symbolic(SymEv::Post(tpid));
+  int lp = threads[tpid].last_post;
+  if(lp <= int(prefix.len())) {
+    if(0 <= lp) {
+      assert(prefix_idx != threads[tpid].last_post);
+      VecSet<int> seen_accesses;
+      IPid lp_pid = prefix[lp].iid.get_pid();
+      if(lp_pid != curev().iid.get_pid()) {
+        seen_accesses.insert(threads[tpid].last_post);
+      }
+      see_events(seen_accesses);
+    }
+    wakeup_posts(tpid);
+  }
+  threads[tpid].last_post=prefix_idx;
 }
 
 void TSOTraceBuilder::store(const SymData &sd){
@@ -1788,6 +1809,8 @@ bool TSOTraceBuilder::do_symevs_conflict
  IPid snd_pid, const SymEv &snd) const {
   if (fst.kind == SymEv::NONDET || snd.kind == SymEv::NONDET) return false;
   if (fst.kind == SymEv::FULLMEM || snd.kind == SymEv::FULLMEM) return true;
+  if (fst.kind == SymEv::POST && snd.kind == SymEv::POST &&
+      fst.num()==snd.num()) return true;
   if (symev_is_load(fst) && symev_is_load(snd)) return false;
   if (symev_is_unobs_store(fst) && symev_is_unobs_store(snd)
       && fst.addr() == snd.addr()) return false;
@@ -2331,6 +2354,25 @@ void TSOTraceBuilder::wakeup(Access::Type type, SymAddr ml){
     threads[p].sleep_accesses_r.clear();
     threads[p].sleep_accesses_w.clear();
     threads[p].sleep_full_memory_conflict = false;
+    threads[p].sleep_sym = nullptr;
+    threads[p].sleeping = false;
+    curev().wakeup.insert(p);
+  }
+}
+
+void TSOTraceBuilder::wakeup_posts(const int tpid) {
+  IPid pid = curev().iid.get_pid();
+  IFDEBUG(sym_ty ev);
+  std::vector<IPid> wakeup; // Wakeup these
+  IFDEBUG(ev.push_back(SymEv::Load(SymAddrSize(ml,1))));
+  for(unsigned p = 0; p < threads.size(); ++p) {
+    if(threads[p].sleep_posts.count(tpid)) {
+      wakeup.push_back(p);
+    }
+  }
+  for(IPid p : wakeup){
+    assert(threads[p].sleeping);
+    threads[p].sleep_posts.clear();
     threads[p].sleep_sym = nullptr;
     threads[p].sleeping = false;
     curev().wakeup.insert(p);

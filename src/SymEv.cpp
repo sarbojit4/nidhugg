@@ -131,7 +131,7 @@ bool SymEv::has_addr() const {
   case RMW: case CMPXHG: case CMPXHGFAIL:
     return true;
   case NONE:
-  case FULLMEM: case NONDET:
+  case FULLMEM: case NONDET: case POST:
   case SPAWN: case JOIN:
     return false;
   }

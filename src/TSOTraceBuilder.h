@@ -134,7 +134,7 @@ protected:
   public:
     Thread(const CPid &cpid, int spawn_event)
       : cpid(cpid), available(true), spawn_event(spawn_event), sleeping(false),
-        sleep_full_memory_conflict(false), sleep_sym(nullptr) {};
+        sleep_full_memory_conflict(false), sleep_sym(nullptr), last_post(-1) {};
     CPid cpid;
     /* Is the thread available for scheduling? */
     bool available;
@@ -167,6 +167,12 @@ protected:
      * Empty if !sleeping.
      */
     VecSet<SymAddr> sleep_accesses_w;
+    /* sleep_posts is the set of threads that to which it posts 
+     * message (as determined by dry running).
+     *
+     * Empty if !sleeping.
+     */
+    VecSet<int> sleep_posts;
     /* sleep_full_memory_conflict is set when the next event to be
      * executed by this thread will be a full memory conflict (as
      * determined by dry running).
@@ -697,6 +703,8 @@ protected:
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);
+  /* Wake up all threads which are sleeping, waiting for a post. */
+  void wakeup_posts(const int tpid);
   /* Returns true iff the thread pid has a pending store to some
    * memory location including the byte ml.
    */
