@@ -118,7 +118,7 @@ protected:
   class Thread{
   public:
     Thread() : AssumeBlocked(false), RandEng(42), pending_mutex_lock(0),
-    pending_condvar_awake(0), quitQ(false){};
+               pending_condvar_awake(0), quitQ(false){};
     /* The complex thread identifier of this thread. */
     CPid cpid;
     /* The runtime stack of executing code. The top of the stack is the
@@ -610,9 +610,9 @@ protected:  // Helper functions
   virtual void callQThreadCreate(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callQThreadStart(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callQThreadWait(Function *F, const std::vector<GenericValue> &ArgVals);
-  //virtual void callQThreadQuit(Function *F, const std::vector<GenericValue> &ArgVals);
+  virtual void callQThreadQuit(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callQThreadPostMsg(Function *F, const std::vector<GenericValue> &ArgVals);
-  //virtual void callQThreadExec();
+  virtual void callQThreadExec(Function *F, const std::vector<GenericValue> &ArgVals);
 };
 
 } // End llvm namespace

@@ -3015,8 +3015,6 @@ void Interpreter::callQThreadStart(Function *F,
   CurrentThread = pthread_t_to_tid(F->arg_begin()->getType(), ArgVals[0]);
   callFunction(Threads[CurrentThread].F_inner,
 	       Threads[CurrentThread].ArgVals_inner);
-  //handling messages
-  //callQThreadExec()
   // Return to caller
   CurrentThread = caller_thread;
 }
@@ -3027,13 +3025,38 @@ void Interpreter::callQThreadWait(Function *F,
 }
 
 void Interpreter::callQThreadPostMsg(Function *F,
-				      const std::vector<GenericValue> &ArgVals) {
+				     const std::vector<GenericValue> &ArgVals) {
   int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
   TB.post(tid);//arguments
   Thread::Msg msg;
   msg.F_msg = (Function*)GVTOP(ArgVals[1]);
   msg.ArgVals_msg.push_back(ArgVals[2]);
   Threads[tid].queue.push(msg);//insert new event to queue
+  TB.mark_available(tid);
+}
+
+void Interpreter::callQThreadQuit(Function *F,
+				  const std::vector<GenericValue> &ArgVals) {
+  int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
+  Threads[tid].quitQ=true;
+}
+
+void Interpreter::callQThreadExec(Function *F,
+				  const std::vector<GenericValue> &ArgVals) {
+  Thread &currth = Threads[CurrentThread];
+  GenericValue Result;
+  Result.IntVal = currth.quitQ ? 1 : 0;
+  returnValueToCaller(F->getReturnType(),Result);//return 0 on success
+  while(!currth.quitQ) {
+    if(currth.queue.empty()){
+      TB.mark_unavailable(CurrentThread);
+      break;
+    }
+    Thread::Msg currmsg = currth.queue.front();
+    TB.receive();
+    callFunction(currmsg.F_msg,currmsg.ArgVals_msg);
+    currth.queue.pop();
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -3110,26 +3133,36 @@ void Interpreter::callFunction(Function *F,
   else if(F->getName().str() == "qthread_create" ||
 	  F->getName().str() == "_Z14qthread_createPiPFPvS0_ES0_"){
     callQThreadCreate(F, ArgVals);
-    dbgs()<<"Handling dummy QThread_create function\n";
+    dbgs()<<"Handling QThread_create function\n";
     return;
   }
   else if(F->getName().str() == "qthread_start" ||
 	  F->getName().str() == "_Z13qthread_starti"){
-    dbgs()<<"Handling dummy QThread_start function\n";
+    dbgs()<<"Handling QThread_start function\n";
     callQThreadStart(F, ArgVals);
     return;
   }
   else if(F->getName().str() == "qthread_wait" ||
 	  F->getName().str() == "_Z12qthread_waitiPv"){
-    dbgs()<<"Handling dummy QThread_wait function\n";
+    dbgs()<<"Handling QThread_wait function\n";
     callQThreadWait(F, ArgVals);
     return;
   }
   else if((F->getName().str() == "qthread_post_event")){
-    dbgs()<<"Handling dummy QThread_post_event function\n";
+    dbgs()<<"Handling QThread_post_event function\n";
     callQThreadPostMsg(F, ArgVals);
     return;
-  }	  
+  }
+  else if((F->getName().str() == "qthread_exec")){
+    dbgs()<<"Handling QThread_exec function\n";
+    callQThreadExec(F, ArgVals);
+    return;
+  }
+  else if((F->getName().str() == "qthread_quit")){
+    dbgs()<<"Handling QThread_quit function\n";
+    callQThreadQuit(F, ArgVals);
+    return;
+  }
   else if(F->getName().str() == "pthread_once" ||
 	  F->getName().str() == "_ZN16QCoreApplicationC1ERiPPci") { //||
           //F->getName().str() == "_ZN16QCoreApplicationD1Ev" ||

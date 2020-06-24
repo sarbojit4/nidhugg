@@ -413,7 +413,6 @@ void PSOTraceBuilder::spawn(){
   threads.push_back(Thread(proc,child_cpid,threads[parent_ipid].clock,parent_ipid));
   mark_available_ipid(child_ipid);
 }
-void PSOTraceBuilder::post(const int tgt_th) {}
 
 void PSOTraceBuilder::store(const SymData &sd){
   if(dryrun) return;

@@ -17,6 +17,7 @@
  * <http://www.gnu.org/licenses/>.
  */
 
+#include <queue>
 #include <config.h>
 #ifndef __TSO_TRACE_BUILDER_H__
 #define __TSO_TRACE_BUILDER_H__
@@ -49,7 +50,8 @@ public:
   virtual void debug_print() const ;
 
   virtual void spawn();
-  virtual void post(const int tgt_proc);
+  virtual void post(const int tgt_proc) override;
+  virtual void receive() override;
   virtual void store(const SymData &ml);
   virtual void atomic_store(const SymData &ml);
   virtual void compare_exchange
@@ -133,8 +135,9 @@ protected:
   class Thread{
   public:
     Thread(const CPid &cpid, int spawn_event)
-      : cpid(cpid), available(true), spawn_event(spawn_event), sleeping(false),
-        sleep_full_memory_conflict(false), sleep_sym(nullptr), last_post(-1) {};
+      : cpid(cpid), available(true), spawn_event(spawn_event),
+	sleeping(false), sleep_full_memory_conflict(false),
+	sleep_sym(nullptr), start_of_message(false) {};
     CPid cpid;
     /* Is the thread available for scheduling? */
     bool available;
@@ -186,7 +189,9 @@ protected:
      */
     sym_ty *sleep_sym;
     /* contains last post event posted message to this thread's queue */
-    int last_post;
+    std::queue<int> posts;
+    /* a message starts from this event */
+    bool start_of_message;
     /* The iid-index of the last event of this thread, or 0 if it has not
      * executed any events yet.
      */

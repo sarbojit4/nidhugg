@@ -58,7 +58,6 @@ public:
   virtual bool cond_branch(bool cnd) { return true; }
 
   virtual void spawn();
-  virtual void post(const int tgt_th);//to be implemented later
   virtual void store(const SymData &ml);
   virtual void atomic_store(const SymData &ml);
   virtual void atomic_rmw(const SymData &ml);

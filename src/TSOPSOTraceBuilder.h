@@ -121,7 +121,9 @@ public:
   /* The current event spawned a new thread. */
   virtual void spawn() = 0;
   /* The current event posts msg to another thread */
-  virtual void post(const int tgt_th) = 0;
+  virtual void post(const int tgt_th){}
+  /* Receive message from it's queue */
+  virtual void receive(){}
   /* Perform a store to ml. */
   virtual void store(const SymData &ml) = 0;
   /* Perform an atomic store to ml.

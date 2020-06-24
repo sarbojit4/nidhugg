@@ -407,7 +407,6 @@ void RFSCTraceBuilder::do_atomic_store(const SymData &sd){
     bi.last_update = prefix_idx;
   }
 }
-void RFSCTraceBuilder::post(const int tgt_th) {}
 
 void RFSCTraceBuilder::atomic_rmw(const SymData &sd){
   record_symbolic(SymEv::Rmw(sd));
