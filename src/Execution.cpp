@@ -2966,6 +2966,7 @@ void Interpreter::callAssertFail(Function *F,
 
 void Interpreter::callQThreadCreate(Function *F,
 				    const std::vector<GenericValue> &ArgVals) {
+  TB.create();
   // Return 0 (success)
   GenericValue Result;
   Result.IntVal = APInt(F->getReturnType()->getIntegerBitWidth(),0);
@@ -3009,10 +3010,9 @@ void Interpreter::callQThreadStart(Function *F,
 				   const std::vector<GenericValue> &ArgVals) {
   // Memory fence
   TB.fence();
-
-  TB.spawn();//callback to TraceBuilder
   int caller_thread = CurrentThread;
   CurrentThread = pthread_t_to_tid(F->arg_begin()->getType(), ArgVals[0]);
+  TB.start(CurrentThread);//callback to TraceBuilder
   callFunction(Threads[CurrentThread].F_inner,
 	       Threads[CurrentThread].ArgVals_inner);
   // Return to caller
@@ -3028,11 +3028,12 @@ void Interpreter::callQThreadPostMsg(Function *F,
 				     const std::vector<GenericValue> &ArgVals) {
   int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
   TB.post(tid);//arguments
-  Thread::Msg msg;
-  msg.F_msg = (Function*)GVTOP(ArgVals[1]);
-  msg.ArgVals_msg.push_back(ArgVals[2]);
-  Threads[tid].queue.push(msg);//insert new event to queue
-  TB.mark_available(tid);
+  Function *F_msg = (Function*)GVTOP(ArgVals[1]);
+  std::vector<GenericValue> ArgVals_msg(1,ArgVals[2]);
+  int caller_thread = CurrentThread;
+  CurrentThread = newThread(CPS.spawn(Threads[CurrentThread].cpid));
+  callFunction(F_msg,ArgVals_msg);
+  CurrentThread=caller_thread;
 }
 
 void Interpreter::callQThreadQuit(Function *F,
@@ -3043,20 +3044,7 @@ void Interpreter::callQThreadQuit(Function *F,
 
 void Interpreter::callQThreadExec(Function *F,
 				  const std::vector<GenericValue> &ArgVals) {
-  Thread &currth = Threads[CurrentThread];
-  GenericValue Result;
-  Result.IntVal = currth.quitQ ? 1 : 0;
-  returnValueToCaller(F->getReturnType(),Result);//return 0 on success
-  while(!currth.quitQ) {
-    if(currth.queue.empty()){
-      TB.mark_unavailable(CurrentThread);
-      break;
-    }
-    Thread::Msg currmsg = currth.queue.front();
-    TB.receive();
-    callFunction(currmsg.F_msg,currmsg.ArgVals_msg);
-    currth.queue.pop();
-  }
+  TB.exec();
 }
 
 //===----------------------------------------------------------------------===//
@@ -3405,6 +3393,7 @@ void Interpreter::run() {
       continue;
     }
 
+    assert(!ECStack()->empty());
     // Interpret a single instruction & increment the "PC".
     ExecutionContext &SF = ECStack()->back();  // Current stack frame
     Instruction &I = *SF.CurInst++;            // Increment before execute
@@ -3464,7 +3453,7 @@ void Interpreter::run() {
         callFunction(AtExitHandlers.back(),{});
         AtExitHandlers.pop_back();
       }else{
-        TB.mark_unavailable(CurrentThread);
+        TB.end_of_thread(CurrentThread);
       }
     }
 

@@ -38,6 +38,7 @@ public:
   virtual void refuse_schedule();
   virtual void mark_available(int proc, int aux = -1);
   virtual void mark_unavailable(int proc, int aux = -1);
+  virtual void end_of_thread(int proc, int aux = -1) override;
   virtual void cancel_replay();
   virtual bool is_replaying() const;
   virtual void metadata(const llvm::MDNode *md);
@@ -50,8 +51,10 @@ public:
   virtual void debug_print() const ;
 
   virtual void spawn();
+  virtual void create() override;
+  virtual void start(int pid) override;
   virtual void post(const int tgt_proc) override;
-  virtual void receive() override;
+  virtual void exec() override;
   virtual void store(const SymData &ml);
   virtual void atomic_store(const SymData &ml);
   virtual void compare_exchange
@@ -134,10 +137,11 @@ protected:
    */
   class Thread{
   public:
-    Thread(const CPid &cpid, int spawn_event)
+    Thread(const CPid &cpid, int spawn_event, IPid handler_id = -1)
       : cpid(cpid), available(true), spawn_event(spawn_event),
 	sleeping(false), sleep_full_memory_conflict(false),
-	sleep_sym(nullptr), start_of_message(false) {};
+	sleep_sym(nullptr), last_post(-1), handler_id(handler_id),
+        ready_to_receive(false) {};
     CPid cpid;
     /* Is the thread available for scheduling? */
     bool available;
@@ -170,12 +174,12 @@ protected:
      * Empty if !sleeping.
      */
     VecSet<SymAddr> sleep_accesses_w;
-    /* sleep_posts is the set of threads that to which it posts 
-     * message (as determined by dry running).
+    /* sleep_posts is the set of ids of threads that to which it posts 
+     * message.
      *
      * Empty if !sleeping.
      */
-    VecSet<int> sleep_posts;
+    VecSet<IPid> sleep_posts;
     /* sleep_full_memory_conflict is set when the next event to be
      * executed by this thread will be a full memory conflict (as
      * determined by dry running).
@@ -188,10 +192,18 @@ protected:
      * NULL if !sleeping.
      */
     sym_ty *sleep_sym;
-    /* contains last post event posted message to this thread's queue */
-    std::queue<int> posts;
-    /* a message starts from this event */
-    bool start_of_message;
+    /* contains last event that posted message to this thread */
+    int last_post;
+    /* contains post events posted message to this thread's queue */
+    std::queue<IPid> posts;
+    /* Each time a handler thread receives a  meesage, it creates a new 
+     * thread to execute the message. If this thread is solely for 
+     * executing message, handler_id contains the id of the handler thread
+     * that creates this thread.
+     */
+    IPid handler_id;
+    /* If the thread is waiting for next message, then true */
+    bool ready_to_receive;
     /* The iid-index of the last event of this thread, or 0 if it has not
      * executed any events yet.
      */

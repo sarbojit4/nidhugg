@@ -102,6 +102,10 @@ public:
    * because it is blocked waiting for something.
    */
   virtual void mark_unavailable(int proc, int aux = -1) = 0;
+  /* Do necessary operations after the thread, e.g., make it unavailable,
+   * make handler available.
+   */
+  virtual void end_of_thread(int proc, int aux = -1){}
   /* If we are not in a replay, do nothing. Otherwise cancel the
    * replay from here on, so that the computation may continue
    * according to an arbitrary schedule.
@@ -120,10 +124,14 @@ public:
 
   /* The current event spawned a new thread. */
   virtual void spawn() = 0;
+  /* The current event creates a new qthread. */
+  virtual void create(){};
+  /* The current event starts a new qthread. */
+  virtual void start(int pid){}
   /* The current event posts msg to another thread */
   virtual void post(const int tgt_th){}
   /* Receive message from it's queue */
-  virtual void receive(){}
+  virtual void exec(){}
   /* Perform a store to ml. */
   virtual void store(const SymData &ml) = 0;
   /* Perform an atomic store to ml.

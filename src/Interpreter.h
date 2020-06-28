@@ -152,13 +152,7 @@ protected:
     /* Thread local global values are stored here. */
     std::map<GlobalValue*,GenericValue> ThreadLocalValues;
     /*QThread extension*/
-    struct Msg{
-      Function *F_msg;
-      std::vector<GenericValue> ArgVals_msg;
-    };
-    std::queue<struct Msg> queue;
     bool quitQ;
-    bool handler_mode;
     Function *F_inner;
     std::vector<GenericValue> ArgVals_inner;
   };

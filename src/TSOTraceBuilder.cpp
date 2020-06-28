@@ -235,6 +235,18 @@ void TSOTraceBuilder::mark_unavailable(int proc, int aux){
   threads[ipid(proc,aux)].available = false;
 }
 
+void TSOTraceBuilder::end_of_thread(int proc, int aux){
+  Thread &currth=threads[ipid(proc,aux)];
+  currth.available = false;
+  if(0 <= currth.handler_id){
+    if(!threads[currth.handler_id].posts.empty()){
+      IPid next_msg = threads[currth.handler_id].posts.front();
+      threads[currth.handler_id].posts.pop();
+      threads[next_msg].available = true;
+    }else threads[currth.handler_id].ready_to_receive = true;
+  }
+}
+
 bool TSOTraceBuilder::is_replaying() const {
   return prefix_idx < replay_point;
 }
@@ -600,6 +612,7 @@ void TSOTraceBuilder::debug_print() const {
     llvm::dbgs() << rpad("",2+ipid*2)
                  << rpad(iid_string(i),iid_offs-ipid*2)
                  << " " << rpad(prefix[i].clock.to_string(),clock_offs)
+                 << prefix[i].sym.front().kind
                  << lines[i] << "\n";
   }
   for (unsigned i = prefix.len(); i < lines.size(); ++i){
@@ -617,13 +630,6 @@ void TSOTraceBuilder::debug_print() const {
 void TSOTraceBuilder::spawn(){
   IPid parent_ipid = curev().iid.get_pid();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
-
-  if(threads[parent_ipid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[parent_ipid].posts.front());
-    threads[parent_ipid].posts.pop();
-    threads[parent_ipid].start_of_message = false;
-  }
-
   /* TODO: First event of thread happens before parents spawn */
   threads.push_back(Thread(child_cpid,prefix_idx));
   threads.push_back(Thread(CPS.new_aux(child_cpid),prefix_idx));
@@ -631,38 +637,79 @@ void TSOTraceBuilder::spawn(){
   curev().may_conflict = true;
   record_symbolic(SymEv::Spawn(threads.size() / 2 - 1));
 }
+
+void TSOTraceBuilder::create(){
+  IPid parent_ipid = curev().iid.get_pid();
+  CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
+  /* TODO: First event of thread happens before parents spawn */
+  threads.push_back(Thread(child_cpid,prefix_idx));
+  threads.back().available = false;
+  threads.push_back(Thread(CPS.new_aux(child_cpid),prefix_idx));
+  threads.back().available = false; // Empty store buffer
+}
+
+void TSOTraceBuilder::start(int pid){
+  if(threads.size()<= pid*2){
+    llvm::dbgs()<<"Error:Thread not found while trying to start\n";
+    return;
+  }
+  if(threads[pid*2].available == true){
+    llvm::dbgs()<<"Error:Thread already started\n";
+    return;//thread already started
+  }
+  add_happens_after(prefix_idx, threads[pid*2].spawn_event);
+  add_happens_after(prefix_idx, threads[pid*2+1].spawn_event);
+  threads[pid*2].spawn_event = prefix_idx;
+  threads[pid*2+1].spawn_event = prefix_idx;
+  threads[pid*2].available = true; // Empty store buffer
+  curev().may_conflict = true;
+  record_symbolic(SymEv::Spawn(pid));
+}
+
 void TSOTraceBuilder::post(const int tgt_th) {
   IPid tpid = tgt_th*2;
   assert(0 <= tpid && tpid<threads.size());
   if(dryrun) {
-    assert(prefix_idx+1 < int(prefix.len()));
-    assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
-    VecSet<int> &A = threads[pid].sleep_posts;
-    A.insert(tpid);
     return;
   }
+  VecSet<int> &A = threads[tpid].sleep_posts;
+  A.insert(tpid);
 
+  create();
+  threads[threads.size()-2].handler_id = tpid;
+  threads[threads.size()-1].handler_id = tpid;
+  if(threads[tpid].ready_to_receive){
+    threads[threads.size()-2].available = true;
+  }else{
+    threads[tpid].posts.push(threads.size()-2);
+  }
   curev().may_conflict = true;
   record_symbolic(SymEv::Post(tpid));
-  std::queue<int> &posts = threads[tpid].posts;
-  if(!posts.empty()) {
-    assert(0 <= posts.back() && posts.back() <= int(prefix.len()));
-    assert(prefix_idx != posts.back());
+  int &last_post = threads[tpid].last_post;
+  if(0 <= last_post) {
+    assert(last_posts < int(prefix.len()));
     VecSet<int> seen_accesses;
-    IPid lp_pid = prefix[posts.back()].iid.get_pid();
+    IPid lp_pid = prefix[last_post].iid.get_pid();
     if(lp_pid != curev().iid.get_pid()) {
-      seen_accesses.insert(posts.back());
+      seen_accesses.insert(last_post);
     }
     see_events(seen_accesses);
   }
   wakeup_posts(tpid);
-  posts.push(prefix_idx);
+  last_post = prefix_idx;
 }
 
-void TSOTraceBuilder::receive(){
+void TSOTraceBuilder::exec(){
+  /*Always create a new thread to execute messages */
   IPid ipid = curev().iid.get_pid();
-  threads[ipid].start_of_message=true;
+  threads[ipid].available = false;
+  if(threads[ipid].posts.empty()){
+    threads[ipid].ready_to_receive = true;
+    return;
+  }
+  IPid first_message = threads[ipid].posts.front();
+  threads[first_message].available = true;
+  threads[ipid].posts.pop();
 }
 void TSOTraceBuilder::store(const SymData &sd){
   if(dryrun) return;
@@ -711,13 +758,6 @@ void TSOTraceBuilder::do_atomic_store(const SymData &sd){
     return;
   }
   IPid ipid = curev().iid.get_pid();
-
-  if(threads[ipid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[ipid].posts.front());
-    threads[ipid].posts.pop();
-    threads[ipid].start_of_message = false;
-  }
-
   curev().may_conflict = true;
   bool is_update = ipid % 2;
 
@@ -810,13 +850,6 @@ void TSOTraceBuilder::do_load(const SymAddrSize &ml){
   curev().may_conflict = true;
   IPid ipid = curev().iid.get_pid();
 
-  if(threads[ipid].start_of_message == true) {
-    llvm::dbgs()<<"First instruction in the message is load\n";//hello
-    add_happens_after(prefix_idx, threads[ipid].posts.front());
-    threads[ipid].posts.pop();
-    threads[ipid].start_of_message = false;
-  }
-
   /* Check if this is a ROWE */
   for(int i = int(threads[ipid].store_buffer.size())-1; 0 <= i; --i){
     if(threads[ipid].store_buffer[i].ml.addr == ml.addr){
@@ -873,20 +906,6 @@ void TSOTraceBuilder::full_memory_conflict(){
     return;
   }
   curev().may_conflict = true;
-
-  IPid ipid = curev().iid.get_pid();
-  if(threads[ipid].start_of_message == true) {
-    llvm::dbgs()<<"First instruction in the message is fullmem\n";//hello
-    add_happens_after(prefix_idx, threads[ipid].posts.front());
-    threads[ipid].posts.pop();
-    threads[ipid].start_of_message = false;
-  }
-
-  if(threads[ipid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[ipid].posts.front());
-    threads[ipid].posts.pop();
-    threads[ipid].start_of_message = false;
-  }
 
   /* See all pervious memory accesses */
   VecSet<int> seen_accesses;
@@ -958,11 +977,6 @@ void TSOTraceBuilder::fence(){
 
 void TSOTraceBuilder::join(int tgt_proc){
   IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
 
   record_symbolic(SymEv::Join(tgt_proc));
   if(dryrun) return;
@@ -982,13 +996,6 @@ void TSOTraceBuilder::mutex_lock(const SymAddrSize &ml){
     return;
   }
   fence();
-  IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
-
   if(!conf.mutex_require_init && !mutexes.count(ml.addr)){
     // Assume static initialization
     mutexes[ml.addr] = Mutex();
@@ -1036,14 +1043,6 @@ void TSOTraceBuilder::mutex_trylock(const SymAddrSize &ml){
     return;
   }
   fence();
-
-  IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
-
   if(!conf.mutex_require_init && !mutexes.count(ml.addr)){
     // Assume static initialization
     mutexes[ml.addr] = Mutex();
@@ -1071,14 +1070,6 @@ void TSOTraceBuilder::mutex_unlock(const SymAddrSize &ml){
     return;
   }
   fence();
-
-  IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
-
   if(!conf.mutex_require_init && !mutexes.count(ml.addr)){
     // Assume static initialization
     mutexes[ml.addr] = Mutex();
@@ -1106,14 +1097,6 @@ void TSOTraceBuilder::mutex_init(const SymAddrSize &ml){
   }
   fence();
   curev().may_conflict = true;
-
-  IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
-
   Mutex &mutex = mutexes[ml.addr];
   see_events({mutex.last_access, last_full_memory_conflict});
 
@@ -1130,14 +1113,6 @@ void TSOTraceBuilder::mutex_destroy(const SymAddrSize &ml){
     return;
   }
   fence();
-
-  IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
-
   if(!conf.mutex_require_init && !mutexes.count(ml.addr)){
     // Assume static initialization
     mutexes[ml.addr] = Mutex();
@@ -1162,14 +1137,6 @@ bool TSOTraceBuilder::cond_init(const SymAddrSize &ml){
     return true;
   }
   fence();
-
-  IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
-
   if(cond_vars.count(ml.addr)){
     pthreads_error("Condition variable initiated twice.");
     return false;
@@ -1192,13 +1159,6 @@ bool TSOTraceBuilder::cond_signal(const SymAddrSize &ml){
   fence();
   curev().may_conflict = true;
   wakeup(Access::W,ml.addr);
-
-  IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
   
   auto it = cond_vars.find(ml.addr);
   if(it == cond_vars.end()){
@@ -1247,13 +1207,6 @@ bool TSOTraceBuilder::cond_broadcast(const SymAddrSize &ml){
   curev().may_conflict = true;
   wakeup(Access::W,ml.addr);
 
-  IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
-  
   auto it = cond_vars.find(ml.addr);
   if(it == cond_vars.end()){
     pthreads_error("cond_broadcast called with uninitialized condition variable.");
@@ -1308,11 +1261,6 @@ bool TSOTraceBuilder::cond_wait(const SymAddrSize &cond_ml, const SymAddrSize &m
   wakeup(Access::R,cond_ml.addr);
 
   IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
 
   auto it = cond_vars.find(cond_ml.addr);
   if(it == cond_vars.end()){
@@ -1332,13 +1280,6 @@ bool TSOTraceBuilder::cond_awake(const SymAddrSize &cond_ml, const SymAddrSize &
     assert(cond_vars.count(cond_ml.addr));
     CondVar &cond_var = cond_vars[cond_ml.addr];
     add_happens_after(prefix_idx, cond_var.last_signal);
-  }
-
-  IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
   }
 
   mutex_lock(mutex_ml);
@@ -1366,13 +1307,6 @@ int TSOTraceBuilder::cond_destroy(const SymAddrSize &ml){
 
   curev().may_conflict = true;
   wakeup(Access::W,ml.addr);
-
-  IPid pid = curev().iid.get_pid();
-  if(threads[pid].start_of_message == true) {
-    add_happens_after(prefix_idx, threads[pid].posts.front());
-    threads[pid].posts.pop();
-    threads[pid].start_of_message = false;
-  }
 
   auto it = cond_vars.find(ml.addr);
   if(it == cond_vars.end()){
@@ -1691,7 +1625,6 @@ void TSOTraceBuilder::add_noblock_race(int event){
         && prev.first_event == event
         && prev.second_event == prefix_idx) return;
   }
-
   races.push_back(Race::Nonblock(event,prefix_idx));
 }
 
