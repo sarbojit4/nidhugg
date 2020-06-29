@@ -668,12 +668,16 @@ void TSOTraceBuilder::start(int pid){
 
 void TSOTraceBuilder::post(const int tgt_th) {
   IPid tpid = tgt_th*2;
+  IPid ipid = curev().iid.get_pid();
   assert(0 <= tpid && tpid<threads.size());
   if(dryrun) {
+    assert(prefix_idx+1 < int(prefix.len()));
+    assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
+    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    VecSet<IPid> &A = threads[ipid].sleep_posts;
+    A.insert(tpid);
     return;
   }
-  VecSet<int> &A = threads[tpid].sleep_posts;
-  A.insert(tpid);
 
   create();
   threads[threads.size()-2].handler_id = tpid;
@@ -690,7 +694,7 @@ void TSOTraceBuilder::post(const int tgt_th) {
     assert(last_posts < int(prefix.len()));
     VecSet<int> seen_accesses;
     IPid lp_pid = prefix[last_post].iid.get_pid();
-    if(lp_pid != curev().iid.get_pid()) {
+    if(lp_pid != ipid) {
       seen_accesses.insert(last_post);
     }
     see_events(seen_accesses);
@@ -2425,6 +2429,7 @@ void TSOTraceBuilder::wakeup_posts(const int tpid) {
   std::vector<IPid> wakeup; // Wakeup these
   IFDEBUG(ev.push_back(SymEv::Load(SymAddrSize(ml,1))));
   for(unsigned p = 0; p < threads.size(); ++p) {
+    llvm::dbgs()<<p<<"wakeup "<<threads[p].sleep_posts.count(tpid)<<"\n";
     if(threads[p].sleep_posts.count(tpid)) {
       wakeup.push_back(p);
     }
