@@ -690,15 +690,15 @@ void TSOTraceBuilder::post(const int tgt_th) {
   curev().may_conflict = true;
   record_symbolic(SymEv::Post(tpid));
   int &last_post = threads[tpid].last_post;
-  if(0 <= last_post) {
-    assert(last_posts < int(prefix.len()));
-    VecSet<int> seen_accesses;
-    IPid lp_pid = prefix[last_post].iid.get_pid();
-    if(lp_pid != ipid) {
-      seen_accesses.insert(last_post);
-    }
-    see_events(seen_accesses);
-  }
+  // if(0 <= last_post) {
+  //   assert(last_posts < int(prefix.len()));
+  //   VecSet<int> seen_accesses;
+  //   IPid lp_pid = prefix[last_post].iid.get_pid();
+  //   if(lp_pid != ipid) {
+  //     seen_accesses.insert(last_post);
+  //   }
+  //   see_events(seen_accesses);
+  // }
   wakeup_posts(tpid);
   last_post = prefix_idx;
 }
@@ -1952,7 +1952,19 @@ void TSOTraceBuilder::do_race_detect() {
   std::vector<std::vector<const Race*>> races(prefix.len());
   for (const Race &r : lock_fail_races) races[r.first_event].push_back(&r);
   for (unsigned i = 0; i < prefix.len(); ++i){
-    for (const Race &r : prefix[i].races) races[r.first_event].push_back(&r);
+    for (const Race &r : prefix[i].races){
+      IPid fst_pid = prefix[r.first_event].iid.get_pid();
+      IPid snd_pid = prefix[r.second_event].iid.get_pid();
+      int fst_post = threads[fst_pid].spawn_event;
+      int snd_post = threads[snd_pid].spawn_event;      
+      if(threads[fst_pid].handler_id == -1 ||
+         //threads[snd].handler_id == -1 ||
+         threads[fst_pid].handler_id != threads[snd_pid].handler_id ||
+         !prefix[fst_post].clock.lt(prefix[snd_post].clock))
+      {
+        races[r.first_event].push_back(&r);
+      }
+    }
   }
 
   /* Do race detection */
@@ -2429,7 +2441,6 @@ void TSOTraceBuilder::wakeup_posts(const int tpid) {
   std::vector<IPid> wakeup; // Wakeup these
   IFDEBUG(ev.push_back(SymEv::Load(SymAddrSize(ml,1))));
   for(unsigned p = 0; p < threads.size(); ++p) {
-    llvm::dbgs()<<p<<"wakeup "<<threads[p].sleep_posts.count(tpid)<<"\n";
     if(threads[p].sleep_posts.count(tpid)) {
       wakeup.push_back(p);
     }
