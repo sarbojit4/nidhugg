@@ -146,7 +146,9 @@ protected:
     /* Is the thread available for scheduling? */
     bool available;
     /* The index of the spawn event that created this thread, or -1 if
-     * this is the main thread or one of its auxiliaries.
+     * this is the main thread or one of its auxiliaries. For a 
+     * message executing thread, this is the index of post event.
+     * Because post event spawns this thread.
      */
     int spawn_event;
     /* Indices in prefix of the events of this process.
@@ -426,8 +428,22 @@ protected:
      * after a full execution sequence has been explored.
      */
     VClock<IPid> clock;
-    /* Indices into prefix of events that happen before this one. */
+    /* Indices into prefix of events that happen before
+     * this one because of data dependency.
+     */
     std::vector<unsigned> happens_after;
+    /* Indices into prefix of events that happen before
+     * this one because of eop.
+     */
+    std::vector<unsigned> eop_before;
+    /* Indices into prefix of events that happen before
+     * this one because of eom.
+     */
+    std::vector<unsigned> eom_before;
+    /* Indices into prefix of events that happen before
+     * this one because of ppm.
+     */
+    std::vector<unsigned> ppm_before;
     /* Possibly reversible races found in the current execution
      * involving this event as the main event.
      */
@@ -635,14 +651,27 @@ protected:
    * second.
    */
   void add_happens_after(unsigned second, unsigned first);
+  void add_eop(unsigned second, unsigned first);
+  void add_eom(unsigned second, unsigned first);
+  void add_ppm(unsigned second, unsigned first);
   /* Adds a non-reversible happens-before edge between the last event
    * executed by thread (if there is such an event), and second.
    */
   void add_happens_after_thread(unsigned second, IPid thread);
+  /* Compute eop. Remove all irreversible races because of eop */
+  void compute_eop_and_rmv_races();
+  /* Compute eom */
+  void compute_eom();
+  /* Compute ppm */
+  void compute_ppm();
+  /* Compute eop, eom, and ppm happens after */
+  void compute_derived_happens_after();
+  /* Clear all vector clocks */
+  void clear_vclocks();
   /* Computes the vector clocks of all events in a complete execution
    * sequence from happens_after and race edges.
    */
-  void compute_vclocks();
+  void compute_vclocks(int pass);
   /* Perform planning of future executions. Requires the trace to be
    * maximal or sleepset blocked, and that the vector clocks have been
    * computed.
@@ -713,7 +742,8 @@ protected:
   void race_detect(const Race&, const struct obs_sleep&);
   void race_detect_optimal(const Race&, const struct obs_sleep&);
   /* Compute the wakeup sequence for reversing a race. */
-  std::vector<Branch> wakeup_sequence(const Race&) const;
+  std::vector<Branch> wakeup_sequence(const Race&,
+				      std::map<int,Event> &wakeup_ev_seq) const;
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
                              const struct obs_sleep &sleep) const;

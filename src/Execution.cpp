@@ -2963,7 +2963,7 @@ void Interpreter::callAssertFail(Function *F,
 }
  
 //...................Qt functions.......................//
-
+//TODO: reuse code of pthread_create to do qthread_create
 void Interpreter::callQThreadCreate(Function *F,
 				    const std::vector<GenericValue> &ArgVals) {
   TB.create();
