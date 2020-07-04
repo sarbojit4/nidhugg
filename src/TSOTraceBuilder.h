@@ -330,6 +330,7 @@ protected:
      */
     sym_ty sym;
     IPid pid;
+    CPid cpid;
     /* Some instructions may execute in several alternative ways
      * nondeterministically. (E.g. malloc may succeed or fail
      * nondeterministically if Configuration::malloy_may_fail is set.)
@@ -671,6 +672,7 @@ protected:
   /* Computes the vector clocks of all events in a complete execution
    * sequence from happens_after and race edges.
    */
+  void compute_vclocks_for_seq(std::map<int,Event> &seq, int &cut_point);
   void compute_vclocks(int pass);
   /* Perform planning of future executions. Requires the trace to be
    * maximal or sleepset blocked, and that the vector clocks have been
@@ -740,6 +742,8 @@ protected:
    */
   void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
   void race_detect(const Race&, const struct obs_sleep&);
+  void linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
+			    std::vector<Branch> &v);
   void race_detect_optimal(const Race&, const struct obs_sleep&);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch> wakeup_sequence(const Race&,

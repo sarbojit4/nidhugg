@@ -128,6 +128,7 @@ public:
    * Pre: c is in this set.
    */
   CPid new_aux(const CPid &c);
+  int get_pid(const CPid &c) { return identifiers[c]; }
 private:
   /* Each CPid in the set is identified by a natural number: its index
    * in the sequence of CPids in creation order. Each CPid with

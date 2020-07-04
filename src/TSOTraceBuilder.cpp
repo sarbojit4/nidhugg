@@ -45,6 +45,9 @@ TSOTraceBuilder::~TSOTraceBuilder(){
 }
 
 bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
+  for(auto it = threads.begin(); it != threads.end(); it=it+2){
+    //llvm::dbgs()<<it->cpid<<(it->available ? " available\n" : "unavailable\n");
+  }
   *dryrun = false;
   *alt = 0;
   this->dryrun = false;
@@ -107,7 +110,9 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
         curev().happens_after.clear();
       } else {
         /* We are replaying from the wakeup tree */
-        pid = prefix.first_child().pid;
+	CPid cpid = prefix.first_child().cpid;
+	pid = CPS.get_pid(cpid);
+        //pid = prefix.first_child().pid;
         prefix.enter_first_child
           (Event(IID<IPid>(pid,threads[pid].last_event_index() + 1),
                  /* Jump a few hoops to get the next Branch before
@@ -1832,53 +1837,49 @@ void TSOTraceBuilder::clear_vclocks(){
     prefix[i].clock = VClock<int>();
 }
 
-// void TSOTraceBuilder::compute_vclocks_seq(std::map<int,Event> &seq){
-//   for (auto &it = seq.begin(); it != seq.end(); it++){
-//     int i = it->first;
-//     Event curev = it->second;
-//     IPid ipid = curev.iid.get_pid();
-//     if (curev.iid.get_index() > 1) {
-//       unsigned last = find_process_event(curev.iid.get_pid(), curev.iid.get_index()-1);
-//       curev.clock = seq.at(last).clock;
-//     } else {
-//       curev.clock = VClock<IPid>();
-//     }
-//     curev.clock[ipid] = it->iid.get_index();
+void TSOTraceBuilder::compute_vclocks_for_seq(std::map<int,Event> &seq, int &cutpoint){
+  for (std::map<int,Event>::iterator it = seq.begin(); it != seq.end(); it++){
+    int i = it->first;
+    Event &curev = it->second;
+    IPid ipid = curev.iid.get_pid();
+    if (curev.iid.get_index() > 1) {
+      unsigned last = find_process_event(curev.iid.get_pid(), curev.iid.get_index()-1);
+      curev.clock = seq.at(last).clock;
+    } else {
+      curev.clock = VClock<IPid>();
+    }
+    curev.clock[ipid] = curev.iid.get_index();
 
-//     /* First add the non-reversible edges */
-//     for (unsigned j : curev.happens_after){
-//       assert(j < i);
-//       curev.clock += seq.at(j).clock;
-//     }
+    /* First add the non-reversible edges */
+    for (unsigned j : curev.happens_after){
+      assert(j < i);
+      curev.clock += seq.at(j).clock;
+    }
 
-//     for (unsigned j : curev.eop_before){
-//       assert(j < i);
-//       curev.clock += seq.at(j).clock;
-//     }    
+    for (unsigned j : curev.eop_before){
+      assert(j < i);
+      curev.clock += seq.at(j).clock;
+    }    
 
-//     /* Now we want add the possibly reversible edges, but first we must
-//      * check for reversibility, since this information is lost (more
-//      * accurately less easy to compute) once we add them to the clock.
-//      */
-//     std::vector<Race> &races = prefix[i].races;
-
-//     /* Add clocks of remaining (reversible) races */
-//     for (auto it = first_pai; it != fill; ++it){
-//         prefix[i].clock += prefix[it->first_event].clock;
-//     }
-//     /* Now delete the subsumed races. We delayed doing this to avoid
-//      * iterator invalidation. */
-//     races.resize(fill - races.begin(), races[0]);
-//     for (unsigned j : prefix[i].eom_before){
-//       assert(j < i);
-//       prefix[i].clock += prefix[j].clock;
-//     }
-//     for (unsigned j : prefix[i].ppm_before){
-//       assert(j < i);
-//       prefix[i].clock += prefix[j].clock;
-//     }
-//   }
-// }
+    /* Now we want add the possibly reversible edges, but first we must
+     * check for reversibility, since this information is lost (more
+     * accurately less easy to compute) once we add them to the clock.
+     */
+    /* Add clocks of remaining (reversible) races */
+    for (Race race : curev.races){
+      curev.clock += seq.at(race.first_event).clock;
+    }
+    for (unsigned j : curev.eom_before){
+      assert(j < i);
+      curev.clock += seq.at(j).clock;
+    }
+    for (unsigned j : curev.ppm_before){
+      if(i < cutpoint) cutpoint = i;
+      assert(j < i);
+      curev.clock += seq.at(j).clock;
+    }
+  }
+}
 
 void TSOTraceBuilder::compute_vclocks(int pass){
   /* The first event of a thread happens after the spawn event that
@@ -1887,6 +1888,11 @@ void TSOTraceBuilder::compute_vclocks(int pass){
   for (const Thread &t : threads) {
     if (t.spawn_event >= 0 && t.event_indices.size() > 0){
       add_happens_after(t.event_indices[0], t.spawn_event);
+    }
+    if(t.handler_id != -1 && t.event_indices.size() > 0){
+      llvm::dbgs()<<threads[t.handler_id].event_indices.back()<<"\n";
+      add_happens_after(t.event_indices[0],
+      			threads[t.handler_id].event_indices.back());
     }
   }
 
@@ -2234,17 +2240,40 @@ void TSOTraceBuilder::race_detect
   prefix.parent_at(i).put_child(cand);
 }
 
+void TSOTraceBuilder::linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
+					   std::vector<Branch> &v){
+  int i = 0;
+  std::vector<std::pair<int,Event>> v1;
+  for(auto it1 = wakeup_ev_seq.begin(); it1 != wakeup_ev_seq.end(); it1++){
+    v1.push_back(std::pair<int,Event>(it1->first, it1->second));
+    i++;
+  }
+  sort(v1.begin(),v1.end(), [](std::pair<int,Event> i, std::pair<int,Event> j){
+                                  return i.second.clock.leq(j.second.clock);			      
+  		    });
+  std::vector<Branch> temp;
+  for(auto it1 = v1.begin(); it1 != v1.end(); it1++){
+    temp.push_back(branch_with_symbolic_data(it1->first));
+    IPid ipid = prefix[it1->first].iid.get_pid();
+    temp.back().cpid = threads[ipid].cpid;
+  }
+  v.assign(temp.begin(),temp.end());
+}					   
+
 void TSOTraceBuilder::race_detect_optimal
 (const Race &race, const struct obs_sleep &isleep){
   int i = race.first_event;
   IPid fpid = prefix[i].iid.get_pid();
   IPid spid = prefix[race.second_event].iid.get_pid();
+
   /* E = prefix[0]...prefix[i].v */
   std::vector<Branch> E;
   /* sequence of events in wakeup sequence */
   std::map<int,Event> wakeup_ev_seq;
   if(threads[fpid].handler_id == threads[spid].handler_id){
+    /* if race is between two messages */
     i = threads[fpid].event_indices.front();
+    /* getting prefix */
     for(int j = 0; j < i; j++)
     {
       E.emplace_back(branch_with_symbolic_data(j));
@@ -2253,18 +2282,35 @@ void TSOTraceBuilder::race_detect_optimal
   }
 
   std::vector<Branch> v = wakeup_sequence(race, wakeup_ev_seq);
-  for(auto it = v.begin(); it!=v.end(); it++){
-    llvm::dbgs()<<threads[it->pid].cpid<<" ";
-  }
 
   if(threads[fpid].handler_id == threads[spid].handler_id){  
-    E.insert(E.end(),v.begin(),v.end());
-    //compute_vclocks_wakeup_seq();
-  }
+    /* if race is between two messages */
+    for(auto a : wakeup_ev_seq){
+      a.second.clock = VClock<int>();
+    }
+    int cut_point = i;
+    compute_vclocks_for_seq(wakeup_ev_seq, cut_point);
+    compute_vclocks_for_seq(wakeup_ev_seq, cut_point);
+    auto wes_point=wakeup_ev_seq.begin();
+    std::advance(wes_point,cut_point);
+    wakeup_ev_seq.erase(wakeup_ev_seq.begin(), wes_point);
+    linearize_wakeup_seq(wakeup_ev_seq,v);
+    if (!sequence_clears_sleep(v, isleep)) return;
 
+    WakeupTreeRef<Branch> node = prefix.parent_at(cut_point);    
+    for (Branch &ve : v) {
+      for (SymEv &e : ve.sym) e.purge_data();
+      node = node.put_child(std::move(ve));
+    }
+    return;
+  }
   /* Check if we have previously explored everything startable with v */
   if (!sequence_clears_sleep(v, isleep)) return;
 
+  for(auto it = v.begin(); it!=v.end(); it++){
+    //llvm::dbgs()<<threads[it->pid].cpid<<" ";//hello
+  }
+  
   /* Do insertion into the wakeup tree */
   WakeupTreeRef<Branch> node = prefix.parent_at(i);
   while(1) {
@@ -2408,7 +2454,7 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
     second_br = branch_with_symbolic_data(j);
   }
   if (race.kind == Race::OBSERVED) {
-  } else {
+  } else if(threads[fpid].handler_id != threads[spid].handler_id){
     /* Only replay the racy event. */
     second_br.size = 1;
   }
@@ -2441,9 +2487,9 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
     }
   }
   
-  //if (race.kind == Race::NONBLOCK) {
-    //recompute_cmpxhg_success(second_br.sym, v, i);
-  //}
+  if (race.kind == Race::NONBLOCK) {
+    recompute_cmpxhg_success(second_br.sym, v, i);
+  }
   wakeup_ev_seq.insert(std::pair<int,Event>(j,prefix[j]));
   v.push_back(std::move(second_br));
   wakeup_ev_seq.at(j).eom_before.clear();
@@ -2454,9 +2500,16 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
     for(int k = 1; k < threads[spid].event_indices.size(); k++){
       int ev = threads[spid].event_indices[k];
       second_br = branch_with_symbolic_data(ev);
-      second_br.size = 1;
-      //recompute_cmpxhg_success(second_br.sym, v, i);
-      wakeup_ev_seq.insert(std::pair<int,Event>(ev, prefix[ev]));
+      recompute_cmpxhg_success(second_br.sym, v, i);
+      Event e = prefix[ev];
+      //llvm::dbgs()<<k<<e.races.size()<<"\n";
+      for(auto r_it = e.races.begin(); r_it != e.races.end(); r_it++){
+        if(prefix[r_it->first_event].iid.get_pid() == fpid)
+	  r_it = e.races.erase(r_it);
+	r_it--;
+      }
+      
+      wakeup_ev_seq.insert(std::pair<int,Event>(ev, e));
       v.push_back(std::move(second_br));
     }
     second_br = branch_with_symbolic_data(i);
@@ -2464,7 +2517,7 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
     //recompute_cmpxhg_success(second_br.sym, v, i);
     wakeup_ev_seq.insert(std::pair<int,Event>(i,prefix[i]));
     v.push_back(std::move(second_br));
-    wakeup_ev_seq.at(i).eom_before.push_back(threads[fpid].event_indices.back());
+    wakeup_ev_seq.at(i).eom_before.push_back(threads[spid].event_indices.back());
     for(int k = 1; k < threads[fpid].event_indices.size(); k++){
       int ev = threads[fpid].event_indices[k];
       second_br = branch_with_symbolic_data(ev);
