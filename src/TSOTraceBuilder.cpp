@@ -2252,7 +2252,7 @@ void TSOTraceBuilder::race_detect
   prefix.parent_at(i).put_child(cand);
 }
 
-void 
+//void 
 
 void TSOTraceBuilder::linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
 					   std::vector<Branch> &v,
