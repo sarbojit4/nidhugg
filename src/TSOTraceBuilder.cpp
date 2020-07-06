@@ -414,7 +414,7 @@ std::string TSOTraceBuilder::iid_string(std::size_t pos) const{
 
 std::string TSOTraceBuilder::iid_string(const Branch &branch, int index) const{
   std::stringstream ss;
-  ss << "(" << threads[branch.pid].cpid << "," << index;
+  ss << "(" << branch.cpid << "," << index;
   if(branch.size > 1){
     ss << "-" << index + branch.size - 1;
   }
@@ -656,6 +656,7 @@ void TSOTraceBuilder::spawn(){
 void TSOTraceBuilder::create(){
   IPid parent_ipid = curev().iid.get_pid();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
+  llvm::dbgs()<<"CPID "<<child_cpid<<" IPID "<<threads.size()<<"\n";
   /* TODO: First event of thread happens before parents spawn */
   threads.push_back(Thread(child_cpid,prefix_idx));
   threads.back().available = false;
@@ -2259,25 +2260,33 @@ void TSOTraceBuilder::linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
 					   int cut_point){
   std::vector<std::pair<int,Event>> v1;
   for(auto it1 = wakeup_ev_seq.begin(); it1 != wakeup_ev_seq.end(); it1++){
-    //llvm::dbgs()<<it1->second.iid.get_pid()<<" "<<it1->second.iid.get_index()<<"\n";
+    //    llvm::dbgs()<<threads[it1->second.iid.get_pid()].cpid<<" "<<it1->second.iid.get_index()<<"\n";
     v1.push_back(*it1);
   }
-  /*  for(const auto v_it1 = v1.begin()+cut_point; v_it1 != v1.end(); v_it1++){
-    for(const auto v_it2 = v_it1+1; v_it2 != v1.end(); v_it2++){
-      if(it1->second.clock.gt(it2->second.clock)){
-	v1.erase()
-  */	
-  sort(v1.begin()+cut_point,v1.end(),
-	    [](std::pair<int,Event> i, std::pair<int,Event> j){
-	     return i.second.clock.leq(j.second.clock);
-	 });
+  for(auto v_it1 = v1.begin()+cut_point; v_it1 != v1.end(); v_it1++){
+    for(auto v_it2 = v_it1+1; v_it2 != v1.end(); v_it2++){
+      if(v_it1->second.clock.gt(v_it2->second.clock)){
+        std::pair<int,Event> p2 = std::make_pair(v_it2->first,v_it2->second);
+					   //p1.first = v_it1->first;
+					   //p1.second = v_it1->second;
+	v_it2 = v1.erase(v_it2);
+        v1.insert(v_it1, p2);
+	v_it1--;
+	break;
+      }
+    }
+  }
+  /*sort(v1.begin()+cut_point,v1.end(),
+  	    [](std::pair<int,Event> i, std::pair<int,Event> j){
+       return i.second.clock.leq(j.second.clock);
+       });*/
   std::vector<Branch> temp;
   for(auto it1 = v1.begin(); it1 != v1.end(); it1++){
     temp.push_back(branch_with_symbolic_data(it1->first));
     IPid ipid = prefix[it1->first].iid.get_pid();
     temp.back().cpid = threads[ipid].cpid;
     //llvm::dbgs()<<threads[it1->second.iid.get_pid()].cpid<<" "<<it1->second.iid.get_index()<<"\n";
-  }
+    }
   v.assign(temp.begin(),temp.end());
 }					   
 
@@ -2365,7 +2374,6 @@ void TSOTraceBuilder::race_detect_optimal
 
     v.erase(v.begin(), v.begin()+cut_point);
 
-    llvm::dbgs()<<v.front().sym.front().kind<<"\n";
     WakeupTreeRef<Branch> node = prefix.parent_at(cut_point);    
     for (Branch &ve : v) {
       for (SymEv &e : ve.sym) e.purge_data();
@@ -2464,7 +2472,8 @@ void TSOTraceBuilder::race_detect_optimal
         }
 
         if (do_events_conflict(ve.pid, ve.sym,
-                               child_it.branch().pid, child_sym)) {
+                               child_it.branch().pid,
+			       child_sym)) {
           /* This branch is incompatible, try the next */
           skip = NEXT;
         }
@@ -2560,7 +2569,7 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
   }
   
   if (race.kind == Race::NONBLOCK) {
-    recompute_cmpxhg_success(second_br.sym, v, i);
+    //recompute_cmpxhg_success(second_br.sym, v, i);
   }
   wakeup_ev_seq.insert(std::pair<int,Event>(j,prefix[j]));
   v.push_back(std::move(second_br));
@@ -2573,7 +2582,7 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
     for(int k = 1; k < threads[spid].event_indices.size(); k++){
       int ev = threads[spid].event_indices[k];
       second_br = branch_with_symbolic_data(ev);
-      recompute_cmpxhg_success(second_br.sym, v, i);
+      //      recompute_cmpxhg_success(second_br.sym, v, i);
       Event e = prefix[ev];
       //llvm::dbgs()<<k<<e.races.size()<<"\n";
       /* remove races between messages */

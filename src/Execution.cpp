@@ -3032,6 +3032,7 @@ void Interpreter::callQThreadPostMsg(Function *F,
   std::vector<GenericValue> ArgVals_msg(1,ArgVals[2]);
   int caller_thread = CurrentThread;
   CurrentThread = newThread(CPS.spawn(Threads[CurrentThread].cpid));
+  
   callFunction(F_msg,ArgVals_msg);
   CurrentThread=caller_thread;
 }
@@ -3386,7 +3387,7 @@ void Interpreter::run() {
   int aux;
   bool rerun = false;
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
-    //llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";
+    llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
     rerun = false;
     if(0 <= aux){ // Run some auxiliary thread

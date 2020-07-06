@@ -343,10 +343,10 @@ protected:
     /* The number of events in this sequence. */
     int size;
     bool operator<(const Branch &b) const{
-      return pid < b.pid || (pid == b.pid && alt < b.alt);
+      return cpid < b.cpid || (cpid == b.cpid && alt < b.alt);
     };
     bool operator==(const Branch &b) const{
-      return pid == b.pid && alt == b.alt;
+      return cpid == b.cpid && alt == b.alt;
     };
   };
 
@@ -636,9 +636,11 @@ protected:
    */
   std::vector<int> iid_map_at(int event) const;
   /* Plays an iid_map forward by one event. */
-  void iid_map_step(std::vector<int> &iid_map, const Branch &event) const;
+  void iid_map_step(std::vector<int> &iid_map,
+		    const Branch &event) const;
   /* Reverses an iid_map by one event. */
-  void iid_map_step_rev(std::vector<int> &iid_map, const Branch &event) const;
+  void iid_map_step_rev(std::vector<int> &iid_map,
+			const Branch &event) const;
   /* Add clocks and branches.
    *
    * All elements e in seen should either be indices into prefix, or
