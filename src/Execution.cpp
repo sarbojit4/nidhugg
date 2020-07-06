@@ -3386,7 +3386,6 @@ void Interpreter::run() {
   int aux;
   bool rerun = false;
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
-    llvm::dbgs()<<"Scheduled thread "<<CurrentThread<<"\n";
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
     rerun = false;
     if(0 <= aux){ // Run some auxiliary thread
@@ -3454,7 +3453,6 @@ void Interpreter::run() {
         callFunction(AtExitHandlers.back(),{});
         AtExitHandlers.pop_back();
       }else{
-	llvm::dbgs()<<"Ending thread "<<CurrentThread<<"\n";
         TB.end_of_thread(CurrentThread);
       }
     }

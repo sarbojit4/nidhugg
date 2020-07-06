@@ -466,6 +466,8 @@ protected:
      * sleep and sleep_evs are of the same size and correspond pairwise.
      */
     std::vector<sym_ty> sleep_evs;
+    /* same as sleep but contains IIDs instead of thread ids */
+    std::vector<IID<IPid>> done_posts;
     /* The set of sleeping threads that wake up during or after this
      * event sequence.
      */
@@ -743,7 +745,10 @@ protected:
   void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
   void race_detect(const Race&, const struct obs_sleep&);
   void linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
-			    std::vector<Branch> &v);
+			    std::vector<Branch> &v,
+			    int cut_point);
+  bool redundant_wakeup_seq(std::map<int,Event> wakeup_ev_seq,
+			    int ins_point);
   void race_detect_optimal(const Race&, const struct obs_sleep&);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch> wakeup_sequence(const Race&,
