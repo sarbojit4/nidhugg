@@ -7,37 +7,39 @@ void qthread_wait(int tid, void *ret_val);
 void qthread_start(int tid);
 void qthread_post_event(int tid, void *(*func)(void *), void *); 
 int qthread_exec();
+
+#ifndef N
+#  warning "N was not defined"
+#  define N 2
+#endif
+
 atomic_int g;
-void *message1(void *j){
- g=1;
- int i=1;
+void *mes(void *j){
+ atomic_store_explicit(&g, *(atomic_int *)j, memory_order_seq_cst);
  return 0;
 }
-void *message2(void *j){
-  g=1;
+
+void *th_post(void *i){
+  qthread_post_event(1, &mes, &i); 
   return 0;
 }
-void *thread1(void *i){
-  qthread_post_event(1, &message1, i); 
-  return 0;
-}
-void *thread2(void *i){
-  qthread_post_event(1, &message2, i); 
-  //qthread_post_event(1, &message2, i); 
-  return 0;
-}
+
 void *handler_func(void *i){ 
-  int quit=qthread_exec();
-  return i; 
+  int quit = qthread_exec();
+  return 0;
 }
+
 int main() {
-  int tid1,tid2,handler;
-  int a=2;
-  qthread_create(&handler, &handler_func, &a);
-  pthread_create(&tid1, NULL, &thread1, &tid1);
-  pthread_create(&tid2, NULL, &thread2, &tid2);
-  pthread_join(tid1, NULL);
-  pthread_join(tid2, NULL);
+  pthread_t t[N];
+  int handler;
+
+  qthread_create(&handler, &handler_func, NULL);
+  for (int i = 0; i < N; i++){
+    pthread_create(&t[i], NULL, &th_post, &i);
+  }
+  for (int i = 0; i < N; i++){
+    pthread_join(t[i], NULL);
+  }
   qthread_start(handler);
   qthread_wait(handler, NULL);
 }
