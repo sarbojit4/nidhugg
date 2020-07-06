@@ -342,7 +342,7 @@ bool TSOTraceBuilder::reset(){
     return false;
   }
   replay_point = i;
-  llvm::dbgs()<<prefix[i].iid.get_pid()<<" "<<prefix[i].iid.get_index()<<"\n";
+  //llvm::dbgs()<<prefix[i].iid.get_pid()<<" "<<prefix[i].iid.get_index()<<"\n";
 
   /* Setup the new Event at prefix[i] */
   {
@@ -367,9 +367,11 @@ bool TSOTraceBuilder::reset(){
     evt.sleep = prev_evt.sleep;
     evt.done_posts = prev_evt.done_posts;
     if(br.pid != prev_evt.iid.get_pid()){
-      if(prev_evt.sym.front().kind != SymEv::POST) evt.sleep.insert(prev_evt.iid.get_pid());
+      if(prev_evt.sym.front().kind != SymEv::POST){
+	evt.sleep.insert(prev_evt.iid.get_pid());
+        llvm::dbgs()<<"Putting "<<prev_evt.iid.get_pid()<<" to done_posts\n";
+      }
       evt.done_posts.push_back(prev_evt.iid);
-      llvm::dbgs()<<"Putting "<<prev_evt.iid.get_pid()<<" to done_posts\n";
     }
     evt.sleep_branch_trace_count = sleep_branch_trace_count;
 
@@ -486,8 +488,7 @@ void TSOTraceBuilder::wut_string_add_node
     nodes.pop_back();
   }
 }
-
-#ifndef NDEBUG
+//#ifndef NDEBUG
 static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
   if (e.size() == 0) return "None()";
   std::string res;
@@ -497,7 +498,7 @@ static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
   }
   return res;
 }
-
+#ifndef NDEBUG
 void TSOTraceBuilder::check_symev_vclock_equiv() const {
   /* Check for SymEv<->VClock equivalence
    * SymEv considers that event i happens after event j iff there is a
@@ -625,7 +626,8 @@ void TSOTraceBuilder::debug_print() const {
     llvm::dbgs() << rpad("",2+ipid*2)
                  << rpad(iid_string(i),iid_offs-ipid*2)
                  << " " << rpad(prefix[i].clock.to_string(),clock_offs)
-                 << prefix[i].sym.front().kind
+      //<< events_to_string(prefix[i].sym)
+      //<< prefix[i].sym.front().kind
                  << lines[i] << "\n";
   }
   for (unsigned i = prefix.len(); i < lines.size(); ++i){
@@ -682,6 +684,7 @@ void TSOTraceBuilder::start(int pid){
 void TSOTraceBuilder::post(const int tgt_th) {
   IPid tpid = tgt_th*2;
   IPid ipid = curev().iid.get_pid();
+  llvm::dbgs()<<"Posting message from "<<ipid<<" to "<<tgt_th<<"\n";
   assert(0 <= tpid && tpid<threads.size());
   if(dryrun) {
     assert(prefix_idx+1 < int(prefix.len()));
@@ -2249,6 +2252,8 @@ void TSOTraceBuilder::race_detect
   prefix.parent_at(i).put_child(cand);
 }
 
+void 
+
 void TSOTraceBuilder::linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
 					   std::vector<Branch> &v,
 					   int cut_point){
@@ -2257,11 +2262,15 @@ void TSOTraceBuilder::linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
     //llvm::dbgs()<<it1->second.iid.get_pid()<<" "<<it1->second.iid.get_index()<<"\n";
     v1.push_back(*it1);
   }
-  //wakeup_ev_seq.clear();
+  /*  for(const auto v_it1 = v1.begin()+cut_point; v_it1 != v1.end(); v_it1++){
+    for(const auto v_it2 = v_it1+1; v_it2 != v1.end(); v_it2++){
+      if(it1->second.clock.gt(it2->second.clock)){
+	v1.erase()
+  */	
   sort(v1.begin()+cut_point,v1.end(),
-       [](std::pair<int,Event> i, std::pair<int,Event> j){
-	 return i.second.clock.leq(j.second.clock);
-       });
+	    [](std::pair<int,Event> i, std::pair<int,Event> j){
+	     return i.second.clock.leq(j.second.clock);
+	 });
   std::vector<Branch> temp;
   for(auto it1 = v1.begin(); it1 != v1.end(); it1++){
     temp.push_back(branch_with_symbolic_data(it1->first));

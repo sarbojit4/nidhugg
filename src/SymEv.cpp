@@ -83,6 +83,7 @@ std::string SymEv::to_string(std::function<std::string(int)> pid_str) const {
     case LOAD:     return "Load("    + arg.addr.to_string(pid_str) + ")";
     case STORE:    return "Store("   + arg.addr.to_string(pid_str)
         + "," + block_to_string(_written, arg.addr.size) + ")";
+    case POST:  return "Post("+pid_str(arg.num)+")";
     case FULLMEM:  return "Fullmem()";
 
     case M_INIT:   return "MInit("   + arg.addr.to_string(pid_str) + ")";
