@@ -2280,6 +2280,10 @@ void TSOTraceBuilder::linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
   	    [](std::pair<int,Event> i, std::pair<int,Event> j){
        return i.second.clock.leq(j.second.clock);
        });*/
+  wakeup_ev_seq.clear();
+  for(int i = 0; i < v1.size(); i++){
+    wakeup_ev_seq.insert(std::pair<int,Event>(i, v1[i].second));
+  }
   std::vector<Branch> temp;
   for(auto it1 = v1.begin(); it1 != v1.end(); it1++){
     temp.push_back(branch_with_symbolic_data(it1->first));
@@ -2363,9 +2367,16 @@ void TSOTraceBuilder::race_detect_optimal
     int cut_point = i;
     compute_vclocks_for_seq(wakeup_ev_seq, cut_point);
     compute_vclocks_for_seq(wakeup_ev_seq, cut_point);
+    for(auto v_it = v.begin(); v_it != v.end(); v_it++){
+      llvm::dbgs()<<v_it->cpid;
+    }
+    llvm::dbgs()<<"\n";
     linearize_wakeup_seq(wakeup_ev_seq,v,cut_point);
     //if (!sequence_clears_sleep(v, isleep)) return;
-    if(redundant_wakeup_seq(wakeup_ev_seq,cut_point)) return;
+    if(redundant_wakeup_seq(wakeup_ev_seq,cut_point)){
+      llvm::dbgs()<<"Redundant\n";
+      return;
+    }
     
     else{
       llvm::dbgs()<<"Not redundant\n";
@@ -2373,6 +2384,7 @@ void TSOTraceBuilder::race_detect_optimal
     }
 
     v.erase(v.begin(), v.begin()+cut_point);
+    
 
     WakeupTreeRef<Branch> node = prefix.parent_at(cut_point);    
     for (Branch &ve : v) {
