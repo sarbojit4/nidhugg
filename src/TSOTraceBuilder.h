@@ -322,10 +322,10 @@ protected:
    */
   class Branch{
   public:
-    Branch (IPid pid, int alt = 0, sym_ty sym = {})
-      : sym(std::move(sym)), pid(pid), alt(alt), size(1) {}
+    Branch (IPid pid, CPid cpid=CPid(), int alt = 0, sym_ty sym = {})
+      : sym(std::move(sym)), pid(pid), cpid(cpid), alt(alt), size(1) {}
     Branch (const Branch &base, sym_ty sym)
-      : sym(std::move(sym)), pid(base.pid), alt(base.alt), size(base.size) {}
+      : sym(std::move(sym)), pid(base.pid), cpid(base.cpid), alt(base.alt), size(base.size) {}
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
@@ -343,10 +343,10 @@ protected:
     /* The number of events in this sequence. */
     int size;
     bool operator<(const Branch &b) const{
-      return cpid < b.cpid || (cpid == b.cpid && alt < b.alt);
+      return pid < b.pid || (pid == b.pid && alt < b.alt);
     };
     bool operator==(const Branch &b) const{
-      return cpid == b.cpid && alt == b.alt;
+      return pid == b.pid && alt == b.alt;
     };
   };
 

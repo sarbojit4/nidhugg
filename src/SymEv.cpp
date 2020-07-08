@@ -43,7 +43,7 @@ void SymEv::set(SymEv other) {
     case STORE: case UNOBS_STORE:
       assert(arg.addr == other.arg.addr);
       break;
-    case SPAWN: case JOIN:
+    case SPAWN: case JOIN: case POST:
     case NONDET:
       assert(arg.num == other.arg.num);
       break;
@@ -132,8 +132,8 @@ bool SymEv::has_addr() const {
   case RMW: case CMPXHG: case CMPXHGFAIL:
     return true;
   case NONE:
-  case FULLMEM: case NONDET: case POST:
-  case SPAWN: case JOIN:
+  case FULLMEM: case NONDET:
+  case SPAWN: case JOIN: case POST:
     return false;
   }
   abort();
@@ -141,7 +141,7 @@ bool SymEv::has_addr() const {
 
 bool SymEv::has_num() const {
   switch(kind) {
-  case SPAWN: case JOIN:
+  case SPAWN: case JOIN: case POST:
   case NONDET:
     return true;
   case NONE:
@@ -164,7 +164,7 @@ bool SymEv::has_data() const {
   case RMW: case CMPXHG: case CMPXHGFAIL:
     return (bool)_written;
   case NONE:
-  case SPAWN: case JOIN:
+  case SPAWN: case JOIN: case POST:
   case NONDET:
   case C_WAIT: case C_AWAKE:
   case FULLMEM:
@@ -182,7 +182,7 @@ bool SymEv::has_expected() const {
   case CMPXHG: case CMPXHGFAIL:
     return (bool)_written;
   case NONE:
-  case SPAWN: case JOIN:
+  case SPAWN: case JOIN: case POST:
   case NONDET:
   case C_WAIT: case C_AWAKE:
   case FULLMEM:
