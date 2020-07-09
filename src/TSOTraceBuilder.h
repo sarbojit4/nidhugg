@@ -322,14 +322,15 @@ protected:
    */
   class Branch{
   public:
-    Branch (IPid pid, CPid cpid=CPid(), int alt = 0, sym_ty sym = {})
-      : sym(std::move(sym)), pid(pid), cpid(cpid), alt(alt), size(1) {}
+    Branch (IID<IPid> iid, CPid cpid, int alt = 0, sym_ty sym = {})
+      : sym(std::move(sym)), iid(iid), cpid(cpid), alt(alt), size(1) {}
     Branch (const Branch &base, sym_ty sym)
-      : sym(std::move(sym)), pid(base.pid), cpid(base.cpid), alt(base.alt), size(base.size) {}
+      : sym(std::move(sym)), iid(base.iid), cpid(base.cpid),
+	alt(base.alt), size(base.size) {}
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
-    IPid pid;
+    IID<IPid> iid;
     CPid cpid;
     /* Some instructions may execute in several alternative ways
      * nondeterministically. (E.g. malloc may succeed or fail
@@ -343,10 +344,10 @@ protected:
     /* The number of events in this sequence. */
     int size;
     bool operator<(const Branch &b) const{
-      return pid < b.pid || (pid == b.pid && alt < b.alt);
+      return cpid < b.cpid || (cpid == b.cpid && alt < b.alt);
     };
     bool operator==(const Branch &b) const{
-      return pid == b.pid && alt == b.alt;
+      return cpid == b.cpid && alt == b.alt;
     };
   };
 
@@ -748,7 +749,7 @@ protected:
   void race_detect(const Race&, const struct obs_sleep&);
   void linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
 			    std::vector<Branch> &v,
-			    int cut_point);
+			    int cut_point) const;
   bool redundant_wakeup_seq(std::map<int,Event> wakeup_ev_seq,
 			    int ins_point);
   void race_detect_optimal(const Race&, const struct obs_sleep&);
