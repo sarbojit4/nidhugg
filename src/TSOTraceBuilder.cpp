@@ -214,7 +214,6 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
     }
   }
 
-  //clear_vclocks();
   compute_vclocks(1);
   compute_derived_happens_after();
   clear_vclocks();
@@ -628,7 +627,7 @@ void TSOTraceBuilder::debug_print() const {
     llvm::dbgs() << rpad("",2+ipid*2)
                  << rpad(iid_string(i),iid_offs-ipid*2)
                  << " " << rpad(prefix[i].clock.to_string(),clock_offs)
-                 << events_to_string(prefix[i].sym)
+      //<< events_to_string(prefix[i].sym)
                  << lines[i] << "\n";
   }
   for (unsigned i = prefix.len(); i < lines.size(); ++i){
@@ -1787,7 +1786,7 @@ void TSOTraceBuilder::compute_eop_and_rmv_races(){
       }
     }               
   }
-  for (unsigned i = 0; i < prefix.len(); ++i){//remove races because of eop
+  /*for (unsigned i = 0; i < prefix.len(); ++i){//remove races because of eop
     for (std::vector<Race>::iterator r_it = prefix[i].races.begin();
 	 r_it != prefix[i].races.end(); r_it++){
       IPid fst_pid = prefix[r_it->first_event].iid.get_pid();
@@ -1802,7 +1801,7 @@ void TSOTraceBuilder::compute_eop_and_rmv_races(){
 	r_it--;
       }
     }
-  }
+    }*/
 }
 
 void TSOTraceBuilder::compute_eom(){
@@ -1894,27 +1893,29 @@ void TSOTraceBuilder::compute_vclocks(int pass){
   /* The first event of a thread happens after the spawn event that
    * created it.
    */
-  for (const Thread &t : threads) {
-    if (t.spawn_event >= 0 && t.event_indices.size() > 0){
-      add_happens_after(t.event_indices[0], t.spawn_event);
+  if(pass == 1){
+    for (const Thread &t : threads) {
+      if (t.spawn_event >= 0 && t.event_indices.size() > 0){
+        add_happens_after(t.event_indices[0], t.spawn_event);
+      }
+      if(t.handler_id != -1 && t.event_indices.size() > 0){
+        add_happens_after(t.event_indices[0],
+        		  threads[t.handler_id].event_indices.back());
+      }
     }
-    if(t.handler_id != -1 && t.event_indices.size() > 0){
-      add_happens_after(t.event_indices[0],
-      			threads[t.handler_id].event_indices.back());
-    }
-  }
 
-  /* Move LockFail races into the right event */
-  std::vector<Race> final_lock_fail_races;
-  for (Race &r : lock_fail_races){
-    if (r.second_event < int(prefix.len())) {
-      prefix[r.second_event].races.emplace_back(std::move(r));
-    } else {
-      assert(r.second_event == int(prefix.len()));
-      final_lock_fail_races.emplace_back(std::move(r));
+    /* Move LockFail races into the right event */
+    std::vector<Race> final_lock_fail_races;
+    for (Race &r : lock_fail_races){
+      if (r.second_event < int(prefix.len())) {
+        prefix[r.second_event].races.emplace_back(std::move(r));
+      } else {
+        assert(r.second_event == int(prefix.len()));
+        final_lock_fail_races.emplace_back(std::move(r));
+      }
     }
+    lock_fail_races = std::move(final_lock_fail_races);
   }
-  lock_fail_races = std::move(final_lock_fail_races);
 
   for (unsigned i = 0; i < prefix.len(); i++){
     IPid ipid = prefix[i].iid.get_pid();
@@ -1935,7 +1936,7 @@ void TSOTraceBuilder::compute_vclocks(int pass){
     for (unsigned j : prefix[i].eop_before){
       assert(j < i);
       prefix[i].clock += prefix[j].clock;
-    }    
+    }   
 
     /* Now we want add the possibly reversible edges, but first we must
      * check for reversibility, since this information is lost (more
@@ -1952,8 +1953,8 @@ void TSOTraceBuilder::compute_vclocks(int pass){
                                 });
 
     auto end = races.end();
-    bool changed;
     if(pass == 1){
+      bool changed;
       do {
         auto oldend = end;
         changed = false;
@@ -1969,6 +1970,17 @@ void TSOTraceBuilder::compute_vclocks(int pass){
           }
         }
       } while (changed);
+      end = partition
+          (first_pair, end,
+           [this,i](const Race &r){
+	     IPid fst_pid = prefix[r.first_event].iid.get_pid();
+             IPid snd_pid = prefix[r.second_event].iid.get_pid();
+             int fst_post = threads[fst_pid].spawn_event;
+             int snd_post = threads[snd_pid].spawn_event;
+             return threads[fst_pid].handler_id == -1 ||
+                    threads[fst_pid].handler_id != threads[snd_pid].handler_id ||
+	            !prefix[fst_post].clock.lt(prefix[snd_post].clock);
+           });
     }
     /* Then filter out subsumed */
     auto fill = frontier_filter
@@ -2508,6 +2520,7 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
   IPid fpid = prefix[i].iid.get_pid();
   IPid spid = prefix[j].iid.get_pid();
   if(threads[fpid].handler_id == threads[spid].handler_id){
+    /* Make race between first events of two conflicting messages */
     i = threads[fpid].event_indices.front();
     j = threads[spid].event_indices.front();
   }
@@ -2535,7 +2548,7 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
   }
   if (race.kind == Race::OBSERVED) {
   } else if(threads[fpid].handler_id != threads[spid].handler_id){
-    /* Only replay the racy event. */
+    /* Only replay the racy event. Not for message-message race*/
     second_br.size = 1;
   }
 
@@ -2591,15 +2604,16 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
 	  r_it = e.races.erase(r_it);
 	r_it--;
       }
-      
       wakeup_ev_seq.insert(std::pair<int,Event>(ev, e));
       v.push_back(std::move(second_br));
     }
+    
     second_br = branch_with_symbolic_data(i);
     recompute_cmpxhg_success(second_br.sym, v, i);
     wakeup_ev_seq.insert(std::pair<int,Event>(i,prefix[i]));
     v.push_back(std::move(second_br));
     wakeup_ev_seq.at(i).eom_before.push_back(threads[spid].event_indices.back());
+    
     for(int k = 1; k < threads[fpid].event_indices.size(); k++){
       int ev = threads[fpid].event_indices[k];
       second_br = branch_with_symbolic_data(ev);
