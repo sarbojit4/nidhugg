@@ -215,9 +215,11 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   }
 
   compute_vclocks(1);
-  compute_derived_happens_after();
-  clear_vclocks();
-  compute_vclocks(2);
+  if (conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
+    compute_derived_happens_after();
+    clear_vclocks();
+    compute_vclocks(2);
+  }
   
   do_race_detect();
 
@@ -370,7 +372,7 @@ bool TSOTraceBuilder::reset(){
     evt.done_posts = prev_evt.done_posts;
     if(CPS.get_pid(br.cpid) != prev_evt.iid.get_pid()){
       if(!prev_evt.sym.empty() && prev_evt.sym.front().kind == SymEv::POST){
-	evt.done_posts.push_back(prev_evt.iid);
+        evt.done_posts.push_back(prev_evt.iid);
       }
       else evt.sleep.insert(prev_evt.iid.get_pid());
     }
@@ -489,7 +491,7 @@ void TSOTraceBuilder::wut_string_add_node
     nodes.pop_back();
   }
 }
-//#ifndef NDEBUG
+#ifndef NDEBUG
 static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
   if (e.size() == 0) return "None()";
   std::string res;
@@ -499,7 +501,7 @@ static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
   }
   return res;
 }
-#ifndef NDEBUG
+
 void TSOTraceBuilder::check_symev_vclock_equiv() const {
   /* Check for SymEv<->VClock equivalence
    * SymEv considers that event i happens after event j iff there is a
@@ -627,7 +629,6 @@ void TSOTraceBuilder::debug_print() const {
     llvm::dbgs() << rpad("",2+ipid*2)
                  << rpad(iid_string(i),iid_offs-ipid*2)
                  << " " << rpad(prefix[i].clock.to_string(),clock_offs)
-      //<< events_to_string(prefix[i].sym)
                  << lines[i] << "\n";
   }
   for (unsigned i = prefix.len(); i < lines.size(); ++i){
@@ -995,8 +996,6 @@ void TSOTraceBuilder::fence(){
 }
 
 void TSOTraceBuilder::join(int tgt_proc){
-  IPid pid = curev().iid.get_pid();
-
   record_symbolic(SymEv::Join(tgt_proc));
   if(dryrun) return;
   curev().may_conflict = true;
@@ -2031,7 +2030,8 @@ void TSOTraceBuilder::record_symbolic(SymEv event){
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
     IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
     assert(threads[pid].sleep_sym);
-    if(event.kind == SymEv::POST) return;
+    if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
+       event.kind == SymEv::POST) return;
     threads[pid].sleep_sym->push_back(event);
     return;
   }
@@ -2343,11 +2343,13 @@ void TSOTraceBuilder::race_detect_optimal
   int i = race.first_event;
   IPid fpid = prefix[i].iid.get_pid();
   IPid spid = prefix[race.second_event].iid.get_pid();
-
   //llvm::dbgs()<<"Race :"<<i<<"<"<<race.second_event<<"\n";
+  
   /* sequence of events in wakeup sequence */
   std::map<int,Event> wakeup_ev_seq;
-  if(threads[fpid].handler_id == threads[spid].handler_id){
+  if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
+     threads[fpid].handler_id == threads[spid].handler_id &&
+     threads[fpid].handler_id != -1){
     /* if race is between two messages */
     i = threads[fpid].event_indices.front();
     /* getting prefix */
@@ -2356,16 +2358,19 @@ void TSOTraceBuilder::race_detect_optimal
       wakeup_ev_seq.insert(std::pair<int,Event>(j, prefix[j]));
     }
   }
-
+  
   std::vector<Branch> v = wakeup_sequence(race, wakeup_ev_seq);
-  if(threads[fpid].handler_id == threads[spid].handler_id){  
+  
+  if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
+     threads[fpid].handler_id == threads[spid].handler_id &&
+     threads[fpid].handler_id != -1){  
     /* if race is between two messages */
     for(auto a : wakeup_ev_seq){
       a.second.clock = VClock<int>();
     }
     int cut_point = i;
     for (std::map<int,Event>::iterator it = wakeup_ev_seq.begin();
-	 it != wakeup_ev_seq.end(); it++){
+         it != wakeup_ev_seq.end(); it++){
       it->second.clock = VClock<int>();
     }
     compute_vclocks_for_seq(wakeup_ev_seq, cut_point);
@@ -2377,23 +2382,25 @@ void TSOTraceBuilder::race_detect_optimal
       v.erase(v.begin(), v.begin()+cut_point);
       return;
     }
-    
     v.erase(v.begin(), v.begin()+cut_point);
   }
+
   /* Check if we have previously explored everything startable with v */
-  //if (!sequence_clears_sleep(v, isleep)) return;
-
-  for(auto v_it = v.begin(); v_it != v.end(); v_it++){
-    //llvm::dbgs()<<v_it->cpid;
+  if (!sequence_clears_sleep(v, isleep)) return;
+  /*for(auto v_it = v.begin(); v_it != v.end(); v_it++){
+    llvm::dbgs()<<v_it->cpid;
   }
-  
+  llvm::dbgs()<<"\n";
+  llvm::dbgs()<<"Not redundant\n";*/
   std::unordered_map<IID<IPid>,VClock<int>> post_ev_clocks;
-  for(auto ev : wakeup_ev_seq){
-    if(!ev.second.sym.empty() && ev.second.sym.front().kind == SymEv::POST)
-      post_ev_clocks.insert(std::pair<IID<IPid>,VClock<int>>(ev.second.iid,
-							     ev.second.clock));
+  if (conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
+    for(auto ev : wakeup_ev_seq){
+      if(!ev.second.sym.empty() && ev.second.sym.front().kind == SymEv::POST)
+        post_ev_clocks.insert(std::pair<IID<IPid>,
+			      VClock<int>>(ev.second.iid,ev.second.clock));
+    }
   }
-
+  //llvm::dbgs()<<"Insertion point "<<i<<"\n";
   /* Do insertion into the wakeup tree */
   WakeupTreeRef<Branch> node = prefix.parent_at(i);
   while(1) {
@@ -2476,13 +2483,14 @@ void TSOTraceBuilder::race_detect_optimal
           }
           break;
         }
-	if (!ve.sym.empty() && !child_sym.empty() &&
+	if (conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
+	    !ve.sym.empty() && !child_sym.empty() &&
 	    ve.sym.front().kind == SymEv::POST &&
 	    child_sym.front().kind == SymEv::POST){
 	    if (post_ev_clocks.at(ve.iid).lt(post_ev_clocks.at(child_it.branch().iid)))
 	      skip = NEXT;
 	}
-        if (do_events_conflict(ve.iid.get_pid(), ve.sym,
+        else if (do_events_conflict(ve.iid.get_pid(), ve.sym,
                                child_it.branch().iid.get_pid(),
 			       child_sym)) {
           /* This branch is incompatible, try the next */
@@ -2519,7 +2527,9 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
 
   IPid fpid = prefix[i].iid.get_pid();
   IPid spid = prefix[j].iid.get_pid();
-  if(threads[fpid].handler_id == threads[spid].handler_id){
+  if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
+     threads[fpid].handler_id == threads[spid].handler_id &&
+     threads[fpid].handler_id != -1){
     /* Make race between first events of two conflicting messages */
     i = threads[fpid].event_indices.front();
     j = threads[spid].event_indices.front();
@@ -2531,7 +2541,6 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
   if (race.kind == Race::LOCK_FAIL) {
     second = reconstruct_lock_event(race);
     /* XXX: Lock events don't have alternatives, right? */
-    //llvm::dbgs()<<"Error1\n";
     second_br = Branch(second.iid,
 		       threads[second.iid.get_pid()].cpid);
     second_br.sym = std::move(second.sym);
@@ -2547,7 +2556,8 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
     second_br = branch_with_symbolic_data(j);
   }
   if (race.kind == Race::OBSERVED) {
-  } else if(threads[fpid].handler_id != threads[spid].handler_id){
+  } else if(threads[fpid].handler_id == -1 ||
+	    threads[fpid].handler_id != threads[spid].handler_id){
     /* Only replay the racy event. Not for message-message race*/
     second_br.size = 1;
   }
@@ -2566,7 +2576,6 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
     if (!first.clock.leq(prefix[k].clock)) {
       wakeup_ev_seq.insert(std::pair<int,Event>(k,prefix[k]));
       v.emplace_back(branch_with_symbolic_data(k));
-      v.back().cpid = threads[prefix[k].iid.get_pid()].cpid;
     } else if (race.kind == Race::OBSERVED && k != j) {
       if (!std::any_of(observers.begin(), observers.end(),
                        [this,k](const Event* o){
@@ -2576,23 +2585,23 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
           observers.push_back(&prefix[k]);
         } else if (race.kind == Race::OBSERVED) {
           notobs.emplace_back(branch_with_symbolic_data(k));
-	  notobs.back().cpid = threads[prefix[k].iid.get_pid()].cpid;
         }
       }
     }
   }
   
   if (race.kind == Race::NONBLOCK) {
-    //recompute_cmpxhg_success(second_br.sym, v, i);
+    recompute_cmpxhg_success(second_br.sym, v, i);
   }
   wakeup_ev_seq.insert(std::pair<int,Event>(j,prefix[j]));
   v.push_back(std::move(second_br));
-  v.back().cpid = threads[prefix[j].iid.get_pid()].cpid;
   wakeup_ev_seq.at(j).eom_before.clear();
 
   /* Include messages in the wakeup sequence */
-  if (race.kind == Race::NONBLOCK &&
-      threads[fpid].handler_id == threads[spid].handler_id) {
+  if (conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
+      race.kind == Race::NONBLOCK &&
+      threads[fpid].handler_id == threads[spid].handler_id &&
+      threads[fpid].handler_id != -1) {
     for(int k = 1; k < threads[spid].event_indices.size(); k++){
       int ev = threads[spid].event_indices[k];
       second_br = branch_with_symbolic_data(ev);

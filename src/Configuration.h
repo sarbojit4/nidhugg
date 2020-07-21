@@ -50,6 +50,7 @@ public:
     OPTIMAL,
     OBSERVERS,
     READS_FROM,
+    EVENT_DRIVEN
   };
   /* Assign default values to all configuration parameters. */
   Configuration(){
