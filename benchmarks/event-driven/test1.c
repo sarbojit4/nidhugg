@@ -1,26 +1,23 @@
-#include<stdio.h>
-#include<stdatomic.h>
-#include<pthread.h>
-//using namespace std;
-int qthread_create(int *tid, void *(*func)(void *), void *);
-void qthread_wait(int tid, void *ret_val);
-void qthread_start(int tid);
-void qthread_post_event(int tid, void *(*func)(void *), void *); 
-int qthread_exec();
+#include <stdio.h>
+#include <stdatomic.h>
+#include <pthread.h>
+#include "qthread.h"
 
 #ifndef N
-#  warning "N was not defined"
+#  warning "N was not defined; defining it as 2"
 #  define N 2
 #endif
 
-atomic_int g;
+qthread_t handler;
+
+atomic_int x;
 void *mes(void *j){
- atomic_store_explicit(&g, *(atomic_int *)j, memory_order_seq_cst);
- return 0;
+  atomic_store_explicit(&x, *(atomic_int *)j, memory_order_seq_cst);
+  return 0;
 }
 
 void *th_post(void *i){
-  qthread_post_event(1, &mes, &i); 
+  qthread_post_event(handler, &mes, &i); 
   return 0;
 }
 
@@ -29,9 +26,8 @@ void *handler_func(void *i){
   return 0;
 }
 
-int main() {
+int main(){
   pthread_t t[N];
-  int handler;
 
   qthread_create(&handler, &handler_func, NULL);
   for (int i = 0; i < N; i++){
