@@ -109,6 +109,8 @@ public:
    * traces that have been seen.
    */
   virtual long double estimate_trace_count() const { return 1; };
+  int branches;
+  int max_branches;
 protected:
   const Configuration &conf;
   std::vector<Error*> errors;

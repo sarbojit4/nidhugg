@@ -133,6 +133,7 @@ int main(int argc, char *argv[]){
       }else{
         std::cout << "No errors were detected." << std::endl;
       }
+      std::cout << "maximum branches in the wakeup tree: "<<res.max_branches<<"\n";
 
       delete driver;
     }

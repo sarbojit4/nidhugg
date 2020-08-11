@@ -463,6 +463,7 @@ DPORDriver::Result DPORDriver::run(){
     llvm::dbgs() << ESC_char << "[K\n";
   }
 
+  res.max_branches = TB->max_branches;
   delete TB;
 
   return res;

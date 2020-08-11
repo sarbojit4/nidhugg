@@ -20,6 +20,8 @@
 #include "TraceBuilder.h"
 
 TraceBuilder::TraceBuilder(const Configuration &C) : conf(C) {
+  branches = 0;
+  max_branches = 0;
 }
 
 TraceBuilder::~TraceBuilder(){

@@ -325,6 +325,8 @@ bool TSOTraceBuilder::reset(){
     llvm::dbgs() << " =============================\n";
   }
 
+  if(max_branches < branches) max_branches = branches;
+  branches--;
 #ifndef NDEBUG
   /* The if-statement is just so we can control which test cases need to
    *  satisfy this assertion for now. Eventually, all should.
@@ -1787,22 +1789,6 @@ void TSOTraceBuilder::compute_eop_and_rmv_races(){
       }
     }               
   }
-  /*for (unsigned i = 0; i < prefix.len(); ++i){//remove races because of eop
-    for (std::vector<Race>::iterator r_it = prefix[i].races.begin();
-	 r_it != prefix[i].races.end(); r_it++){
-      IPid fst_pid = prefix[r_it->first_event].iid.get_pid();
-      IPid snd_pid = prefix[r_it->second_event].iid.get_pid();
-      int fst_post = threads[fst_pid].spawn_event;
-      int snd_post = threads[snd_pid].spawn_event;      
-      if(threads[fst_pid].handler_id != -1 &&
-         threads[fst_pid].handler_id == threads[snd_pid].handler_id &&
-         prefix[fst_post].clock.lt(prefix[snd_post].clock))
-      {
-        r_it = prefix[i].races.erase(r_it);
-	r_it--;
-      }
-    }
-    }*/
 }
 
 void TSOTraceBuilder::compute_eom(){
@@ -2522,6 +2508,7 @@ void TSOTraceBuilder::race_detect_optimal
       for (SymEv &e : ve.sym) e.purge_data();
       node = node.put_child(std::move(ve));
     }
+    branches++;
     return;
   }
 }
