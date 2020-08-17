@@ -664,8 +664,8 @@ protected:
    * executed by thread (if there is such an event), and second.
    */
   void add_happens_after_thread(unsigned second, IPid thread);
-  /* Compute eop. Remove all irreversible races because of eop */
-  void compute_eop_and_rmv_races();
+  /* Compute eop */
+  //void compute_eop();
   /* Compute eom */
   void compute_eom();
   /* Compute ppm */
