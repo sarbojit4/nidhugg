@@ -672,6 +672,7 @@ protected:
   void compute_ppm();
   /* Compute eop, eom, and ppm happens after */
   void compute_derived_happens_after();
+  void recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq);
   /* Clear all vector clocks */
   void clear_vclocks();
   /* Computes the vector clocks of all events in a complete execution

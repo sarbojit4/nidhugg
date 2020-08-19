@@ -1793,33 +1793,41 @@ static It frontier_filter(It first, It last, LessFn less){
 }*/
 
 void TSOTraceBuilder::compute_eom(){
-  IPid i,j;
-  for(i = 0; i<threads.size(); i=i+2){//eom order
+  for(IPid i = 0; i<threads.size(); i=i+2){//eom order
     if(threads[i].handler_id == -1) continue;
-    for(j = i+2; j<threads.size(); j=j+2){
+    for(IPid j = i+2; j<threads.size(); j=j+2){
       if(threads[i].handler_id != threads[j].handler_id) continue;
-      int fev_i = threads[i].event_indices.front();
-      int lev_j = threads[j].event_indices.back();
-      if(prefix[fev_i].clock.lt(prefix[lev_j].clock)){
-        add_eom(threads[j].event_indices.front(),
-      			  threads[i].event_indices.back());
+      unsigned fev_i = threads[i].event_indices.front();
+      unsigned lev_i = threads[i].event_indices.back();
+      unsigned fev_j = threads[j].event_indices.front();
+      unsigned lev_j = threads[j].event_indices.back();
+      std::vector<unsigned> eops = prefix[fev_j].eop_before;
+      if(prefix[fev_i].clock.lt(prefix[lev_j].clock) &&
+	 std::find(eops.begin(),eops.end(),lev_i) == eops.end()){
+        add_eom(fev_j,lev_i);
       }
     }
   }
 }
 
 void TSOTraceBuilder::compute_ppm(){
-  for(IPid i = 0; i<threads.size(); i=i+2){//eop order
-    if(threads[i].handler_id == -1) continue;
-    for(IPid j = i+2; j<threads.size(); j=j+2){
+  for(IPid j = threads.size(); j>0; j=j-2){//eop order
+    if(threads[j].handler_id == -1) continue;
+    for(IPid i = j-2; i>0; i=i-2){
       if(threads[i].handler_id != threads[j].handler_id) continue;
-      int fev_i = threads[i].event_indices.front();
-      int lev_j = threads[j].event_indices.back();
-      if(prefix[fev_i].clock.lt(prefix[lev_j].clock)){
+      unsigned lev_i = threads[i].event_indices.back();
+      unsigned fev_j = threads[j].event_indices.front();
+      std::vector<unsigned> eoms = prefix[fev_j].eom_before;
+      if(std::find(eoms.begin(),eoms.end(),lev_i) != eoms.end()){
 	add_ppm(threads[j].spawn_event,
 			  threads[i].spawn_event);
+	Thread th_p1 = threads[prefix[threads[i].spawn_event].iid.get_pid()];
+	Thread th_p2 = threads[prefix[threads[j].spawn_event].iid.get_pid()];
+	if(th_p1.handler_id == th_p2.handler_id && th_p1.handler_id != -1){
+	  add_eom(th_p2.event_indices.front(),th_p1.event_indices.back());
+	}
       }
-    }            
+    }
   }
 }
 
@@ -1922,23 +1930,39 @@ void TSOTraceBuilder::compute_vclocks(int pass){
       prefix[i].clock += prefix[j].clock;
     }
 
-    /* adding eop */
-    if(pass == 1 && threads[ipid].handler_id != -1 &&
-       threads[ipid].event_indices.front() == i){
-      for(IPid th = ipid-2; th > 0; th=th-2){
-	if(threads[ipid].handler_id == threads[th].handler_id){
-	  if(prefix[threads[ipid].spawn_event].clock.lt(
-	      prefix[threads[th].spawn_event].clock)){
-	    add_eop(i,threads[th].event_indices.back());
+    /* adding eops */
+    if(pass == 1 && threads[ipid].handler_id != -1){
+      if(threads[ipid].event_indices.front() == i){
+        for(IPid th = ipid-2; th > 0; th=th-2){
+	  if(threads[ipid].handler_id == threads[th].handler_id){
+	    if(prefix[threads[ipid].spawn_event].clock.lt(
+	        prefix[threads[th].spawn_event].clock)){
+	      add_eop(i,threads[th].event_indices.back());
+	    }
+	    break;
 	  }
-	  break;
-	}
+        }
       }
-    }
 
-    for (unsigned j : prefix[i].eop_before){
-      assert(j < i);
-      prefix[i].clock += prefix[j].clock;
+      /* remove races because of eop */
+      for (std::vector<Race>::iterator r_it = prefix[i].races.begin();
+	   r_it != prefix[i].races.end(); r_it++){
+        IPid fst_pid = prefix[r_it->first_event].iid.get_pid();
+	if(threads[fst_pid].handler_id == threads[ipid].handler_id){
+          unsigned lev_i = threads[fst_pid].event_indices.back();
+          unsigned fev_j = threads[ipid].event_indices.front();
+          std::vector<unsigned> eops = prefix[fev_j].eop_before;
+          if(std::find(eops.begin(),eops.end(),lev_i) != eops.end())
+          {
+            r_it = prefix[i].races.erase(r_it);
+ 	    r_it--;
+	  }
+        }
+      }
+      for (unsigned j : prefix[i].eop_before){
+        assert(j < i);
+        prefix[i].clock += prefix[j].clock;
+      }
     }
 
     /* Now we want add the possibly reversible edges, but first we must
