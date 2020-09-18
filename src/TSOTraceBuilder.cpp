@@ -1837,6 +1837,34 @@ void TSOTraceBuilder::compute_derived_happens_after(){
   compute_ppm();
 }
 
+void TSOTraceBuilder::recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq){
+  for(auto it = wakeup_ev_seq.begin(); it != wakeup_ev_seq.end(); it++){
+    it->second.ppm_before.clear();
+  }
+  for(IPid i = 0; i<threads.size(); i=i+2){
+    if(threads[i].handler_id == -1) continue;//not a message
+    int second = threads[i].event_indices.front();//first event of message
+    std::map<int,Event>::iterator sec_ev = wakeup_ev_seq.find(second);
+    if(sec_ev == wakeup_ev_seq.end()) continue;//first event of message is not in WS
+    for(int ei:sec_ev->second.eom_before){//for each eom edge
+      int j = prefix[ei].iid.get_pid();
+      if(threads[i].handler_id != threads[j].handler_id) continue;//different handler
+        unsigned first = threads[j].spawn_event;
+        unsigned second = threads[i].spawn_event;
+        assert(first != ~0u);
+        assert(second != ~0u);
+        assert(first != second);
+        assert(first < second);
+        std::vector<unsigned> &vec = wakeup_ev_seq.at(second).ppm_before;
+        if (!vec.size() || vec.back() != first){
+	  llvm::dbgs()<<"Adding ppm:"<<second<<first<<"\n";
+          vec.push_back(first);
+      }
+    }
+  }
+  llvm::dbgs()<<"------\n";
+}
+
 void TSOTraceBuilder::clear_vclocks(){
   for(int i=0;i<prefix.len();i++)
     prefix[i].clock = VClock<int>();
@@ -2590,9 +2618,18 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
   std::vector<Branch> v;
   std::vector<const Event*> observers;
   std::vector<Branch> notobs;
+  bool blocked_handlers[threads.size()];
+  for(int k = 0; k < threads.size(); k++) blocked_handlers[k] = false;
 
   for (int k = i + 1; k < int(prefix.len()); ++k){
     if (!first.clock.leq(prefix[k].clock)) {
+      if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
+	 IPid ipid = prefix[k].iid.get_pid();
+	 IPid handler = threads[ipid].handler_id;
+	 if(handler != 1 && blocked_handlers[handler] == true){
+	   continue;
+	 }
+      }
       wakeup_ev_seq.insert(std::pair<int,Event>(k,prefix[k]));
       v.emplace_back(branch_with_symbolic_data(k));
     } else if (race.kind == Race::OBSERVED && k != j) {
@@ -2606,9 +2643,13 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
           notobs.emplace_back(branch_with_symbolic_data(k));
         }
       }
+    } else if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
+      IPid ipid = prefix[k].iid.get_pid();
+      IPid handler = threads[ipid].handler_id;
+      if(handler != 1) blocked_handlers[handler] = true;
     }
   }
-  
+
   if (race.kind == Race::NONBLOCK) {
     recompute_cmpxhg_success(second_br.sym, v, i);
   }
@@ -2637,19 +2678,19 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
       v.push_back(std::move(second_br));
     }
     /* include first event of first message of the race */
-    second_br = branch_with_symbolic_data(i);
+    /*second_br = branch_with_symbolic_data(i);
     recompute_cmpxhg_success(second_br.sym, v, i);
     wakeup_ev_seq.insert(std::pair<int,Event>(i,prefix[i]));
     v.push_back(std::move(second_br));
     wakeup_ev_seq.at(i).eom_before.push_back(threads[spid].event_indices.back());
     /* Include rest of the first message */
-    for(int k = 1; k < threads[fpid].event_indices.size(); k++){
+    /*for(int k = 1; k < threads[fpid].event_indices.size(); k++){
       int ev = threads[fpid].event_indices[k];
       second_br = branch_with_symbolic_data(ev);
       recompute_cmpxhg_success(second_br.sym, v, i);
       wakeup_ev_seq.insert(std::pair<int,Event>(ev, prefix[ev]));
       v.push_back(std::move(second_br));
-    }
+    }*/
     /* reverse ppms recursively */
     //reverse_ppms_recursively(wakup_eve_seq, fpid, spid);
     Event &sec_post = wakeup_ev_seq.at(threads[spid].spawn_event);
