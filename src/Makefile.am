@@ -72,6 +72,7 @@ unittest_SOURCES = \
   FBVClock_test.cpp \
   GenMap_test.cpp \
   GenVector_test.cpp \
+  Interpreter_test.cpp \
   nregex_test.cpp \
   Observers_test.cpp \
   POWER_test.cpp \
@@ -79,6 +80,7 @@ unittest_SOURCES = \
   PSO_test.cpp \
   PSO_test2.cpp \
   Regression_test.cpp \
+  RFSC_test.cpp \
   RMW_test.cpp \
   Robustness_test.cpp \
   SC_test.cpp \

@@ -182,7 +182,7 @@ static void executeFRemInst(GenericValue &Dest, GenericValue Src1,
       break;
 
 #define IMPLEMENT_VECTOR_INTEGER_ICMP(OP, TY)                        \
-  case Type::VectorTyID: {                                           \
+  LLVM_VECTOR_TYPEID_CASES {                                         \
     assert(Src1.AggregateVal.size() == Src2.AggregateVal.size());    \
     Dest.AggregateVal.resize( Src1.AggregateVal.size() );            \
     for( uint32_t _i=0;_i<Src1.AggregateVal.size();_i++)             \
@@ -380,7 +380,7 @@ void Interpreter::visitICmpInst(ICmpInst &I) {
   break;
 
 #define IMPLEMENT_VECTOR_FCMP(OP)                                   \
-  case Type::VectorTyID:                                            \
+  LLVM_VECTOR_TYPEID_CASES                                          \
     if(dyn_cast<VectorType>(Ty)->getElementType()->isFloatTy()) {   \
       IMPLEMENT_VECTOR_FCMP_T(OP, Float);                           \
     } else {                                                        \
@@ -915,13 +915,13 @@ void Interpreter::popStackAndReturnValueToCaller(Type *RetTy,
     // If we have a previous stack frame, and we have a previous call,
     // fill in the return value...
     ExecutionContext &CallingSF = ECStack()->back();
-    if (Instruction *I = CallingSF.Caller.getInstruction()) {
+    if (Instruction *I = &CallingSF.Caller) {
       // Save result...
-      if (!CallingSF.Caller.getType()->isVoidTy())
+      if (!(&CallingSF.Caller)->getType()->isVoidTy())
         SetValue(I, Result, CallingSF);
       if (InvokeInst *II = dyn_cast<InvokeInst> (I))
         SwitchToNewBasicBlock (II->getNormalDest (), CallingSF);
-      CallingSF.Caller = CallSite();          // We returned from the call...
+      CallingSF.Caller = AnyCallInst();          // We returned from the call...
     }
   }
 }
@@ -931,13 +931,13 @@ void Interpreter::returnValueToCaller(Type *RetTy,
   assert(!ECStack()->empty());
   // fill in the return value...
   ExecutionContext &CallingSF = ECStack()->back();
-  if (Instruction *I = CallingSF.Caller.getInstruction()) {
+  if (Instruction *I = &CallingSF.Caller) {
     // Save result...
-    if (!CallingSF.Caller.getType()->isVoidTy())
+    if (!(&CallingSF.Caller)->getType()->isVoidTy())
       SetValue(I, Result, CallingSF);
     if (InvokeInst *II = dyn_cast<InvokeInst> (I))
       SwitchToNewBasicBlock (II->getNormalDest (), CallingSF);
-    CallingSF.Caller = CallSite();          // We returned from the call...
+    CallingSF.Caller = AnyCallInst();          // We returned from the call...
   }
 }
 
@@ -1169,13 +1169,17 @@ void Interpreter::visitLoadInst(LoadInst &I) {
   GenericValue *Ptr = (GenericValue*)GVTOP(SRC);
   GenericValue Result;
 
-  /* XXX: Can't this one fail? */
-  SymAddrSize Ptr_sas = GetSymAddrSize(Ptr,I.getType());
-  if (!conf.c11 || I.isVolatile() || I.getOrdering() != llvm::AtomicOrdering::NotAtomic)
-    TB.load(Ptr_sas);
+  Option<SymAddrSize> Ptr_sas = GetSymAddrSize(Ptr,I.getType());
+  if (!Ptr_sas) return;
+  if (!conf.c11 || I.isVolatile() || I.getOrdering() != llvm::AtomicOrdering::NotAtomic) {
+    if (!TB.load(*Ptr_sas)) {
+      abort();
+      return;
+    }
+  }
 
   if(DryRun && DryRunMem.size()){
-    DryRunLoadValueFromMemory(Result, Ptr, Ptr_sas, I.getType());
+    DryRunLoadValueFromMemory(Result, Ptr, *Ptr_sas, I.getType());
     SetValue(&I, Result, SF);
     return;
   }
@@ -1188,12 +1192,16 @@ void Interpreter::visitStoreInst(StoreInst &I) {
   ExecutionContext &SF = ECStack()->back();
   GenericValue Val = getOperandValue(I.getOperand(0), SF);
   GenericValue *Ptr = (GenericValue *)GVTOP(getOperandValue(I.getPointerOperand(), SF));
-  Option<SymAddrSize> Ptr_sas = TryGetSymAddrSizeOrSegv(Ptr,I.getOperand(0)->getType());
+  Option<SymAddrSize> Ptr_sas = GetSymAddrSize(Ptr,I.getOperand(0)->getType());
   if (!Ptr_sas) return;
 
   SymData sd = GetSymData(*Ptr_sas, I.getOperand(0)->getType(), Val);
-  if (!conf.c11 || I.isVolatile() || I.getOrdering() != llvm::AtomicOrdering::NotAtomic)
-    TB.atomic_store(sd);
+  if (!conf.c11 || I.isVolatile() || I.getOrdering() != llvm::AtomicOrdering::NotAtomic) {
+    if(!TB.atomic_store(sd)) {
+      abort();
+      return;
+    }
+  }
 
   if(DryRun){
     DryRunMem.emplace_back(std::move(sd));
@@ -1212,16 +1220,16 @@ void Interpreter::visitAtomicCmpXchgInst(AtomicCmpXchgInst &I){
   Type *Ty = I.getCompareOperand()->getType();
   GenericValue Result;
 
-  /* XXX: Can't this one fail? */
-  SymAddrSize Ptr_sas = GetSymAddrSize(Ptr,Ty);
-  SymData::block_type expected = SymData::alloc_block(Ptr_sas.size);
+  Option<SymAddrSize> Ptr_sas = GetSymAddrSize(Ptr,Ty);
+  if (!Ptr_sas) return;
+  SymData::block_type expected = SymData::alloc_block(Ptr_sas->size);
   StoreValueToMemory(CmpVal,static_cast<GenericValue*>((void*)expected.get()),Ty);
 
 #if defined(LLVM_CMPXCHG_SEPARATE_SUCCESS_FAILURE_ORDERING)
   // Return a tuple (oldval,success)
   Result.AggregateVal.resize(2);
   if(DryRun && DryRunMem.size()){
-    DryRunLoadValueFromMemory(Result.AggregateVal[0], Ptr, Ptr_sas, Ty);
+    DryRunLoadValueFromMemory(Result.AggregateVal[0], Ptr, *Ptr_sas, Ty);
   }else{
     LoadValueFromMemory(Result.AggregateVal[0], Ptr, Ty);
   }
@@ -1229,14 +1237,17 @@ void Interpreter::visitAtomicCmpXchgInst(AtomicCmpXchgInst &I){
 #else
   // Return only the old value oldval
   if(DryRun && DryRunMem.size()){
-    DryRunLoadValueFromMemory(Result, Ptr, Ptr_sas, Ty);
+    DryRunLoadValueFromMemory(Result, Ptr, *Ptr_sas, Ty);
   }else{
     LoadValueFromMemory(Result, Ptr, Ty);
   }
   GenericValue CmpRes = executeICMP_EQ(Result,CmpVal,Ty);
 #endif
-  SymData sd = GetSymData(Ptr_sas,Ty,NewVal);
-  TB.compare_exchange(sd, expected, CmpRes.IntVal.getBoolValue());
+  SymData sd = GetSymData(*Ptr_sas,Ty,NewVal);
+  if(!TB.compare_exchange(sd, expected, CmpRes.IntVal.getBoolValue())){
+    abort();
+    return;
+  }
   if(CmpRes.IntVal.getBoolValue()){
 #if defined(LLVM_CMPXCHG_SEPARATE_SUCCESS_FAILURE_ORDERING)
     Result.AggregateVal[1].IntVal = 1;
@@ -1264,12 +1275,12 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
   assert(I.getType()->isIntegerTy());
   assert(I.getOrdering() != llvm::AtomicOrdering::NotAtomic);
 
-  /* Can't this one fail? */
-  SymAddrSize Ptr_sas = GetSymAddrSize(Ptr,I.getType());
+  Option<SymAddrSize> Ptr_sas = GetSymAddrSize(Ptr,I.getType());
+  if (!Ptr_sas) return;
 
   /* Load old value at *Ptr */
   if(DryRun && DryRunMem.size()){
-    DryRunLoadValueFromMemory(OldVal, Ptr, Ptr_sas, I.getType());
+    DryRunLoadValueFromMemory(OldVal, Ptr, *Ptr_sas, I.getType());
   }else{
     LoadValueFromMemory(OldVal, Ptr, I.getType());
   }
@@ -1304,8 +1315,11 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
     throw std::logic_error("Unsupported operation in RMW instruction.");
   }
 
-  SymData sd = GetSymData(Ptr_sas,I.getType(),NewVal);
-  TB.atomic_rmw(sd);
+  SymData sd = GetSymData(*Ptr_sas,I.getType(),NewVal);
+  if(!TB.atomic_rmw(sd)){
+    abort();
+    return;
+  }
 
   /* Store NewVal */
   if(DryRun){
@@ -1315,7 +1329,7 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
   StoreValueToMemory(NewVal,Ptr,I.getType());
 }
 
-void Interpreter::visitInlineAsm(CallSite &CS, const std::string &asmstr){
+void Interpreter::visitInlineAsm(llvm::CallInst &CI, const std::string &asmstr){
   if(asmstr == "mfence"){ // Do nothing
   }else if(asmstr == ""){ // Do nothing
   }else{
@@ -1327,11 +1341,11 @@ void Interpreter::visitInlineAsm(CallSite &CS, const std::string &asmstr){
 //                 Miscellaneous Instruction Implementations
 //===----------------------------------------------------------------------===//
 
-void Interpreter::visitCallSite(CallSite CS) {
+void Interpreter::visitAnyCallInst(AnyCallInst CI) {
   {
     std::string asmstr;
-    if(isInlineAsm(CS,&asmstr)){
-      visitInlineAsm(CS,asmstr);
+    if(isInlineAsm(CI,&asmstr)){
+      visitInlineAsm(cast<CallInst>(CI),asmstr);
       return;
     }
   }
@@ -1339,7 +1353,7 @@ void Interpreter::visitCallSite(CallSite CS) {
   ExecutionContext &SF = ECStack()->back();
 
   // Check to see if this is an intrinsic function call...
-  Function *F = CS.getCalledFunction();
+  Function *F = CI.getCalledFunction();
   if (F && F->isDeclaration()){
     switch (F->getIntrinsicID()) {
     case Intrinsic::not_intrinsic:
@@ -1348,13 +1362,13 @@ void Interpreter::visitCallSite(CallSite CS) {
       GenericValue ArgIndex;
       ArgIndex.UIntPairVal.first = ECStack()->size() - 1;
       ArgIndex.UIntPairVal.second = 0;
-      SetValue(CS.getInstruction(), ArgIndex, SF);
+      SetValue(&CI, ArgIndex, SF);
       return;
     }
     case Intrinsic::vaend:    // va_end is a noop for the interpreter
       return;
     case Intrinsic::vacopy:   // va_copy: dest = src
-      SetValue(CS.getInstruction(), getOperandValue(*CS.arg_begin(), SF), SF);
+      SetValue(&CI, getOperandValue(*CI.arg_begin(), SF), SF);
       return;
     default:
       {
@@ -1394,12 +1408,12 @@ void Interpreter::visitCallSite(CallSite CS) {
         // If it is an unknown intrinsic function, use the intrinsic lowering
         // class to transform it into hopefully tasty LLVM code.
         //
-        BasicBlock::iterator me(CS.getInstruction());
-        BasicBlock *Parent = CS.getInstruction()->getParent();
+        BasicBlock::iterator me(&CI);
+        BasicBlock *Parent = (&CI)->getParent();
         bool atBegin(Parent->begin() == me);
         if (!atBegin)
           --me;
-        IL->LowerIntrinsicCall(cast<CallInst>(CS.getInstruction()));
+        IL->LowerIntrinsicCall(cast<CallInst>(&CI));
 
         // Restore the CurInst pointer to the first instruction newly inserted, if
         // any.
@@ -1425,12 +1439,12 @@ void Interpreter::visitCallSite(CallSite CS) {
   }
 
 
-  SF.Caller = CS;
+  SF.Caller = CI;
   std::vector<GenericValue> ArgVals;
   const unsigned NumArgs = SF.Caller.arg_size();
   ArgVals.reserve(NumArgs);
   uint16_t pNum = 1;
-  for (CallSite::arg_iterator i = SF.Caller.arg_begin(),
+  for (auto i = SF.Caller.arg_begin(),
          e = SF.Caller.arg_end(); i != e; ++i, ++pNum) {
     Value *V = *i;
     ArgVals.push_back(getOperandValue(V, SF));
@@ -1438,7 +1452,7 @@ void Interpreter::visitCallSite(CallSite CS) {
 
   // To handle indirect calls, we must get the pointer value from the argument
   // and treat it as a function pointer.
-  GenericValue SRC = getOperandValue(SF.Caller.getCalledValue(), SF);
+  GenericValue SRC = getOperandValue(SF.Caller.getCalledOperand(), SF);
   callFunction((Function*)GVTOP(SRC), ArgVals);
 }
 
@@ -1600,7 +1614,7 @@ GenericValue Interpreter::executeFPTruncInst(Value *SrcVal, Type *DstTy,
                                              ExecutionContext &SF) {
   GenericValue Dest, Src = getOperandValue(SrcVal, SF);
 
-  if (SrcVal->getType()->getTypeID() == Type::VectorTyID) {
+  if (isa<VectorType>(SrcVal->getType())) {
     assert(SrcVal->getType()->getScalarType()->isDoubleTy() &&
            DstTy->getScalarType()->isFloatTy() &&
            "Invalid FPTrunc instruction");
@@ -1623,7 +1637,7 @@ GenericValue Interpreter::executeFPExtInst(Value *SrcVal, Type *DstTy,
                                            ExecutionContext &SF) {
   GenericValue Dest, Src = getOperandValue(SrcVal, SF);
 
-  if (SrcVal->getType()->getTypeID() == Type::VectorTyID) {
+  if (isa<VectorType>(SrcVal->getType())) {
     assert(SrcVal->getType()->getScalarType()->isFloatTy() &&
            DstTy->getScalarType()->isDoubleTy() && "Invalid FPExt instruction");
 
@@ -1646,7 +1660,7 @@ GenericValue Interpreter::executeFPToUIInst(Value *SrcVal, Type *DstTy,
   Type *SrcTy = SrcVal->getType();
   GenericValue Dest, Src = getOperandValue(SrcVal, SF);
 
-  if (SrcTy->getTypeID() == Type::VectorTyID) {
+  if (isa<VectorType>(SrcTy)) {
     const Type *DstVecTy = DstTy->getScalarType();
     const Type *SrcVecTy = SrcTy->getScalarType();
     uint32_t DBitWidth = cast<IntegerType>(DstVecTy)->getBitWidth();
@@ -1684,7 +1698,7 @@ GenericValue Interpreter::executeFPToSIInst(Value *SrcVal, Type *DstTy,
   Type *SrcTy = SrcVal->getType();
   GenericValue Dest, Src = getOperandValue(SrcVal, SF);
 
-  if (SrcTy->getTypeID() == Type::VectorTyID) {
+  if (isa<VectorType>(SrcTy)) {
     const Type *DstVecTy = DstTy->getScalarType();
     const Type *SrcVecTy = SrcTy->getScalarType();
     uint32_t DBitWidth = cast<IntegerType>(DstVecTy)->getBitWidth();
@@ -1720,7 +1734,7 @@ GenericValue Interpreter::executeUIToFPInst(Value *SrcVal, Type *DstTy,
                                             ExecutionContext &SF) {
   GenericValue Dest, Src = getOperandValue(SrcVal, SF);
 
-  if (SrcVal->getType()->getTypeID() == Type::VectorTyID) {
+  if (isa<VectorType>(SrcVal->getType())) {
     const Type *DstVecTy = DstTy->getScalarType();
     unsigned size = Src.AggregateVal.size();
     // the sizes of src and dst vectors must be equal
@@ -1752,7 +1766,7 @@ GenericValue Interpreter::executeSIToFPInst(Value *SrcVal, Type *DstTy,
                                             ExecutionContext &SF) {
   GenericValue Dest, Src = getOperandValue(SrcVal, SF);
 
-  if (SrcVal->getType()->getTypeID() == Type::VectorTyID) {
+  if (isa<VectorType>(SrcVal->getType())) {
     const Type *DstVecTy = DstTy->getScalarType();
     unsigned size = Src.AggregateVal.size();
     // the sizes of src and dst vectors must be equal
@@ -1813,8 +1827,7 @@ GenericValue Interpreter::executeBitCastInst(Value *SrcVal, Type *DstTy,
   Type *SrcTy = SrcVal->getType();
   GenericValue Dest, Src = getOperandValue(SrcVal, SF);
 
-  if ((SrcTy->getTypeID() == Type::VectorTyID) ||
-      (DstTy->getTypeID() == Type::VectorTyID)) {
+  if (isa<VectorType>(SrcTy) || isa<VectorType>(DstTy)) {
     // vector src bitcast to vector dst or vector src bitcast to scalar dst or
     // scalar src bitcast to vector dst
     bool isLittleEndian = TD.isLittleEndian();
@@ -1826,7 +1839,7 @@ GenericValue Interpreter::executeBitCastInst(Value *SrcVal, Type *DstTy,
     unsigned SrcNum;
     unsigned DstNum;
 
-    if (SrcTy->getTypeID() == Type::VectorTyID) {
+    if (isa<VectorType>(SrcTy)) {
       SrcElemTy = SrcTy->getScalarType();
       SrcBitSize = SrcTy->getScalarSizeInBits();
       SrcNum = Src.AggregateVal.size();
@@ -1839,7 +1852,7 @@ GenericValue Interpreter::executeBitCastInst(Value *SrcVal, Type *DstTy,
       SrcVec.AggregateVal.push_back(Src);
     }
 
-    if (DstTy->getTypeID() == Type::VectorTyID) {
+    if (isa<VectorType>(DstTy)) {
       DstElemTy = DstTy->getScalarType();
       DstBitSize = DstTy->getScalarSizeInBits();
       DstNum = (SrcNum * SrcBitSize) / DstBitSize;
@@ -1912,7 +1925,7 @@ GenericValue Interpreter::executeBitCastInst(Value *SrcVal, Type *DstTy,
     }
 
     // convert result from integer to specified type
-    if (DstTy->getTypeID() == Type::VectorTyID) {
+    if (isa<VectorType>(DstTy)) {
       if (DstElemTy->isDoubleTy()) {
         Dest.AggregateVal.resize(DstNum);
         for (unsigned i = 0; i < DstNum; i++)
@@ -1935,8 +1948,7 @@ GenericValue Interpreter::executeBitCastInst(Value *SrcVal, Type *DstTy,
         Dest.IntVal = TempDst.AggregateVal[0].IntVal;
       }
     }
-  } else { //  if ((SrcTy->getTypeID() == Type::VectorTyID) ||
-           //     (DstTy->getTypeID() == Type::VectorTyID))
+  } else { //  if (isa<VectorType>(SrcTy)) || isa<VectorType>(DstTy))
 
     // scalar src bitcast to scalar dst
     if (DstTy->isPointerTy()) {
@@ -2238,7 +2250,7 @@ void Interpreter::visitExtractValueInst(ExtractValueInst &I) {
     break;
     case Type::ArrayTyID:
     case Type::StructTyID:
-    case Type::VectorTyID:
+    LLVM_VECTOR_TYPEID_CASES
       Dest.AggregateVal = pSrc->AggregateVal;
     break;
     case Type::PointerTyID:
@@ -2285,7 +2297,7 @@ void Interpreter::visitInsertValueInst(InsertValueInst &I) {
     break;
     case Type::ArrayTyID:
     case Type::StructTyID:
-    case Type::VectorTyID:
+    LLVM_VECTOR_TYPEID_CASES
       pDest->AggregateVal = Src2.AggregateVal;
     break;
     case Type::PointerTyID:
@@ -2415,11 +2427,6 @@ GenericValue Interpreter::getOperandValue(Value *V, ExecutionContext &SF) {
 
 void Interpreter::callPthreadCreate(Function *F,
                                     const std::vector<GenericValue> &ArgVals) {
-  // Memory fence
-  TB.fence();
-
-  TB.spawn();
-
   // Return 0 (success)
   GenericValue Result;
   Result.IntVal = APInt(F->getReturnType()->getIntegerBitWidth(),0);
@@ -2431,7 +2438,7 @@ void Interpreter::callPthreadCreate(Function *F,
     GenericValue *Ptr = (GenericValue*)GVTOP(ArgVals[0]);
     if(Ptr){
       Type *ity = static_cast<PointerType*>(F->arg_begin()->getType())->getElementType();
-      if (!TryGetSymAddrSizeOrSegv(Ptr,ity)) return;
+      if (!GetSymAddrSize(Ptr,ity)) return;
       GenericValue TIDVal = tid_to_pthread_t(ity, new_tid);
       /* XXX: No race detection on this access! */
       StoreValueToMemory(TIDVal,Ptr,ity);
@@ -2440,11 +2447,19 @@ void Interpreter::callPthreadCreate(Function *F,
     }
   }
 
+  // Memory fence
+  if (!TB.fence()
+      || !TB.spawn()) {
+    abort();
+    return;
+  }
+
   // Add a new stack for the new thread
   int caller_thread = CurrentThread;
   CurrentThread = newThread(CPS.spawn(Threads[CurrentThread].cpid));
 
   // Build stack frame for the call
+  // XXX: No validation on argument value!
   Function *F_inner = (Function*)GVTOP(ArgVals[2]);
   std::vector<GenericValue> ArgVals_inner;
   if(F_inner->arg_size() == 1 &&
@@ -2478,14 +2493,17 @@ void Interpreter::callPthreadJoin(Function *F,
 
   assert(Threads[tid].ECStack.empty());
 
-  TB.fence();
-  TB.join(tid);
+  if (!TB.fence()
+      || !TB.join(tid)) {
+    abort();
+    return;
+  }
 
   // Forward return value
   GenericValue *rvPtr = (GenericValue*)GVTOP(ArgVals[1]);
   if(rvPtr){
     Type *ty = Type::getInt8PtrTy(F->getContext())->getPointerTo();
-    if (!TryGetSymAddrSizeOrSegv(rvPtr,ty)) return;
+    if (!GetSymAddrSize(rvPtr,ty)) return;
     /* XXX: No race detection on this access*/
     StoreValueToMemory(Threads[tid].RetVal,rvPtr,ty);
   }
@@ -2505,7 +2523,10 @@ void Interpreter::callPthreadSelf(Function *F,
 
 void Interpreter::callPthreadExit(Function *F,
                                   const std::vector<GenericValue> &ArgVals){
-  TB.fence();
+  if (!TB.fence()) {
+    abort();
+    return;
+  }
   while(ECStack()->size() > 1) ECStack()->pop_back();
   popStackAndReturnValueToCaller(Type::getInt8PtrTy(F->getContext()),ArgVals[0]);
 }
@@ -2526,7 +2547,12 @@ void Interpreter::callPthreadMutexInit(Function *F,
     return;
   }
 
-  TB.mutex_init({GetSymAddr(lck),1}); // also acts as a fence
+  Option<SymAddr> addr = GetSymAddr(lck);
+  if (!addr) return;
+  if (!TB.mutex_init({*addr,1})) { // also acts as a fence
+    abort();
+    return;
+  }
 
   if(PthreadMutexes.count(lck)){
     TB.pthreads_error("pthread_mutex_init called with already initialized mutex.");
@@ -2562,7 +2588,12 @@ void Interpreter::callPthreadMutexLock(void *lck){
     return;
   }
 
-  TB.mutex_lock({GetSymAddr(lck),1}); // also acts as a fence
+  Option<SymAddr> addr = GetSymAddr(lck);
+  if (!addr) return;
+  if(!TB.mutex_lock({*addr,1})){ // also acts as a fence
+    abort();
+    return;
+  }
 
   if(PthreadMutexes.count(lck) == 0){
     if(conf.mutex_require_init){
@@ -2590,7 +2621,12 @@ void Interpreter::callPthreadMutexTryLock(Function *F,
     return;
   }
 
-  TB.mutex_trylock({GetSymAddr(lck),1}); // also acts as a fence
+  Option<SymAddr> addr = GetSymAddr(lck);
+  if (!addr) return;
+  if(!TB.mutex_trylock({*addr,1})){ // also acts as a fence
+    abort();
+    return;
+  }
 
   if(PthreadMutexes.count(lck) == 0){
     if(conf.mutex_require_init){
@@ -2626,7 +2662,12 @@ void Interpreter::callPthreadMutexUnlock(Function *F,
     return;
   }
 
-  TB.mutex_unlock({GetSymAddr(lck),1}); // also acts as a fence
+  Option<SymAddr> addr = GetSymAddr(lck);
+  if (!addr) return;
+  if(!TB.mutex_unlock({*addr,1})){ // also acts as a fence
+    abort();
+    return;
+  }
 
   if(PthreadMutexes.count(lck) == 0){
     if(conf.mutex_require_init){
@@ -2667,7 +2708,12 @@ void Interpreter::callPthreadMutexDestroy(Function *F,
     return;
   }
 
-  TB.mutex_destroy({GetSymAddr(lck),1}); // also acts as a fence
+  Option<SymAddr> addr = GetSymAddr(lck);
+  if (!addr) return;
+  if(!TB.mutex_destroy({*addr,1})){ // also acts as a fence
+    abort();
+    return;
+  }
 
   if(PthreadMutexes.count(lck) == 0){
     if(conf.mutex_require_init){
@@ -2709,7 +2755,9 @@ void Interpreter::callPthreadCondInit(Function *F,
     return;
   }
 
-  if(!TB.cond_init({GetSymAddr(cnd),1})){ // also acts as a fence
+  Option<SymAddr> addr = GetSymAddr(cnd);
+  if (!addr) return;
+  if(!TB.cond_init({*addr,1})){ // also acts as a fence
     abort();
     return;
   }
@@ -2730,7 +2778,9 @@ void Interpreter::callPthreadCondSignal(Function *F,
     return;
   }
 
-  if(!TB.cond_signal({GetSymAddr(cnd),1})){ // also acts as a fence
+  Option<SymAddr> addr = GetSymAddr(cnd);
+  if (!addr) return;
+  if(!TB.cond_signal({*addr,1})){ // also acts as a fence
     abort();
     return;
   }
@@ -2751,7 +2801,9 @@ void Interpreter::callPthreadCondBroadcast(Function *F,
     return;
   }
 
-  if(!TB.cond_broadcast({GetSymAddr(cnd),1})){ // also acts as a fence
+  Option<SymAddr> addr = GetSymAddr(cnd);
+  if (!addr) return;
+  if(!TB.cond_broadcast({*addr,1})){ // also acts as a fence
     abort();
     return;
   }
@@ -2779,7 +2831,10 @@ void Interpreter::callPthreadCondWait(Function *F,
     return;
   }
 
-  if(!TB.cond_wait({GetSymAddr(cnd),1},{GetSymAddr(lck),1})){ // also acts as a fence
+  Option<SymAddr> cnd_sa = GetSymAddr(cnd);
+  Option<SymAddr> lck_sa = GetSymAddr(lck);
+  if (!cnd_sa || !lck_sa) return;
+  if(!TB.cond_wait({*cnd_sa,1},{*lck_sa,1})){ // also acts as a fence
     abort();
     return;
   }
@@ -2806,7 +2861,13 @@ void Interpreter::callPthreadCondWait(Function *F,
 void Interpreter::doPthreadCondAwake(void *cnd, void *lck){
   assert(lck);
 
-  TB.cond_awake({GetSymAddr(cnd),1},{GetSymAddr(lck),1}); // also acts as a fence
+  Option<SymAddr> cnd_sa = GetSymAddr(cnd);
+  Option<SymAddr> lck_sa = GetSymAddr(lck);
+  if (!cnd_sa || !lck_sa) return;
+  if(!TB.cond_awake({*cnd_sa,1},{*lck_sa,1})){ // also acts as a fence
+    abort();
+    return;
+  }
 
   if(PthreadMutexes.count(lck) == 0){
     /* We don't need to check conf.mutex_require_init as the mutex is always
@@ -2833,7 +2894,9 @@ void Interpreter::callPthreadCondDestroy(Function *F,
     return;
   }
 
-  int rv = TB.cond_destroy({GetSymAddr(cnd),1}); // also acts as a fence
+  Option<SymAddr> addr = GetSymAddr(cnd);
+  if (!addr) return;
+  int rv = TB.cond_destroy({*addr,1}); // also acts as a fence
 
   if(rv == 0 || rv == EBUSY){
     GenericValue Result;
@@ -2886,7 +2949,12 @@ void Interpreter::callAssume(Function *F, const std::vector<GenericValue> &ArgVa
 void Interpreter::callMCalloc(Function *F,
                               const std::vector<GenericValue> &ArgVals,
                               bool isCalloc){
-  if(conf.malloc_may_fail) TB.register_alternatives(2);
+  if(conf.malloc_may_fail) {
+    if(!TB.register_alternatives(2)){
+      abort();
+      return;
+    }
+  }
   if(conf.malloc_may_fail && CurrentAlt == 0){
     GenericValue Result;
     Result.PointerVal = 0; // Return null
@@ -3164,7 +3232,7 @@ void Interpreter::callFunction(Function *F,
     return;
   }
 
-  assert((ECStack()->empty() || ECStack()->back().Caller.getInstruction() == 0 ||
+  assert((ECStack()->empty() || ECStack()->back().Caller == nullptr ||
           ECStack()->back().Caller.arg_size() == ArgVals.size()) &&
          "Incorrect number of arguments passed into function call!");
 
@@ -3173,7 +3241,10 @@ void Interpreter::callFunction(Function *F,
       Debug::warn("optimal+atomic")
         << "WARNING: Support for atomic blocks is limited with --optimal.\n"
            "         Nidhugg might crash or miss bugs, see the manual.\n";
-    TB.fence();
+    if(!TB.fence()){
+      abort();
+      return;
+    }
     if(AtomicFunctionCall < 0){
       AtomicFunctionCall = ECStack()->size();
     } // else we are already inside an atomic function call
@@ -3188,7 +3259,10 @@ void Interpreter::callFunction(Function *F,
   if (F->isDeclaration()) {
     // Memory fence
     if(!conf.extfun_no_fence.count(F->getName().str())){
-      TB.fence();
+      if(!TB.fence()){
+        abort();
+        return;
+      }
     }
     if(!conf.extfun_no_full_memory_conflict.count(F->getName().str())){
       Debug::warn("unknown external:"+F->getName().str())
@@ -3196,7 +3270,10 @@ void Interpreter::callFunction(Function *F,
         << F->getName().str()
         << " as blackbox.\n";
 
-      TB.full_memory_conflict();
+      if(!TB.full_memory_conflict()){
+        abort();
+        return;
+      }
     }
 
     if(DryRun){
@@ -3239,12 +3316,11 @@ static void stripws(std::string &s){
   s = s.substr(first,len);
 }
 
-bool Interpreter::isInlineAsm(CallSite &CS, std::string *asmstr){
-  if(CS.isCall()){
-    llvm::CallInst *CI = cast<llvm::CallInst>(CS.getInstruction());
+bool Interpreter::isInlineAsm(AnyCallInst ACI, std::string *asmstr){
+  if(llvm::CallInst *CI = dyn_cast<llvm::CallInst>(&ACI)){
     if(CI){
       if(CI->isInlineAsm()){
-        llvm::InlineAsm *IA = llvm::dyn_cast<llvm::InlineAsm>(CI->getCalledValue());
+        llvm::InlineAsm *IA = llvm::dyn_cast<llvm::InlineAsm>(ACI.getCalledOperand());
         assert(IA);
         *asmstr = IA->getAsmString();
         stripws(*asmstr);
@@ -3256,9 +3332,8 @@ bool Interpreter::isInlineAsm(CallSite &CS, std::string *asmstr){
 }
 
 bool Interpreter::isUnknownIntrinsic(Instruction &I){
-  if(isa<CallInst>(I)){
-    CallSite CS(static_cast<CallInst*>(&I));
-    Function *F = CS.getCalledFunction();
+  if(CallInst *CI = dyn_cast<CallInst>(&I)){
+    Function *F = CI->getCalledFunction();
     if(F && F->isDeclaration() &&
        F->getIntrinsicID() != Intrinsic::not_intrinsic &&
        F->getIntrinsicID() != Intrinsic::vastart &&
@@ -3270,13 +3345,21 @@ bool Interpreter::isUnknownIntrinsic(Instruction &I){
   return false;
 }
 
+static AnyCallInst isCallOrInvoke(Instruction &I) {
+  if (CallInst *CI = dyn_cast<CallInst>(&I)) {
+    return {CI};
+  } else {
+    return {dyn_cast<InvokeInst>(&I)};
+  }
+}
+
 bool Interpreter::isPthreadJoin(Instruction &I, int *tid){
-  if(!isa<CallInst>(I)) return false;
-  CallSite CS(static_cast<CallInst*>(&I));
-  Function *F = CS.getCalledFunction();
+  AnyCallInst CI = isCallOrInvoke(I);
+  if(!CI) return false;
+  Function *F = CI.getCalledFunction();
   if(!F || F->getName() != "pthread_join") return false;
   llvm::GenericValue gv_tid =
-    getOperandValue(*CS.arg_begin(), ECStack()->back());
+    getOperandValue(*CI.arg_begin(), ECStack()->back());
   *tid = pthread_t_to_tid(F->arg_begin()->getType(), gv_tid);
   return true;
 }
@@ -3286,11 +3369,11 @@ bool Interpreter::isPthreadMutexLock(Instruction &I, GenericValue **ptr){
     *ptr = (llvm::GenericValue*)Threads[CurrentThread].pending_mutex_lock;
     return true;
   }
-  if(!isa<CallInst>(I)) return false;
-  CallSite CS(static_cast<CallInst*>(&I));
-  Function *F = CS.getCalledFunction();
+  AnyCallInst CI = isCallOrInvoke(I);
+  if(!CI) return false;
+  Function *F = CI.getCalledFunction();
   if(!F || F->getName() != "pthread_mutex_lock") return false;
-  *ptr = (GenericValue*)GVTOP(getOperandValue(*CS.arg_begin(),ECStack()->back()));
+  *ptr = (GenericValue*)GVTOP(getOperandValue(*CI.arg_begin(),ECStack()->back()));
   return true;
 }
 
@@ -3313,10 +3396,15 @@ bool Interpreter::checkRefuse(Instruction &I){
   }
   {
     GenericValue *ptr;
+    Option<SymAddr> addr;
     if(isPthreadMutexLock(I,&ptr)){
-      if(PthreadMutexes.count(ptr) &&
+      if((addr = TryGetSymAddr(ptr)) &&
+         PthreadMutexes.count(ptr) &&
          PthreadMutexes[ptr].isLocked()){
-        TB.mutex_lock_fail({GetSymAddr(ptr),1});
+        if(!TB.mutex_lock_fail({*addr,1})){
+          abort();
+          return true;
+        }
         TB.refuse_schedule();
         PthreadMutexes[ptr].waiting.insert(CurrentThread);
         return true;
@@ -3340,7 +3428,9 @@ void Interpreter::terminate(Type *RetTy, GenericValue Result){
 }
 
 void Interpreter::clearAllStacks(){
+  if(assumeBlocked()) Blocked = true;
   for(unsigned i = 0; i < Threads.size(); ++i){
+    if(!Threads[i].ECStack.empty()) Blocked = true;
     Threads[i].ECStack.clear();
   }
 }
@@ -3361,33 +3451,25 @@ Option<SymAddr> Interpreter::TryGetSymAddr(void *Ptr) {
   return SymAddr(ub->second.block, (char*)Ptr - (char*)ub->first);
 }
 
-SymAddr Interpreter::GetSymAddr(void *Ptr) {
-  if (Option<SymAddr> ret = TryGetSymAddr(Ptr)) {
-    return *ret;
-  } else {
-    std::stringstream out;
-    out << std::hex << Ptr << std::dec;
-    llvm::dbgs() << "Memory at address " << out.str() + " was not allocated!\n";
-    std::abort();
+Option<SymAddr> Interpreter::GetSymAddr(void *Ptr) {
+  Option<SymAddr> ret = TryGetSymAddr(Ptr);
+  if (!ret) {
+    if (DryRun) {
+      TB.nondeterminism_error("Address of memory access became undefined "
+                              "in replay");
+    } else {
+      TB.segmentation_fault_error();
+    }
+    abort();
   }
-}
-
-SymAddrSize Interpreter::GetSymAddrSize(void *Ptr, Type *Ty){
-  if (Option<SymAddrSize> ret = TryGetSymAddrSize(Ptr, Ty)) {
-    return *ret;
-  } else {
-    std::stringstream out;
-    out << std::hex << Ptr << std::dec;
-    llvm::dbgs() << "Memory at address " << out.str() + " was not allocated!\n";
-    std::abort();
-  }
+  return ret;
 }
 
 void Interpreter::run() {
   int aux;
   bool rerun = false;
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
-    //llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";
+    llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
     rerun = false;
     if(0 <= aux){ // Run some auxiliary thread
@@ -3410,8 +3492,10 @@ void Interpreter::run() {
        */
       rerun = true;
     }else if(checkRefuse(I)){
-      /* Revert without executing the next instruction. */
-      --SF.CurInst;
+      if (!ECStack()->empty()) {
+        /* Revert without executing the next instruction. */
+        --SF.CurInst;
+      }
       continue;
     }
 
