@@ -114,9 +114,18 @@ protected:
   class Thread{
   public:
     Thread() : AssumeBlocked(false), RandEng(42), pending_mutex_lock(0),
-               pending_condvar_awake(0), quitQ(false){};
+               pending_condvar_awake(0), quitQ(false), handler_id(-1),
+               ready_to_receive(false){};
     /* The complex thread identifier of this thread. */
     CPid cpid;
+    ////Handler thread specific////
+    /* Id of actual handler thread for messages. For normal threads, it is -1 */
+    int handler_id;
+    /* If the thread is waiting for next message, then true */
+    bool ready_to_receive;
+    /* contains post events posted message to this thread's queue */
+    std::queue<int> posts;
+    ////
     /* The runtime stack of executing code. The top of the stack is the
      * current function record.
      */
@@ -162,6 +171,8 @@ protected:
   std::vector<Thread> Threads;
   /* The index into Threads of the currently running thread. */
   int CurrentThread;
+  /* Inactive handlers waiting for more messages */
+  std::vector<int> inactive_handlers;
   /* The CPid System for all threads in this execution. */
   CPidSystem CPS;
 

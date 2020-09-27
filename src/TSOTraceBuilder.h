@@ -38,7 +38,7 @@ public:
   virtual void refuse_schedule() override;
   virtual void mark_available(int proc, int aux = -1) override;
   virtual void mark_unavailable(int proc, int aux = -1) override;
-  virtual void end_of_thread(int proc, int aux = -1) override;
+  virtual bool is_available(int proc) override;
   virtual void cancel_replay() override;
   virtual bool is_replaying() const override;
   virtual void metadata(const llvm::MDNode *md) override;
@@ -142,8 +142,7 @@ protected:
     Thread(const CPid &cpid, int spawn_event, IPid handler_id = -1)
       : cpid(cpid), available(true), spawn_event(spawn_event),
 	sleeping(false), sleep_full_memory_conflict(false),
-	sleep_sym(nullptr), last_post(-1), handler_id(handler_id),
-        ready_to_receive(false) {};
+	sleep_sym(nullptr), last_post(-1), handler_id(handler_id) {};
     CPid cpid;
     /* Is the thread available for scheduling? */
     bool available;
@@ -198,16 +197,12 @@ protected:
     sym_ty *sleep_sym;
     /* contains last event that posted message to this thread */
     int last_post;
-    /* contains post events posted message to this thread's queue */
-    std::queue<IPid> posts;
     /* Each time a handler thread receives a  meesage, it creates a new 
      * thread to execute the message. If this thread is solely for 
      * executing message, handler_id contains the id of the handler thread
      * that creates this thread.
      */
     IPid handler_id;
-    /* If the thread is waiting for next message, then true */
-    bool ready_to_receive;
     /* The iid-index of the last event of this thread, or 0 if it has not
      * executed any events yet.
      */

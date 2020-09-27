@@ -3056,7 +3056,6 @@ void Interpreter::callQThreadCreate(Function *F,
   // Add a new stack for the new thread
   int tid = newThread(CPS.spawn(Threads[CurrentThread].cpid));
 
-
   // Build stack frame for the call
   Function *F_inner = (Function*)GVTOP(ArgVals[1]);
   std::vector<GenericValue> ArgVals_inner;
@@ -3100,7 +3099,12 @@ void Interpreter::callQThreadPostMsg(Function *F,
   std::vector<GenericValue> ArgVals_msg(1,ArgVals[2]);
   int caller_thread = CurrentThread;
   CurrentThread = newThread(CPS.spawn(Threads[CurrentThread].cpid));
-  
+  Threads[CurrentThread].handler_id = tid;
+  if(Threads[tid].ready_to_receive){
+    TB.mark_available(Threads.size()-1);
+  }else{
+    Threads[tid].posts.push(Threads.size()-1);
+  }
   callFunction(F_msg,ArgVals_msg);
   CurrentThread=caller_thread;
 }
@@ -3109,11 +3113,20 @@ void Interpreter::callQThreadQuit(Function *F,
 				  const std::vector<GenericValue> &ArgVals) {
   int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
   Threads[tid].quitQ=true;
+  TB.mark_available(tid);
 }
 
 void Interpreter::callQThreadExec(Function *F,
 				  const std::vector<GenericValue> &ArgVals) {
-  TB.exec();
+  inactive_handlers.push_back(CurrentThread);
+  if(Threads[CurrentThread].posts.empty()){
+    Threads[CurrentThread].ready_to_receive = true;
+    return;
+  }
+  TB.mark_unavailable(CurrentThread);
+  int first_message = Threads[CurrentThread].posts.front();
+  TB.mark_available(first_message);
+  Threads[CurrentThread].posts.pop();
 }
 
 //===----------------------------------------------------------------------===//
@@ -3202,7 +3215,7 @@ void Interpreter::callFunction(Function *F,
   else if(F->getName().str() == "qthread_wait" ||
 	  F->getName().str() == "_Z12qthread_waitiPv"){
     //dbgs()<<"Handling QThread_wait function\n";
-    callQThreadWait(F, ArgVals);
+    //callQThreadWait(F, ArgVals);
     return;
   }
   else if((F->getName().str() == "qthread_post_event")){
@@ -3416,15 +3429,31 @@ bool Interpreter::checkRefuse(Instruction &I){
   }
   return false;
 }
-
 void Interpreter::terminate(Type *RetTy, GenericValue Result){
   if(CurrentThread != 0){
     assert(RetTy == Type::getInt8PtrTy(RetTy->getContext()));
     Threads[CurrentThread].RetVal = Result;
+    TB.mark_unavailable(CurrentThread);
+    if(0 <= Threads[CurrentThread].handler_id){
+      if(!Threads[Threads[CurrentThread].handler_id].posts.empty()){//consume next message
+        int next_msg = Threads[Threads[CurrentThread].handler_id].posts.front();
+        Threads[Threads[CurrentThread].handler_id].posts.pop();
+        TB.mark_available(next_msg);
+        return;
+      }
+      for(int i = 0; i<Threads.size();i++){
+        //if there is some available thread, don't termiate handler threads
+        if(TB.is_available(i)){
+          Threads[Threads[CurrentThread].handler_id].ready_to_receive = true;
+	  return;
+        }
+      }
+    }
   }
   for(int p : Threads[CurrentThread].AwaitingJoin){
     TB.mark_available(p);
   }
+  
 }
 
 void Interpreter::clearAllStacks(){
@@ -3469,7 +3498,7 @@ void Interpreter::run() {
   int aux;
   bool rerun = false;
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
-    llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";
+    //llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
     rerun = false;
     if(0 <= aux){ // Run some auxiliary thread
@@ -3538,9 +3567,6 @@ void Interpreter::run() {
       if(CurrentThread == 0 && AtExitHandlers.size()){
         callFunction(AtExitHandlers.back(),{});
         AtExitHandlers.pop_back();
-      }else{
-        TB.end_of_thread(CurrentThread);
-	//llvm::dbgs()<<"End of thread "<<CurrentThread<<"\n";
       }
     }
 

@@ -103,10 +103,11 @@ public:
    * because it is blocked waiting for something.
    */
   virtual void mark_unavailable(int proc, int aux = -1) = 0;
+  virtual bool is_available(int proc) = 0;
   /* Do necessary operations after the thread, e.g., make it unavailable,
    * make handler available.
    */
-  virtual void end_of_thread(int proc, int aux = -1){}
+  // virtual void end_of_thread(int proc, int aux = -1){}
   /* If we are not in a replay, do nothing. Otherwise cancel the
    * replay from here on, so that the computation may continue
    * according to an arbitrary schedule.
