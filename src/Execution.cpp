@@ -3498,7 +3498,7 @@ void Interpreter::run() {
   int aux;
   bool rerun = false;
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
-    //llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";
+    //llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";////////////
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
     rerun = false;
     if(0 <= aux){ // Run some auxiliary thread
