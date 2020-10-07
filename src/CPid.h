@@ -26,6 +26,7 @@
 #include <map>
 #include <ostream>
 #include <vector>
+#include <llvm/Support/Debug.h>
 
 #include <llvm/Support/raw_ostream.h>
 
@@ -149,6 +150,25 @@ private:
   std::vector<int> parent;
   std::vector<CPid> cpids;
   std::map<CPid,int> identifiers;
+};
+
+class SPidSys{
+public:
+  SPidSys(){ cpid_to_spid[CPid()] = 0; }
+  //int get_spid(int ipid){ return ipid_to_spid.at(ipid); }
+  int get_spid(CPid cpid){
+    assert(cpid_to_spid.find(cpid) != cpid_to_spid.end());
+    return cpid_to_spid[cpid]*2;
+  }
+  void set_spid_map(CPid cpid){
+    if(cpid_to_spid.find(cpid) == cpid_to_spid.end()){
+      cpid_to_spid[cpid] = cpid_to_spid.size();
+    }
+    //ipid_to_spid[ipid] = cpid_to_spid.at(cpid);
+  }
+private:
+  //std::map<int,int> ipid_to_spid;
+  std::map<CPid,int> cpid_to_spid;
 };
 
 #endif

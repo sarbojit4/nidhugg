@@ -115,6 +115,8 @@ public:
   virtual void cancel_replay() = 0;
   /* Associate the currently scheduled event with LLVM "dbg" metadata. */
   virtual void metadata(const llvm::MDNode *md) = 0;
+  /* Return the stable pid of the currently scheduled event. */
+  virtual int get_spid(int pid) = 0;
 
   /*******************************************/
   /*           Registration Methods          */
@@ -128,11 +130,9 @@ public:
   /* The current event creates a new qthread. */
   virtual void create(){};
   /* The current event starts a new qthread. */
-  virtual void start(int pid){}
+  virtual NODISCARD bool start(int pid){ return true; }
   /* The current event posts msg to another thread */
-  virtual void post(const int tgt_th){}
-  /* Receive message from it's queue */
-  virtual void exec(){}
+  virtual NODISCARD bool post(const int tgt_th){ return true; }
   /* The current event spawned a new thread.
    *
    * Returns true on success, false if an error has been generated.

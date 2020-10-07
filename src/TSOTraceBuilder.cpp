@@ -411,6 +411,10 @@ IID<CPid> TSOTraceBuilder::get_iid() const{
   int idx = curev().iid.get_index();
   return IID<CPid>(threads[pid].cpid,idx);
 }
+int TSOTraceBuilder::get_spid(int pid){
+  CPid cpid = threads[pid*2].cpid;
+  return (SPS.get_spid(cpid))/2;
+} 
 
 static std::string rpad(std::string s, int n){
   while(int(s.size()) < n) s += " ";
@@ -653,6 +657,7 @@ void TSOTraceBuilder::debug_print() const {
 bool TSOTraceBuilder::spawn(){
   IPid parent_ipid = curev().iid.get_pid();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
+  SPS.set_spid_map(child_cpid);
   /* TODO: First event of thread happens before parents spawn */
   threads.push_back(Thread(child_cpid,prefix_idx));
   threads.push_back(Thread(CPS.new_aux(child_cpid),prefix_idx));
@@ -663,6 +668,7 @@ bool TSOTraceBuilder::spawn(){
 void TSOTraceBuilder::create(){
   IPid parent_ipid = curev().iid.get_pid();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
+  SPS.set_spid_map(child_cpid);
   /* TODO: First event of thread happens before parents spawn */
   threads.push_back(Thread(child_cpid,prefix_idx));
   threads.back().available = false;
@@ -670,10 +676,10 @@ void TSOTraceBuilder::create(){
   threads.back().available = false; // Empty store buffer
 }
 
-void TSOTraceBuilder::start(int pid){
+bool TSOTraceBuilder::start(int pid){
   if(threads.size() <= pid*2){
     llvm::dbgs()<<"Error:Thread not found while trying to start\n";
-    return;
+    return false;
   }
   if(threads[pid*2].available == true){
     llvm::dbgs()<<"Error:Thread already started\n";
@@ -684,23 +690,23 @@ void TSOTraceBuilder::start(int pid){
   threads[pid*2].spawn_event = prefix_idx;
   threads[pid*2+1].spawn_event = prefix_idx;
   threads[pid*2].available = true; // Empty store buffer
-  record_symbolic(SymEv::Spawn(pid));
+  return record_symbolic(SymEv::Spawn(pid));
 }
 
-void TSOTraceBuilder::post(const int tgt_th) {
+bool TSOTraceBuilder::post(const int tgt_th) {
   IPid tpid = tgt_th*2;
   if(threads.size() <= tpid) {
     llvm::dbgs()<<"Error: Cannot post to "<<tgt_th<<"because it doesn't exist\n";
-    return;
+    return false;
   }
-  record_symbolic(SymEv::Post(tpid));
+  if(!record_symbolic(SymEv::Post(tpid))) return false;
   if(dryrun) {
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
     IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
     VecSet<IPid> &A = threads[pid].sleep_posts;
     A.insert(tpid);
-    return;
+    return true;
   }
 
   IPid ipid = curev().iid.get_pid();
@@ -722,12 +728,9 @@ void TSOTraceBuilder::post(const int tgt_th) {
     wakeup_posts(tpid);
   }
   last_post = prefix_idx;
+  return true;
 }
 
-void TSOTraceBuilder::exec(){
-  /*Always create a new thread to execute messages */
-  
-}
 bool TSOTraceBuilder::store(const SymData &sd){
   if(dryrun) return true;
   curev().may_conflict = true; /* prefix_idx might become bad otherwise */
@@ -1619,7 +1622,7 @@ void TSOTraceBuilder::see_events(const VecSet<int> &seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
     IPid fst_pid = prefix[i].iid.get_pid();
-    IPid snd_pid = prefix[prefix_idx].iid.get_pid();
+    IPid snd_pid = curev().iid.get_pid();
     if(conf.dpor_algorithm != Configuration::EVENT_DRIVEN &&
        threads[fst_pid].handler_id != -1 &&
        threads[fst_pid].handler_id== threads[snd_pid].handler_id)
@@ -2108,6 +2111,9 @@ bool TSOTraceBuilder::record_symbolic(SymEv event){
     SymEv &last = curev().sym[sym_idx++];
     if (!last.is_compatible_with(event)) {
       auto pid_str = [this](IPid p) { return threads[p*2].cpid.to_string(); };
+      llvm::dbgs()<<"Event with effect " << last.to_string(pid_str)
+		  << " became " << event.to_string(pid_str)
+		  << " when replayed\n";
       nondeterminism_error("Event with effect " + last.to_string(pid_str)
                            + " became " + event.to_string(pid_str)
                            + " when replayed");

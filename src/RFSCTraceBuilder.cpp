@@ -295,6 +295,11 @@ IID<CPid> RFSCTraceBuilder::get_iid() const{
   return IID<CPid>(threads[pid].cpid,idx);
 }
 
+int RFSCTraceBuilder::get_spid(int pid){
+  CPid cpid = threads[pid*2].cpid;
+  return (SPS.get_spid(cpid))/2;
+} 
+
 static std::string rpad(std::string s, int n){
   while(int(s.size()) < n) s += " ";
   return s;
@@ -378,6 +383,7 @@ void RFSCTraceBuilder::debug_print() const {
 bool RFSCTraceBuilder::spawn(){
   IPid parent_ipid = curev().iid.get_pid();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
+  SPS.set_spid_map(child_cpid);
   threads.push_back(Thread(child_cpid,prefix_idx));
   curev().may_conflict = true;
   return record_symbolic(SymEv::Spawn(threads.size() - 1));

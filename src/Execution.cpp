@@ -1073,7 +1073,8 @@ void Interpreter::visitAllocaInst(AllocaInst &I) {
 
   if (I.getOpcode() == Instruction::Alloca){
     AllocatedMemStack.insert(Memory);
-    SymMBlock mb = SymMBlock::Stack(CurrentThread, StackAllocCount[CurrentThread]++);
+    int spid = TB.get_spid(CurrentThread);
+    SymMBlock mb = SymMBlock::Stack(spid, StackAllocCount[CurrentThread]++);
     AllocatedMem.emplace(Memory, SymMBlockSize(std::move(mb), MemToAlloc));
   }
 }
@@ -2405,7 +2406,8 @@ GenericValue Interpreter::getOperandValue(Value *V, ExecutionContext &SF) {
           GenericValue Result = PTOGV(Memory);
           assert(Result.PointerVal != 0 && "Null pointer returned by malloc!");
           AllocatedMemHeap.insert(Memory);
-          SymMBlock mb = SymMBlock::Heap(CurrentThread, HeapAllocCount[CurrentThread]++);
+          int spid = TB.get_spid(CurrentThread);
+          SymMBlock mb = SymMBlock::Heap(spid, HeapAllocCount[CurrentThread]++);
           AllocatedMem.emplace(Memory, SymMBlockSize(std::move(mb), TypeSize));
           Threads[CurrentThread].ThreadLocalValues[GV] = Result;
           InitializeMemory(GV->getInitializer(),Memory);
@@ -2975,6 +2977,7 @@ void Interpreter::callMCalloc(Function *F,
     }
     Result.PointerVal = Memory;
     AllocatedMemHeap.insert(Result.PointerVal);
+    int spid = TB.get_spid(CurrentThread);
     SymMBlock mb = SymMBlock::Heap(CurrentThread, HeapAllocCount[CurrentThread]++);
     AllocatedMem.emplace(Memory, SymMBlockSize(std::move(mb), Size));
     returnValueToCaller(F->getReturnType(),Result);
@@ -3076,10 +3079,12 @@ void Interpreter::callQThreadCreate(Function *F,
 void Interpreter::callQThreadStart(Function *F,
 				   const std::vector<GenericValue> &ArgVals) {
   // Memory fence
-  TB.fence();
   int caller_thread = CurrentThread;
   CurrentThread = pthread_t_to_tid(F->arg_begin()->getType(), ArgVals[0]);
-  TB.start(CurrentThread);//callback to TraceBuilder
+  if(!TB.fence() || !TB.start(CurrentThread)){//callback to TraceBuilder
+    abort();
+    return;
+  }
   callFunction(Threads[CurrentThread].F_inner,
 	       Threads[CurrentThread].ArgVals_inner);
   // Return to caller
@@ -3094,7 +3099,10 @@ void Interpreter::callQThreadWait(Function *F,
 void Interpreter::callQThreadPostMsg(Function *F,
 				     const std::vector<GenericValue> &ArgVals) {
   int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
-  TB.post(tid);//arguments
+  if(!TB.post(tid)){
+    abort();
+    return;
+  }
   Function *F_msg = (Function*)GVTOP(ArgVals[1]);
   std::vector<GenericValue> ArgVals_msg(1,ArgVals[2]);
   int caller_thread = CurrentThread;
@@ -3103,6 +3111,7 @@ void Interpreter::callQThreadPostMsg(Function *F,
   if(Threads[tid].ready_to_receive){
     TB.mark_available(Threads.size()-1);
   }else{
+    //TB.mark_unavailable(Threads.size()-1);
     Threads[tid].posts.push(Threads.size()-1);
   }
   callFunction(F_msg,ArgVals_msg);

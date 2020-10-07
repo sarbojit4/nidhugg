@@ -47,14 +47,14 @@ public:
   virtual Trace *get_trace() const override;
   virtual bool reset() override;
   virtual IID<CPid> get_iid() const override;
+  virtual int get_spid(int pid) override;
 
   virtual void debug_print() const override;
 
   virtual NODISCARD bool spawn() override;
   virtual void create() override;
-  virtual void start(int pid) override;
-  virtual void post(const int tgt_proc) override;
-  virtual void exec() override;
+  virtual NODISCARD bool start(int pid) override;
+  virtual NODISCARD bool post(const int tgt_proc) override;
   virtual NODISCARD bool store(const SymData &ml) override;
   virtual NODISCARD bool atomic_store(const SymData &ml) override;
   virtual NODISCARD bool compare_exchange
@@ -216,6 +216,8 @@ protected:
   std::vector<Thread> threads;
   /* The CPids of threads in the current execution. */
   CPidSystem CPS;
+  /* The SPids of threads in the current execution. */
+  SPidSys SPS;
 
   /* A ByteInfo object contains information about one byte in
    * memory. In particular, it recalls which events have recently
