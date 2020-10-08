@@ -29,6 +29,7 @@
 #define ANSIRst "\x1b[m"
 
 static void clear_observed(sym_ty &syms);
+static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e);
 
 TSOTraceBuilder::TSOTraceBuilder(const Configuration &conf) : TSOPSOTraceBuilder(conf) {
   threads.push_back(Thread(CPid(), -1));
@@ -57,7 +58,7 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
        curev().iid.get_index() + curbranch().size - 1){
       /* Continue executing the current Event */
       IPid pid = curev().iid.get_pid();
-      //llvm::dbgs()<<"Scheduling "<<threads[pid].cpid<<"\n";////////////////////
+      //llvm::dbgs()<<"Scheduling1 "<<threads[pid].cpid<<"\n";////////////////////
       *proc = pid/2;
       *aux = pid % 2 - 1;
       *alt = 0;
@@ -90,7 +91,7 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       threads[pid].sleep_sym->clear();
       ++dry_sleepers;
       threads[pid].sleeping = true;
-      //llvm::dbgs()<<"Scheduling "<<threads[pid].cpid<<"\n";//////////////////
+      //llvm::dbgs()<<"Scheduling2 "<<threads[pid].cpid<<"\n";//////////////////
       *proc = pid/2;
       *aux = pid % 2 - 1;
       *alt = 0;
@@ -114,6 +115,7 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
         curev().eop_before.clear();
 	curev().eom_before.clear();
 	curev().ppm_before.clear();
+	llvm::dbgs()<<"Prefix ";
       } else {
         /* We are replaying from the wakeup tree */
 	CPid cpid = prefix.first_child().cpid;
@@ -123,8 +125,9 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
                  /* Jump a few hoops to get the next Branch before
                   * calling enter_first_child() */
                  prefix.parent_at(prefix_idx).begin().branch().sym));
+	llvm::dbgs()<<"New branch ";
       }
-      //llvm::dbgs()<<"Scheduling "<<threads[pid].cpid<<"\n";/////////////////
+      //llvm::dbgs()<<"Scheduling3 "<<threads[pid].cpid<<"\n";/////////////////
       *proc = pid/2;
       *aux = pid % 2 - 1;
       *alt = curbranch().alt;
@@ -683,7 +686,6 @@ bool TSOTraceBuilder::start(int pid){
   }
   if(threads[pid*2].available == true){
     llvm::dbgs()<<"Error:Thread already started\n";
-    //return;//thread already started
   }
   add_happens_after(prefix_idx, threads[pid*2].spawn_event);
   add_happens_after(prefix_idx, threads[pid*2+1].spawn_event);
@@ -2111,9 +2113,6 @@ bool TSOTraceBuilder::record_symbolic(SymEv event){
     SymEv &last = curev().sym[sym_idx++];
     if (!last.is_compatible_with(event)) {
       auto pid_str = [this](IPid p) { return threads[p*2].cpid.to_string(); };
-      llvm::dbgs()<<"Event with effect " << last.to_string(pid_str)
-		  << " became " << event.to_string(pid_str)
-		  << " when replayed\n";
       nondeterminism_error("Event with effect " + last.to_string(pid_str)
                            + " became " + event.to_string(pid_str)
                            + " when replayed");

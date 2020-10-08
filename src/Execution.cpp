@@ -3103,6 +3103,7 @@ void Interpreter::callQThreadPostMsg(Function *F,
     abort();
     return;
   }
+  if(DryRun) return;
   Function *F_msg = (Function*)GVTOP(ArgVals[1]);
   std::vector<GenericValue> ArgVals_msg(1,ArgVals[2]);
   int caller_thread = CurrentThread;
@@ -3128,11 +3129,11 @@ void Interpreter::callQThreadQuit(Function *F,
 void Interpreter::callQThreadExec(Function *F,
 				  const std::vector<GenericValue> &ArgVals) {
   inactive_handlers.push_back(CurrentThread);
+  TB.mark_unavailable(CurrentThread);
   if(Threads[CurrentThread].posts.empty()){
     Threads[CurrentThread].ready_to_receive = true;
     return;
   }
-  TB.mark_unavailable(CurrentThread);
   int first_message = Threads[CurrentThread].posts.front();
   TB.mark_available(first_message);
   Threads[CurrentThread].posts.pop();
