@@ -671,14 +671,14 @@ protected:
   void compute_ppm();
   /* Compute eop, eom, and ppm happens after */
   void compute_derived_happens_after();
-  void recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq);
+  void recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq, const int& fpid);
   /* Clear all vector clocks */
   void clear_vclocks();
   /* Computes the vector clocks of all events in a complete execution
    * sequence from happens_after and race edges.
    */
   void compute_vclocks_for_seq(std::map<int,Event> &seq, int &cut_point);
-  void compute_vclocks(int pass);
+  void compute_vclocks(int pass=1);
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
   /* Perform planning of future executions. Requires the trace to be
@@ -763,6 +763,9 @@ protected:
   void race_detect_optimal(const Race&, const struct obs_sleep&);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch> wakeup_sequence(const Race&,
+				      std::map<int,Event> &wakeup_ev_seq) const;
+  /* Compute the wakeup sequence for reversing a race. */
+  std::vector<Branch> ws_for_msg_msg_race(const Race&,
 				      std::map<int,Event> &wakeup_ev_seq) const;
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,

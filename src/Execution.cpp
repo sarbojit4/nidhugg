@@ -3443,7 +3443,6 @@ void Interpreter::terminate(Type *RetTy, GenericValue Result){
   if(CurrentThread != 0){
     assert(RetTy == Type::getInt8PtrTy(RetTy->getContext()));
     Threads[CurrentThread].RetVal = Result;
-    TB.mark_unavailable(CurrentThread);
     if(0 <= Threads[CurrentThread].handler_id){
       if(!Threads[Threads[CurrentThread].handler_id].posts.empty()){//consume next message
         int next_msg = Threads[Threads[CurrentThread].handler_id].posts.front();
@@ -3577,6 +3576,8 @@ void Interpreter::run() {
       if(CurrentThread == 0 && AtExitHandlers.size()){
         callFunction(AtExitHandlers.back(),{});
         AtExitHandlers.pop_back();
+      }else{
+        TB.mark_unavailable(CurrentThread);
       }
     }
 
