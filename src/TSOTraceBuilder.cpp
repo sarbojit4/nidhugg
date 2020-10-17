@@ -2357,9 +2357,9 @@ void TSOTraceBuilder::linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
 					   int cut_point) const{
   std::vector<std::pair<int,Event>> v1;
   for(auto it1 = wakeup_ev_seq.begin(); it1 != wakeup_ev_seq.end(); it1++){
-    v1.push_back(*it1);
+    v1.push_back(*it1);//Sorting map not possible, need to copy into vector. 
   }
-  for(auto v_it1 = v1.begin()+cut_point; v_it1 != v1.end(); v_it1++){
+  for(auto v_it1 = v1.begin(); v_it1 != v1.end(); v_it1++){
     for(auto v_it2 = v_it1+1; v_it2 != v1.end(); v_it2++){
       if(v_it1->second.clock.gt(v_it2->second.clock)){
         std::pair<int,Event> p2 = std::make_pair(v_it2->first,v_it2->second);
@@ -2374,25 +2374,32 @@ void TSOTraceBuilder::linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
   for(int i = 0; i < v1.size(); i++){
     wakeup_ev_seq.insert(std::pair<int,Event>(i, v1[i].second));
   }
-  std::vector<Branch> temp;
+  v.clear();
+  //std::vector<Branch> temp;
   for(auto it1 = v1.begin(); it1 != v1.end(); it1++){
-    temp.push_back(branch_with_symbolic_data(it1->first));
-    IPid ipid = prefix[it1->first].iid.get_pid();
-    temp.back().cpid = threads[ipid].cpid;
-    }
-  v.assign(temp.begin(),temp.end());
+    v.push_back(branch_with_symbolic_data(it1->first));
+    //IPid ipid = prefix[it1->first].iid.get_pid();
+    //temp.back().cpid = threads[ipid].cpid;
+  }
+  //v.assign(temp.begin(),temp.end());
 }					   
 
 bool TSOTraceBuilder::redundant_wakeup_seq(std::map<int,Event> wakeup_ev_seq,
 					   int ins_point){
   std::unordered_map<IID<IPid>,VClock<int>> post_ev_clocks;
+  for(int i = 0; i < ins_point; i++){//go through prefix
+    llvm::dbgs()<<prefix[i].iid<<"\n";
+    if(!prefix[i].sym.empty() && prefix[i].sym.front().kind == SymEv::POST){
+      post_ev_clocks.insert(std::pair<IID<IPid>,VClock<int>>(prefix[i].iid,
+   							     prefix[i].clock));
+    }
+  }
   for(auto ev : wakeup_ev_seq){//collect clocks of post events from WS
     if(!ev.second.sym.empty() && ev.second.sym.front().kind == SymEv::POST){
       post_ev_clocks.insert(std::pair<IID<IPid>,VClock<int>>(ev.second.iid,
    							     ev.second.clock));
     }
   }
-  auto it = wakeup_ev_seq.begin();
   std::vector<std::pair<IID<IPid>,VClock<IPid>>> post_sleep;//record sleeping posts
   for(int i = 0; i <= ins_point; i++){//go through prefix
     for(auto s_it = post_sleep.begin(); s_it != post_sleep.end(); s_it++){
@@ -2401,18 +2408,15 @@ bool TSOTraceBuilder::redundant_wakeup_seq(std::map<int,Event> wakeup_ev_seq,
         s_it--;
       }
     }
-    for(int j=0; j<prefix[i].done_posts.size(); j++){
-      assert(post_ev_clocks.find(prefix[i].done_posts[j]) != post_ev_clocks.end());
-      IID<IPid> post_iid = prefix[i].done_posts[j];
+    for(IID<IPid> post_iid:prefix[i].done_posts){
+      assert(post_ev_clocks.find(post_iid) != post_ev_clocks.end());
       VClock<IPid> clk = post_ev_clocks.at(post_iid);
       if(clk.gt(prefix[i].clock)) continue;//conflicting
       //insert non-conflicting events to post_sleep
       post_sleep.push_back(std::pair<IID<IPid>,VClock<int>>(post_iid,clk));
     }
-    it++;
   }
-  it--;
-  for(int i = ins_point; i < wakeup_ev_seq.size(); i++){//go through WS
+  for(auto it = wakeup_ev_seq.begin(); it != wakeup_ev_seq.end(); it++){//go through WS
     for(auto s_it = post_sleep.begin(); s_it != post_sleep.end(); s_it++){
       if(s_it->first == it->second.iid){//Redundant: found weak initial in post_sleep
 	return true;
@@ -2423,7 +2427,6 @@ bool TSOTraceBuilder::redundant_wakeup_seq(std::map<int,Event> wakeup_ev_seq,
       }
     }
     if(post_sleep.size() == 0) return false;
-    it++;
   }
   return true;
 }
@@ -2461,11 +2464,12 @@ void TSOTraceBuilder::race_detect_optimal
       }
       compute_vclocks_for_seq(wakeup_ev_seq, i);//this needs prefix
       compute_vclocks_for_seq(wakeup_ev_seq, i);//
+      for(int k=0; k<i; k++) wakeup_ev_seq.erase(wakeup_ev_seq.begin());
       linearize_wakeup_seq(wakeup_ev_seq,v,i);//
       if(redundant_wakeup_seq(wakeup_ev_seq,i)){
         return;
       }
-      v.erase(v.begin(), v.begin()+i);
+      //v.erase(v.begin(), v.begin()+i);
     }
   }
 

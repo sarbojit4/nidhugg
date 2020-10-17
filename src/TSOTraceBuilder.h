@@ -572,6 +572,8 @@ protected:
    */
   std::pair<bool,unsigned> try_find_process_event(IPid pid, int index) const;
   unsigned find_process_event(IPid pid, int index) const;
+  unsigned iid_to_event(IID<IPid> iid){ return find_process_event(iid.get_pid(),iid.get_index()); }
+
 
   /* Pretty-prints the iid of prefix[pos]. */
   std::string iid_string(std::size_t pos) const;
