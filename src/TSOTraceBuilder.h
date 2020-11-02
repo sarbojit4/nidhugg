@@ -664,6 +664,8 @@ protected:
   void add_eop(unsigned second, unsigned first);
   void add_eom(unsigned second, unsigned first);
   void add_ppm(unsigned second, unsigned first);
+  bool is_ppm_ordered(unsigned second, unsigned first) const;
+  bool is_eom_ordered(unsigned second, unsigned first) const;
   /* Adds a non-reversible happens-before edge between the last event
    * executed by thread (if there is such an event), and second.
    */

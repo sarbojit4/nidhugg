@@ -1740,6 +1740,32 @@ void TSOTraceBuilder::add_ppm(unsigned second, unsigned first){
   vec.push_back(first);
 }
 
+bool TSOTraceBuilder::is_ppm_ordered(unsigned second, unsigned first) const{
+  /*assert(first != ~0u);
+  assert(second != ~0u);
+  assert(first != second);
+  assert(first < second);
+  assert((long long)second <= prefix_idx);
+  std::vector<unsigned> ppms = prefix[second].ppm_before;
+  return (std::find(ppms.begin(), ppms.end(), first) != ppms.end());*/
+  return true;
+}
+
+bool TSOTraceBuilder::is_eom_ordered(unsigned second, unsigned first) const{
+  assert(first != ~0u);
+  assert(second != ~0u);
+  assert(first != second);
+  //if(first >= second) return false;
+  assert((long long)second <= prefix.len());
+  assert((long long)first <= prefix.len());
+  IPid fst = prefix[first].iid.get_pid();
+  IPid snd = prefix[second].iid.get_pid();
+  int lst_fst = threads[fst].event_indices.back();
+  int fst_snd = threads[snd].event_indices.front();
+  std::vector<unsigned> eoms = prefix[fst_snd].eom_before;
+  return (std::find(eoms.begin(), eoms.end(), lst_fst) != eoms.end());
+}
+
 void TSOTraceBuilder::add_happens_after_thread(unsigned second, IPid thread){
   assert((int)second == prefix_idx);
   if (threads[thread].event_indices.empty()) return;
@@ -2108,10 +2134,18 @@ bool TSOTraceBuilder::record_symbolic(SymEv event){
 }
 
 bool TSOTraceBuilder::do_events_conflict(int i, int j) const{
-  const bool is_ppm_ordered =
-    (prefix[i].ppm_before.size() != 0 &&
-     std::find(prefix[i].ppm_before.begin(),
-     prefix[i].ppm_before.end(), j) != prefix[j].ppm_before.end());
+  //--DIRTY HACK! TODO: create proper symbolic post event ------//
+  bool is_ppm_ordered = (std::find(prefix[i].ppm_before.begin(),
+				   prefix[i].ppm_before.end(), j) !=
+			 prefix[i].ppm_before.end());
+  IPid fst = prefix[i].iid.get_pid();
+  IPid snd = prefix[j].iid.get_pid();
+  if(threads[fst].handler_id != -1 && threads[fst].spawn_event == j) return true;
+  if(threads[snd].handler_id != -1 && threads[snd].spawn_event == i) return true;
+  if(threads[fst].handler_id != -1 && threads[snd].handler_id != -1 &&
+     threads[snd].handler_id == threads[snd].handler_id &&
+     (is_eom_ordered(i,j) || is_eom_ordered(j,i))) return true;
+     
   return do_events_conflict(prefix[i], prefix[j], is_ppm_ordered);
 }
 
@@ -2141,10 +2175,10 @@ bool TSOTraceBuilder::do_symevs_conflict
   if (fst.kind == SymEv::NONDET || snd.kind == SymEv::NONDET) return false;
   if (fst.kind == SymEv::FULLMEM || snd.kind == SymEv::FULLMEM) return true;
   if (fst.kind == SymEv::POST && snd.kind == SymEv::POST){
-        if(conf.dpor_algorithm != Configuration::EVENT_DRIVEN &&
-	   fst.num() == snd.num()) return true;
-        else return is_ppm_ordered;
-      }
+    if(conf.dpor_algorithm != Configuration::EVENT_DRIVEN &&
+       fst.num() == snd.num()) return true;
+    else return is_ppm_ordered;
+  }
   if (symev_is_load(fst) && symev_is_load(snd)) return false;
   if (symev_is_unobs_store(fst) && symev_is_unobs_store(snd)
       && fst.addr() == snd.addr()) return false;
@@ -2170,8 +2204,7 @@ bool TSOTraceBuilder::do_events_conflict
   if (threads[snd_pid].handler_id == fst_pid) return true;
   if (threads[fst_pid].handler_id == threads[snd_pid].handler_id &&
       threads[fst_pid].handler_id != -1) {
-    if (conf.dpor_algorithm == Configuration::EVENT_DRIVEN) return true;
-    else return false;
+    if (conf.dpor_algorithm != Configuration::EVENT_DRIVEN) return false;
   }
   for (const SymEv &fe : fst) {
     if (symev_has_pid(fe) && fe.num() == (snd_pid / 2)) return true;

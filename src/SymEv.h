@@ -67,10 +67,18 @@ struct SymEv {
   public:
     SymAddrSize addr;
     int num;
+    struct {
+      int tgt;
+      int msg;
+    } post_info;
 
     arg() {}
     arg(SymAddrSize addr) : addr(addr) {}
     arg(int num) : num(num) {}
+    arg(int tgt, int msg) {
+      post_info.tgt = tgt;
+      post_info.msg = msg;
+    }
     // ~arg_union() {}
   } arg;
   SymData::block_type _expected, _written;
@@ -81,7 +89,7 @@ struct SymEv {
 
   static SymEv Load(SymAddrSize addr) { return {LOAD, addr}; }
   static SymEv Store(SymData addr) { return {STORE, std::move(addr)}; }
-  static SymEv Post(int tgt_proc) { return {POST, tgt_proc}; }
+  static SymEv Post(int num) { return {POST, num}; }
   static SymEv Rmw(SymData addr) { return {RMW, std::move(addr)}; }
   static SymEv CmpXhg(SymData addr, SymData::block_type expected) {
     return {CMPXHG, addr, expected};
@@ -137,6 +145,7 @@ struct SymEv {
 
 private:
   SymEv(enum kind kind, union arg arg) : kind(kind), arg(arg) {};
+  SymEv(enum kind kind, int tgt, int msg) : kind(kind), arg(tgt, msg) {};
   SymEv(enum kind kind, SymData addr_written)
     : kind(kind), arg(std::move(addr_written.get_ref())),
       _written(std::move(addr_written.get_shared_block())) {};
