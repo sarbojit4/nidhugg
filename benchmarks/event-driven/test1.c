@@ -37,5 +37,6 @@ int main(){
     pthread_join(t[i], NULL);
   }
   qthread_start(handler);
+  qthread_quit(handler);
   qthread_wait(handler, NULL);
 }
