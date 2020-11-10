@@ -445,6 +445,7 @@ protected:
      * this one because of ppm.
      */
     std::vector<unsigned> ppm_before;
+    std::vector<unsigned> rsc_before;
     /* Possibly reversible races found in the current execution
      * involving this event as the main event.
      */
@@ -677,12 +678,15 @@ protected:
   /* Compute eop, eom, and ppm happens after */
   void compute_derived_happens_after();
   void recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq, const int& fpid);
+  void clear_rsc_edges(std::map<int,Event> &wakeup_ev_seq);
   /* Clear all vector clocks */
   void clear_vclocks();
   /* Computes the vector clocks of all events in a complete execution
    * sequence from happens_after and race edges.
    */
   void compute_vclocks_for_seq(std::map<int,Event> &seq, int &cut_point);
+  void vclocks_for_seq(std::map<int,Event> &seq, const std::vector<int> &indices,
+		       std::vector<Branch> &v);
   void compute_vclocks(int pass=1);
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
@@ -760,9 +764,8 @@ protected:
    */
   void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
   void race_detect(const Race&, const struct obs_sleep&);
-  void linearize_wakeup_seq(std::map<int,Event> &wakeup_ev_seq,
-			    std::vector<Branch> &v,
-			    int cut_point) const;
+  void linearize_wakeup_seq(const std::map<int,Event> &wakeup_ev_seq,
+			    std::vector<int> &event_indices) const;
   bool redundant_wakeup_seq(std::map<int,Event> wakeup_ev_seq,
 			    int ins_point);
   void race_detect_optimal(const Race&, const struct obs_sleep&);
