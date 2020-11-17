@@ -24,6 +24,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
+#include <forward_list>
 
 #define ANSIRed "\x1b[91m"
 #define ANSIRst "\x1b[m"
@@ -2558,12 +2559,9 @@ void TSOTraceBuilder::race_detect_optimal
 	wakeup_ev_seq.erase(wakeup_ev_seq.begin());
 	v.erase(v.begin());
       }
-      //for(auto ev:wakeup_ev_seq) llvm::dbgs()<<ev.second.iid<<",";////////////////////////
-      //llvm::dbgs()<<i<<"\n";///////////////
       if(redundant_wakeup_seq(wakeup_ev_seq,i)){
         return;
       }
-      //v.erase(v.begin(), v.begin()+i);
     }
   }
 
@@ -2820,42 +2818,37 @@ ws_for_msg_msg_race(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
    * It is the sequence we want to insert into the wakeup tree.
    */
   std::vector<Branch> v;
-  bool blocked_handlers[threads.size()];
   IPid last_msg[threads.size()];
-  for(int k = 0; k < threads.size(); k=k+2){
-    blocked_handlers[k] = false;
-    last_msg[k] = -1;
-  }
-  for (int k = i + 1; k < int(prefix.len()); ++k){
-    IPid ipid = prefix[k].iid.get_pid();
-    if(ipid == fpid || ipid == spid) continue;
-    else if (!first.clock.leq(prefix[k].clock)) {
-      IPid handler = threads[ipid].handler_id;
-      if(handler != 1 && blocked_handlers[handler] == true){
-        continue;
-      }
-      last_msg[handler] = ipid;
-      wakeup_ev_seq.insert(std::pair<int,Event>(k,prefix[k]));
-      //v.emplace_back(branch_with_symbolic_data(k));
-    }
-    else{
-      IPid handler = threads[ipid].handler_id;
-      if(handler != 1)
-	blocked_handlers[handler] = true;
+  std::forward_list<IPid> confl_msgs[threads.size()];
+
+  /* Determine which is the first message after the race in conflict with the race */
+  for(int k = threads.size()-2; k > 0; k = k-2){
+    int last_event = threads[k].event_indices.back();
+    IPid handler = threads[k].handler_id;
+    if(handler != -1 &&
+       first.clock.leq(prefix[last_event].clock) &&
+       k != fpid){
+      last_msg[handler] = k;
+      confl_msgs[handler].push_front(k);
     }
   }
 
-  for(int k = 0; k < threads.size(); k=k+2){
-    int last = last_msg[threads[k].handler_id];
-    int fst_k = threads[k].event_indices.front();
-    if(threads[k].handler_id != -1 && k < last &&
-       wakeup_ev_seq.find(fst_k) == wakeup_ev_seq.end()){
-      int post_k = threads[k].spawn_event;
-      int post_last = threads[last].spawn_event;
-      llvm::dbgs()<<last<<"Adding rsc"<<prefix[post_last].iid<<":"<<prefix[post_k].iid<<"\n";/////////
-      wakeup_ev_seq.at(post_k).rsc_before.push_back(post_last);
+  /* Extract notdep */
+  for(int k = i + 1; k < int(prefix.len()); ++k){
+    IPid ipid = prefix[k].iid.get_pid();
+    if(!first.clock.leq(prefix[k].clock)){
+      IPid handler = threads[ipid].handler_id;
+      /* skip conflicting messages */
+      if(handler != 1 &&
+	 !confl_msgs[handler].empty() &&
+	 confl_msgs[handler].front() == ipid){
+	if(k == threads[ipid].event_indices.back())
+	  confl_msgs[handler].pop_front();
+        continue;
+      }
+      wakeup_ev_seq.insert(std::pair<int,Event>(k,prefix[k]));
     }
-  }      
+  }
 
   /* Include second message of the race */
   for(int k = 0; k < threads[spid].event_indices.size();){
@@ -2879,13 +2872,24 @@ ws_for_msg_msg_race(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
 	}
       }
     }
-    int last = last_msg[threads[fpid].handler_id];
-    if(k == 0 && last != -1){    
-      e.rsc_before.push_back(threads[last].event_indices.back());
-    }
     wakeup_ev_seq.insert(std::pair<int,Event>(ev, e));
-    //v.push_back(std::move(second_br));
     k += second_br.size;
+  }
+
+  for(int k = 0; k < threads.size(); k = k+2){
+    IPid handler = threads[k].handler_id;
+    if(handler != -1){
+      IPid last = last_msg[handler];
+      auto e_it = wakeup_ev_seq.find(threads[k].event_indices.back());
+      if(last != -1 && last != k && e_it != wakeup_ev_seq.end()){
+	int post_k = threads[k].spawn_event;
+	wakeup_ev_seq.at(threads[last].spawn_event).rsc_before.push_back(post_k);
+	auto first_ev = wakeup_ev_seq.find(threads[last].event_indices.front());
+	if(first_ev != wakeup_ev_seq.end()){
+	  first_ev->second.rsc_before.push_back(e_it->first);
+	}
+      }
+    }
   }
   /* TODO: reverse ppms recursively */
   //reverse_ppms_recursively(wakup_eve_seq, fpid, spid);
