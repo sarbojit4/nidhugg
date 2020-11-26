@@ -154,21 +154,29 @@ private:
 
 class SPidSys{
 public:
-  SPidSys(){ cpid_to_spid[CPid()] = 0; }
+  SPidSys(){
+    cpid_to_spid[CPid()] = 0;
+    spid_to_ipid[cpid_to_spid.size()] = 0;
+  }
   //int get_spid(int ipid){ return ipid_to_spid.at(ipid); }
   int get_spid(CPid cpid){
     assert(cpid_to_spid.find(cpid) != cpid_to_spid.end());
-    return cpid_to_spid[cpid]*2;
+    return cpid_to_spid[cpid];
   }
-  void set_spid_map(CPid cpid){
+  int get_pid(int spid){
+    assert(spid_to_ipid.find(spid) != spid_to_ipid.end());
+    return spid_to_ipid[spid];
+  }
+  void set_spid_map(CPid cpid, int ipid){
     if(cpid_to_spid.find(cpid) == cpid_to_spid.end()){
-      cpid_to_spid[cpid] = cpid_to_spid.size();
+      spid_to_ipid[cpid_to_spid.size()*2] = ipid;
+      cpid_to_spid[cpid] = cpid_to_spid.size()*2;
     }
-    //ipid_to_spid[ipid] = cpid_to_spid.at(cpid);
+    spid_to_ipid[cpid_to_spid[cpid]] = ipid;
   }
 private:
-  //std::map<int,int> ipid_to_spid;
   std::map<CPid,int> cpid_to_spid;
+  std::map<int,int> spid_to_ipid;
 };
 
 #endif

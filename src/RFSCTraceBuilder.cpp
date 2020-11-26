@@ -383,7 +383,7 @@ void RFSCTraceBuilder::debug_print() const {
 bool RFSCTraceBuilder::spawn(){
   IPid parent_ipid = curev().iid.get_pid();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
-  SPS.set_spid_map(child_cpid);
+  SPS.set_spid_map(child_cpid,threads.size());
   threads.push_back(Thread(child_cpid,prefix_idx));
   curev().may_conflict = true;
   return record_symbolic(SymEv::Spawn(threads.size() - 1));

@@ -144,6 +144,7 @@ protected:
 	sleeping(false), sleep_full_memory_conflict(false),
 	sleep_sym(nullptr), last_post(-1), handler_id(handler_id) {};
     CPid cpid;
+    int spid;
     /* Is the thread available for scheduling? */
     bool available;
     /* The index of the spawn event that created this thread, or -1 if
@@ -321,16 +322,16 @@ protected:
    */
   class Branch{
   public:
-    Branch (IID<IPid> iid, CPid cpid, int alt = 0, sym_ty sym = {})
-      : sym(std::move(sym)), iid(iid), cpid(cpid), alt(alt), size(1) {}
+    Branch (IPid spid, int index, int alt = 0, sym_ty sym = {})
+      : sym(std::move(sym)), spid(spid), index(index), alt(alt), size(1) {}
     Branch (const Branch &base, sym_ty sym)
-      : sym(std::move(sym)), iid(base.iid), cpid(base.cpid),
+      : sym(std::move(sym)), spid(base.spid), index(base.index),
 	alt(base.alt), size(base.size) {}
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
-    IID<IPid> iid;
-    CPid cpid;
+    IPid spid;
+    int index;
     /* Some instructions may execute in several alternative ways
      * nondeterministically. (E.g. malloc may succeed or fail
      * nondeterministically if Configuration::malloy_may_fail is set.)
@@ -343,10 +344,10 @@ protected:
     /* The number of events in this sequence. */
     int size;
     bool operator<(const Branch &b) const{
-      return cpid < b.cpid || (cpid == b.cpid && alt < b.alt);
+      return spid < b.spid || (spid == b.spid && alt < b.alt);
     };
     bool operator==(const Branch &b) const{
-      return cpid == b.cpid && alt == b.alt;
+      return spid == b.spid && alt == b.alt;
     };
   };
 

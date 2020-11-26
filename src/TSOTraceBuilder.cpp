@@ -36,6 +36,7 @@ TSOTraceBuilder::TSOTraceBuilder(const Configuration &conf) : TSOPSOTraceBuilder
   threads.push_back(Thread(CPid(), -1));
   threads.push_back(Thread(CPS.new_aux(CPid()), -1));
   threads[1].available = false; // Store buffer is empty.
+  threads[0].spid = 0;
   prefix_idx = -1;
   dryrun = false;
   replay = false;
@@ -71,7 +72,7 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       /* We are done replaying. Continue below... */
       assert(prefix_idx < 0 || curev().sym.size() == sym_idx
              || (errors.size() && errors.back()->get_location()
-                 == IID<CPid>(curbranch().cpid,
+                 == IID<CPid>(threads[SPS.get_pid(curbranch().spid)].cpid,
                               curev().iid.get_index())));
       replay = false;
       assert(conf.dpor_algorithm == Configuration::SOURCE
@@ -103,7 +104,7 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       /* Go to the next event. */
       assert(prefix_idx < 0 || curev().sym.size() == sym_idx
              || (errors.size() && errors.back()->get_location()
-                 == IID<CPid>(curbranch().cpid,
+                 == IID<CPid>(threads[SPS.get_pid(curbranch().spid)].cpid,
                               curev().iid.get_index())));
       dry_sleepers = 0;
       sym_idx = 0;
@@ -118,8 +119,7 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
 	curev().ppm_before.clear();
       } else {
         /* We are replaying from the wakeup tree */
-	CPid cpid = prefix.first_child().cpid;
-	pid = CPS.get_pid(cpid);
+	pid = SPS.get_pid(prefix.first_child().spid);
         prefix.enter_first_child
           (Event(IID<IPid>(pid,threads[pid].last_event_index() + 1),
                  /* Jump a few hoops to get the next Branch before
@@ -199,7 +199,7 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       threads[p].event_indices.push_back(++prefix_idx);
       assert(prefix_idx == int(prefix.len()));
       IID<IPid> iid(IPid(p),threads[p].last_event_index());
-      prefix.push(Branch(iid,threads[p].cpid),Event(iid));
+      prefix.push(Branch(threads[p].spid,threads[p].last_event_index()),Event(iid));
       *proc = p/2;
       *aux = 0;
       return true;
@@ -212,7 +212,7 @@ bool TSOTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       threads[p].event_indices.push_back(++prefix_idx);
       assert(prefix_idx == int(prefix.len()));
       IID<IPid> iid(IPid(p),threads[p].last_event_index());
-      prefix.push(Branch(iid,threads[p].cpid),Event(iid));
+      prefix.push(Branch(threads[p].spid,threads[p].last_event_index()),Event(iid));
       *proc = p/2;
       *aux = -1;
       return true;
@@ -366,22 +366,22 @@ bool TSOTraceBuilder::reset(){
     /* Find the index of br.pid. */
     int br_idx = 1;
     for(int j = i-1; br_idx == 1 && 0 <= j; --j){
-      if(threads[prefix[j].iid.get_pid()].cpid == br.cpid){
+      if(threads[prefix[j].iid.get_pid()].spid == br.spid){
         br_idx = prefix[j].iid.get_index() + prefix.branch(j).size;
       }
     }
 
-    Event evt(IID<IPid>(CPS.get_pid(br.cpid),br_idx));
+    Event evt(IID<IPid>(SPS.get_pid(br.spid),br_idx));
 
     evt.sym = br.sym; /* For replay sanity assertions only */
     evt.sleep = prev_evt.sleep;
     evt.done_posts = prev_evt.done_posts;
-    if(CPS.get_pid(br.cpid) != prev_evt.iid.get_pid()){
+    if(br.spid != threads[prev_evt.iid.get_pid()].spid){
       if(!prev_evt.sym.empty() && prev_evt.sym.front().kind == SymEv::POST &&
 	 conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
         evt.done_posts.push_back(prev_evt.iid);
       }
-      else evt.sleep.insert(prev_evt.iid.get_pid());
+      else evt.sleep.insert(threads[prev_evt.iid.get_pid()].spid);
     }
     evt.sleep_branch_trace_count = sleep_branch_trace_count;
 
@@ -393,6 +393,8 @@ bool TSOTraceBuilder::reset(){
   threads.push_back(Thread(CPid(),-1));
   threads.push_back(Thread(CPS.new_aux(CPid()),-1));
   threads[1].available = false; // Store buffer is empty.
+  threads[0].spid = 0;
+  SPS.set_spid_map(CPid(),0);
   mutexes.clear();
   cond_vars.clear();
   mem.clear();
@@ -414,8 +416,7 @@ IID<CPid> TSOTraceBuilder::get_iid() const{
   return IID<CPid>(threads[pid].cpid,idx);
 }
 int TSOTraceBuilder::get_spid(int pid){
-  CPid cpid = threads[pid*2].cpid;
-  return (SPS.get_spid(cpid))/2;
+  return threads[pid*2].spid;
 } 
 
 static std::string rpad(std::string s, int n){
@@ -429,7 +430,7 @@ std::string TSOTraceBuilder::iid_string(std::size_t pos) const{
 
 std::string TSOTraceBuilder::iid_string(const Branch &branch, int index) const{
   std::stringstream ss;
-  ss << "(" << branch.cpid << "," << index;
+  ss << "(" << branch.spid << "," << index;
   if(branch.size > 1){
     ss << "-" << index + branch.size - 1;
   }
@@ -499,7 +500,7 @@ void TSOTraceBuilder::wut_string_add_node
     }
     iid_map_step_rev(iid_map, b);
     while(lines[l].size() < offset) lines[l] += " ";
-    lines[l] += " " + iid_string(b, iid_map[b.iid.get_pid()]);
+    lines[l] += " " + iid_string(b, iid_map[b.spid]);
     nodes.pop_back();
   }
 }
@@ -659,10 +660,12 @@ void TSOTraceBuilder::debug_print() const {
 bool TSOTraceBuilder::spawn(){
   IPid parent_ipid = curev().iid.get_pid();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
-  SPS.set_spid_map(child_cpid);
+  SPS.set_spid_map(child_cpid,threads.size());
   /* TODO: First event of thread happens before parents spawn */
   threads.push_back(Thread(child_cpid,prefix_idx));
+  threads.back().spid = SPS.get_spid(child_cpid);
   threads.push_back(Thread(CPS.new_aux(child_cpid),prefix_idx));
+  threads.back().spid = SPS.get_spid(child_cpid);
   threads.back().available = false; // Empty store buffer
   return record_symbolic(SymEv::Spawn(threads.size() / 2 - 1));
 }
@@ -670,11 +673,13 @@ bool TSOTraceBuilder::spawn(){
 void TSOTraceBuilder::create(){
   IPid parent_ipid = curev().iid.get_pid();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
-  SPS.set_spid_map(child_cpid);
+  SPS.set_spid_map(child_cpid,threads.size());
   /* TODO: First event of thread happens before parents spawn */
   threads.push_back(Thread(child_cpid,prefix_idx));
+  threads.back().spid = SPS.get_spid(child_cpid);
   threads.back().available = false;
   threads.push_back(Thread(CPS.new_aux(child_cpid),prefix_idx));
+  threads.back().spid = SPS.get_spid(child_cpid);
   threads.back().available = false; // Empty store buffer
 }
 
@@ -1411,7 +1416,7 @@ TSOTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const{
 #ifndef NDEBUG
     obs_wake_res res =
 #endif
-      obs_sleep_wake(sleep, e.iid.get_pid(), sym);
+      obs_sleep_wake(sleep, threads[e.iid.get_pid()].spid, sym);
     assert(res != obs_wake_res::BLOCK);
   }
 }
@@ -1508,7 +1513,7 @@ sequence_clears_sleep(const std::vector<Branch> &seq,
   obs_wake_res state = obs_wake_res::CONTINUE;
   for (auto it = seq.cbegin(); state == obs_wake_res::CONTINUE
          && it != seq.cend(); ++it) {
-    state = obs_sleep_wake(isleep, it->iid.get_pid(), it->sym);
+    state = obs_sleep_wake(isleep, it->spid, it->sym);
   }
   /* Redundant */
   return (state == obs_wake_res::CLEAR);
@@ -1857,12 +1862,10 @@ void TSOTraceBuilder::recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq, 
     if(threads[i].handler_id == -1) continue;//not a message
     int second = threads[i].event_indices.front();//first event of message
     if(i == fpid || wakeup_ev_seq.find(second) != wakeup_ev_seq.end()) continue;//first event of message is not in WS
-    //llvm::dbgs()<<second<<prefix[i].eom_before.size()<<"\n";//////////////////////////
     for(int ei:prefix[second].eom_before){//for each eom edge
       int j = prefix[ei].iid.get_pid();
       int first = threads[j].event_indices.front();
       if(wakeup_ev_seq.find(first) != wakeup_ev_seq.end()){
-	//llvm::dbgs()<<"j!=fpid\n";
 	continue;
       }
       assert(threads[i].handler_id == threads[j].handler_id);
@@ -1871,14 +1874,12 @@ void TSOTraceBuilder::recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq, 
       std::vector<unsigned> &vec = wakeup_ev_seq.at(second_post).ppm_before;
       for(auto it = vec.begin(); it != vec.end(); it++){
 	if(*it == first_post){
-	  //llvm::dbgs()<<"Erasing ppm "<<first_post<<second_post<<"\n";///////////////////
 	  vec.erase(it);
 	  break;
 	}
       }
     }
   }
-  //llvm::dbgs()<<"------\n";//////////////
 }
 
 void TSOTraceBuilder::clear_rsc_edges(std::map<int,Event> &wakeup_ev_seq){
@@ -2354,8 +2355,8 @@ void TSOTraceBuilder::race_detect
   if (race.kind == Race::NONDET){
     assert(race.alternative > prefix.branch(i).alt);
     prefix.parent_at(i)
-      .put_child(Branch({prefix[i].iid,
-			 threads[prefix[i].iid.get_pid()].cpid,
+      .put_child(Branch({threads[prefix[i].iid.get_pid()].spid,
+			 prefix[i].iid.get_index(),
 			 race.alternative,
                          prefix.branch(i).sym}));
     return;
@@ -2376,7 +2377,7 @@ void TSOTraceBuilder::race_detect
    * candidates[p] is out of bounds, or has the value -1.
    */
   std::vector<int> candidates;
-  Branch cand = {IID<IPid>(-1,0),CPid()};
+  Branch cand(0,0);
   const sym_ty *cand_sym = nullptr;
   const VClock<IPid> &iclock = prefix[i].clock;
   for(int k = i+1; k <= j; ++k){
@@ -2407,22 +2408,21 @@ void TSOTraceBuilder::race_detect
       candidates.resize(p+1,-1);
     }
     candidates[p] = iid.get_index();
-    cand.iid = iid;
-    cand.cpid = threads[p].cpid;
+    cand.spid = threads[p].spid;
     cand.size = psize;
     cand_sym = &pevent->sym;
     if(prefix.parent_at(i).has_child(cand)){
       /* There is already a satisfactory candidate branch */
       return;
     }
-    if(isleep.count(cand.iid.get_pid())){
+    if(isleep.count(SPS.get_pid(cand.spid))){
       /* This candidate is already sleeping (has been considered) at
        * prefix[i]. */
       return;
     }
   }
 
-  assert(0 <= cand.iid.get_pid());
+  assert(0 <= SPS.get_pid(cand.spid));
   assert(cand_sym);
   cand.sym = *cand_sym;
   if (race.kind == Race::NONBLOCK) {
@@ -2438,19 +2438,6 @@ void TSOTraceBuilder::linearize_wakeup_seq(const std::map<int,Event> &wakeup_ev_
   for(auto it1 = wakeup_ev_seq.begin(); it1 != wakeup_ev_seq.end(); it1++){
     v.push_back(*it1);//Sorting map not possible, need to copy into vector. 
   }
-  /*
-  for(auto v_it1 = v1.begin(); v_it1 != v1.end(); v_it1++){
-    for(auto v_it2 = v_it1+1; v_it2 != v1.end(); v_it2++){
-      if(v_it1->second.clock.gt(v_it2->second.clock)){
-        std::pair<int,Event> p2 = std::make_pair(v_it2->first,v_it2->second);
-	v_it2 = v1.erase(v_it2);
-        v1.insert(v_it1, p2);
-	v_it1--;
-	break;
-      }
-    }
-  }
-  */
   auto v_it = v.begin();
   for(int i = v.size()-1; i >= 0; --i){
     int pos = i;
@@ -2523,7 +2510,7 @@ void TSOTraceBuilder::race_detect_optimal
   int i = race.first_event;
   IPid fpid = prefix[i].iid.get_pid();
   IPid spid = prefix[race.second_event].iid.get_pid();
-  //llvm::dbgs()<<"Race "<<prefix[i].iid<<" "<<prefix[race.second_event].iid<<"\n";
+  llvm::dbgs()<<"Race "<<prefix[i].iid<<" "<<prefix[race.second_event].iid<<"\n";
 
   /* sequence of events in wakeup sequence */
   std::map<int,Event> wakeup_ev_seq;
@@ -2540,6 +2527,8 @@ void TSOTraceBuilder::race_detect_optimal
     }
   }
   std::vector<Branch> v = wakeup_sequence(race, wakeup_ev_seq);
+
+  //for(auto ev:wakeup_ev_seq) llvm::dbgs()<<ev.first;
   
   if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
     recompute_ppm_for_seq(wakeup_ev_seq,fpid);
@@ -2570,9 +2559,10 @@ void TSOTraceBuilder::race_detect_optimal
   std::unordered_map<IID<IPid>,VClock<int>> post_ev_clocks;
   if (conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
     for(auto ev : wakeup_ev_seq){
-      if(!ev.second.sym.empty() && ev.second.sym.front().kind == SymEv::POST)
+      if(!ev.second.sym.empty() && ev.second.sym.front().kind == SymEv::POST){
         post_ev_clocks.insert(std::pair<IID<IPid>,
 			      VClock<int>>(ev.second.iid,ev.second.clock));
+      }
     }
   }
   /* Do insertion into the wakeup tree */
@@ -2603,8 +2593,8 @@ void TSOTraceBuilder::race_detect_optimal
              */
             for (auto pei = v.begin(); skip == NO && pei != vei; ++pei){
               const Branch &pe = *pei;
-              if (do_events_conflict(ve.iid.get_pid(), ve.sym,
-                                     pe.iid.get_pid(), pe.sym, false)){
+              if (do_events_conflict(ve.spid, ve.sym,
+                                     pe.spid, pe.sym, false)){
                 skip = NEXT;
               }
             }
@@ -2628,9 +2618,9 @@ void TSOTraceBuilder::race_detect_optimal
              * We need to scan v to find all of them.
              */
             int missing = child_it.branch().size - ve.size;
-            IPid pid = ve.iid.get_pid();
+            int spid = ve.spid;
             for (auto vri = v.erase(vei); missing != 0 && vri != v.end();) {
-              if (vri->iid.get_pid() == pid) {
+              if (vri->spid == spid) {
                 assert(vri->sym.empty());
                 if (vri->size > missing) {
                   vri->size = missing;
@@ -2661,11 +2651,17 @@ void TSOTraceBuilder::race_detect_optimal
 	    !ve.sym.empty() && !child_sym.empty() &&
 	    ve.sym.front().kind == SymEv::POST &&
 	    child_sym.front().kind == SymEv::POST){
-	    if (post_ev_clocks.at(ve.iid).lt(post_ev_clocks.at(child_it.branch().iid)))
-	      skip = NEXT;
+	  IID<IPid> ve_iid(SPS.get_pid(ve.spid),ve.index);
+	  IID<IPid> child_iid(SPS.get_pid(child_it.branch().spid),
+			      child_it.branch().index);
+	  auto clock_it = post_ev_clocks.find(child_iid);
+	  if(clock_it != post_ev_clocks.end() &&
+	     post_ev_clocks.at(ve_iid).lt(clock_it->second))
+	    skip = NEXT;
+	  //else TODO: create a storage for undecided wakeup sewquence and store
 	}
-        else if (do_events_conflict(SPS.get_spid(ve.cpid), ve.sym,
-				    SPS.get_spid(child_it.branch().cpid),
+        else if (do_events_conflict(ve.spid, ve.sym,
+				    child_it.branch().spid,
 				    child_sym, false)) {
           /* This branch is incompatible, try the next */
           skip = NEXT;
@@ -2709,12 +2705,11 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
   }
   const Event &first = prefix[i];
   Event second({-1,0});
-  Branch second_br(IID<IPid>(-1,0),CPid());
+  Branch second_br(0,0);
   if (race.kind == Race::LOCK_FAIL) {
     second = reconstruct_lock_event(race);
     /* XXX: Lock events don't have alternatives, right? */
-    second_br = Branch(second.iid,
-                       threads[second.iid.get_pid()].cpid);
+    second_br = Branch(threads[second.iid.get_pid()].spid,second.iid.get_index());
     second_br.sym = std::move(second.sym);
   } else if (race.kind == Race::NONDET) {
     second = first;
@@ -2788,12 +2783,12 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
     witness_br.size = 1;
     
     v.emplace_back(std::move(first_br));
-    v.back().cpid = threads[prefix[i].iid.get_pid()].cpid;
+    v.back().spid = threads[prefix[i].iid.get_pid()].spid;
     v.insert(v.end(), std::make_move_iterator(notobs.begin()),
              std::make_move_iterator(notobs.end()));
     notobs.clear(); /* Since their states are undefined after std::move */
     v.emplace_back(std::move(witness_br));
-    v.back().cpid = threads[prefix[k].iid.get_pid()].cpid;
+    v.back().spid = threads[prefix[k].iid.get_pid()].spid;
   }
 
   if (conf.dpor_algorithm == Configuration::OBSERVERS) {
@@ -2885,8 +2880,11 @@ ws_for_msg_msg_race(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
 	int post_k = threads[k].spawn_event;
 	wakeup_ev_seq.at(threads[last].spawn_event).rsc_before.push_back(post_k);
 	auto first_ev = wakeup_ev_seq.find(threads[last].event_indices.front());
+	//llvm::dbgs()<<"Adding rsc edges:"<<prefix[post_k].iid<<":"<<prefix[threads[last].spawn_event].iid<<"\n";/////////////
 	if(first_ev != wakeup_ev_seq.end()){
 	  first_ev->second.rsc_before.push_back(e_it->first);
+	  //llvm::dbgs()<<"Adding rsc edges:"<<e_it->second.iid<<":"<<first_ev->second.iid<<"\n";/////////////
+
 	}
       }
     }
@@ -2916,12 +2914,12 @@ std::vector<int> TSOTraceBuilder::iid_map_at(int event) const{
 }
 
 void TSOTraceBuilder::iid_map_step(std::vector<int> &iid_map, const Branch &event) const{
-  if (iid_map.size() <= unsigned(event.iid.get_pid())) iid_map.resize(event.iid.get_pid()+1, 1);
-  iid_map[event.iid.get_pid()] += event.size;
+  if (iid_map.size() <= unsigned(event.spid)) iid_map.resize(event.spid+1, 1);
+  iid_map[event.spid] += event.size;
 }
 
 void TSOTraceBuilder::iid_map_step_rev(std::vector<int> &iid_map, const Branch &event) const{
-  iid_map[event.iid.get_pid()] -= event.size;
+  iid_map[event.spid] -= event.size;
 }
 
 TSOTraceBuilder::Event TSOTraceBuilder::

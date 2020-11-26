@@ -410,7 +410,7 @@ bool PSOTraceBuilder::spawn(){
   IPid parent_ipid = curnode().iid.get_pid();
   IPid child_ipid = threads.size();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
-  SPS.set_spid_map(child_cpid);
+  SPS.set_spid_map(child_cpid,child_ipid);
   int proc = 0;
   for(unsigned i = 0; i < threads.size(); ++i){
     proc = std::max(proc,threads[i].proc+1);
