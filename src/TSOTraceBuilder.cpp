@@ -430,7 +430,7 @@ std::string TSOTraceBuilder::iid_string(std::size_t pos) const{
 
 std::string TSOTraceBuilder::iid_string(const Branch &branch, int index) const{
   std::stringstream ss;
-  ss << "(" << branch.spid << "," << index;
+  ss << "(" << threads[SPS.get_pid(branch.spid)].cpid << "," << index;
   if(branch.size > 1){
     ss << "-" << index + branch.size - 1;
   }
@@ -2510,7 +2510,7 @@ void TSOTraceBuilder::race_detect_optimal
   int i = race.first_event;
   IPid fpid = prefix[i].iid.get_pid();
   IPid spid = prefix[race.second_event].iid.get_pid();
-  llvm::dbgs()<<"Race "<<prefix[i].iid<<" "<<prefix[race.second_event].iid<<"\n";
+  //llvm::dbgs()<<"Race "<<prefix[i].iid<<" "<<prefix[race.second_event].iid<<"\n";
 
   /* sequence of events in wakeup sequence */
   std::map<int,Event> wakeup_ev_seq;
