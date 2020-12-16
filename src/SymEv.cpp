@@ -38,7 +38,7 @@ bool SymEv::is_compatible_with(SymEv other) const {
   case STORE: case UNOBS_STORE:
     if (arg.addr != other.arg.addr) return false;
     break;
-  case SPAWN: case JOIN:
+  case SPAWN: case JOIN: case POST:
   case NONDET:
     if (arg.num != other.arg.num) return false;
     break;
@@ -76,6 +76,7 @@ std::string SymEv::to_string(std::function<std::string(int)> pid_str) const {
     case LOAD:     return "Load("    + arg.addr.to_string(pid_str) + ")";
     case STORE:    return "Store("   + arg.addr.to_string(pid_str)
         + "," + block_to_string(_written, arg.addr.size) + ")";
+    case POST:  return "Post("+pid_str(arg.num)+")";
     case FULLMEM:  return "Fullmem()";
 
     case M_INIT:   return "MInit("   + arg.addr.to_string(pid_str) + ")";
@@ -125,7 +126,7 @@ bool SymEv::has_addr() const {
     return true;
   case NONE:
   case FULLMEM: case NONDET:
-  case SPAWN: case JOIN:
+  case SPAWN: case JOIN: case POST:
     return false;
   }
   abort();
@@ -133,7 +134,7 @@ bool SymEv::has_addr() const {
 
 bool SymEv::has_num() const {
   switch(kind) {
-  case SPAWN: case JOIN:
+  case SPAWN: case JOIN: case POST:
   case NONDET:
     return true;
   case NONE:
@@ -156,7 +157,7 @@ bool SymEv::has_data() const {
   case RMW: case CMPXHG: case CMPXHGFAIL:
     return (bool)_written;
   case NONE:
-  case SPAWN: case JOIN:
+  case SPAWN: case JOIN: case POST:
   case NONDET:
   case C_WAIT: case C_AWAKE:
   case FULLMEM:
@@ -174,7 +175,7 @@ bool SymEv::has_expected() const {
   case CMPXHG: case CMPXHGFAIL:
     return (bool)_written;
   case NONE:
-  case SPAWN: case JOIN:
+  case SPAWN: case JOIN: case POST:
   case NONDET:
   case C_WAIT: case C_AWAKE:
   case FULLMEM:

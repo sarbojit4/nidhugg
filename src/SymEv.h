@@ -59,6 +59,7 @@ struct SymEv {
 
     SPAWN,
     JOIN,
+    POST,
 
     UNOBS_STORE,
   } kind;
@@ -80,6 +81,7 @@ struct SymEv {
 
   static SymEv Load(SymAddrSize addr) { return {LOAD, addr}; }
   static SymEv Store(SymData addr) { return {STORE, std::move(addr)}; }
+  static SymEv Post(int num) { return {POST, num}; }
   static SymEv Rmw(SymData addr) { return {RMW, std::move(addr)}; }
   static SymEv CmpXhg(SymData addr, SymData::block_type expected) {
     return {CMPXHG, addr, expected};
