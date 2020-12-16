@@ -3030,6 +3030,114 @@ void Interpreter::callAssertFail(Function *F,
   abort();
 }
 
+/* ...................Qt functions....................... */
+/* TODO: reuse code of pthread_create to do qthread_create */
+void Interpreter::callQThreadCreate(Function *F,
+				    const std::vector<GenericValue> &ArgVals) {
+  TB.create();
+  // Return 0 (success)
+  GenericValue Result;
+  Result.IntVal = APInt(F->getReturnType()->getIntegerBitWidth(),0);
+  returnValueToCaller(F->getReturnType(),Result);//return 0 on success
+
+  // Save thread ID to the location pointed to by the first argument
+  {
+    int new_tid = Threads.size();
+    GenericValue *Ptr = (GenericValue*)GVTOP(ArgVals[0]);
+    if(Ptr){
+      Type *ity = static_cast<PointerType*>(F->arg_begin()->getType())->getElementType();
+      GenericValue TIDVal = tid_to_pthread_t(ity,new_tid);
+      StoreValueToMemory(TIDVal,Ptr,ity);
+    }else{
+      /* Allow null pointers in first argument. For convenience. */
+    }
+  }
+
+  // Add a new stack for the new thread
+  int tid = newThread(CPS.spawn(Threads[CurrentThread].cpid));
+
+  // Build stack frame for the call
+  Function *F_inner = (Function*)GVTOP(ArgVals[1]);
+  std::vector<GenericValue> ArgVals_inner;
+  if(F_inner->arg_size() == 1 &&
+     F_inner->arg_begin()->getType() == Type::getInt8PtrTy(F->getContext())){
+    ArgVals_inner.push_back(ArgVals[2]);
+  }else if(F_inner->arg_size()){
+    std::string _err;
+    llvm::raw_string_ostream err(_err);
+    err << "Unsupported: function passed as argument to pthread_create has type: "
+        << *F_inner->getType();
+    throw std::logic_error(err.str().c_str());
+  }
+  Threads[tid].F_inner=F_inner;
+  Threads[tid].ArgVals_inner=ArgVals_inner;
+}
+
+void Interpreter::callQThreadStart(Function *F,
+				   const std::vector<GenericValue> &ArgVals) {
+  // Memory fence
+  int caller_thread = CurrentThread;
+  CurrentThread = pthread_t_to_tid(F->arg_begin()->getType(), ArgVals[0]);
+  if(!TB.fence() || !TB.start(CurrentThread)){//callback to TraceBuilder
+    abort();
+    return;
+  }
+  callFunction(Threads[CurrentThread].F_inner,
+	       Threads[CurrentThread].ArgVals_inner);
+  // Return to caller
+  CurrentThread = caller_thread;
+}
+
+void Interpreter::callQThreadWait(Function *F,
+				  const std::vector<GenericValue> &ArgVals) {
+  callPthreadJoin(F,ArgVals);
+}
+
+void Interpreter::callQThreadPostMsg(Function *F,
+				     const std::vector<GenericValue> &ArgVals) {
+  int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
+  if(!TB.post(tid)){
+    abort();
+    return;
+  }
+  if(DryRun) return;
+  Function *F_msg = (Function*)GVTOP(ArgVals[1]);
+  std::vector<GenericValue> ArgVals_msg(1,ArgVals[2]);
+  int caller_thread = CurrentThread;
+  CurrentThread = newThread(CPS.spawn(Threads[CurrentThread].cpid));
+  Threads[CurrentThread].handler_id = tid;
+  if(Threads[tid].ready_to_receive){
+    TB.mark_available(Threads.size()-1);
+  }else{
+    //TB.mark_unavailable(Threads.size()-1);
+    Threads[tid].posts.push(Threads.size()-1);
+  }
+  callFunction(F_msg,ArgVals_msg);
+  CurrentThread=caller_thread;
+}
+
+void Interpreter::callQThreadQuit(Function *F,
+				  const std::vector<GenericValue> &ArgVals) {
+  int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
+  Threads[tid].quitQ=true;
+  TB.mark_available(tid);
+}
+
+void Interpreter::callQThreadExec(Function *F,
+				  const std::vector<GenericValue> &ArgVals) {
+  inactive_handlers.push_back(CurrentThread);
+  TB.mark_unavailable(CurrentThread);
+  if(Threads[CurrentThread].posts.empty()){
+    Threads[CurrentThread].ready_to_receive = true;
+    return;
+  }
+  int first_message = Threads[CurrentThread].posts.front();
+  TB.mark_available(first_message);
+  Threads[CurrentThread].posts.pop();
+}
+
+
+
 //===----------------------------------------------------------------------===//
 // callFunction - Execute the specified function...
 //
@@ -3098,6 +3206,38 @@ void Interpreter::callFunction(Function *F,
     return;
   }else if(F->getName().str() == "__assert_fail"){
     callAssertFail(F,ArgVals);
+    return;
+  }
+
+    //Qt functions----
+  else if(F->getName().str() == "qthread_create"){
+    //callQThreadCreate(F, ArgVals);
+    //dbgs()<<"Handling QThread_create function\n";
+    return;
+  }
+  else if(F->getName().str() == "qthread_start"){
+    //dbgs()<<"Handling QThread_start function\n";
+    //callQThreadStart(F, ArgVals);
+    return;
+  }
+  else if(F->getName().str() == "qthread_wait"){
+    //dbgs()<<"Handling QThread_wait function\n";
+    //callQThreadWait(F, ArgVals);
+    return;
+  }
+  else if(F->getName().str() == "qthread_post_event"){
+    //dbgs()<<"Handling QThread_post_event function\n";
+    //callQThreadPostMsg(F, ArgVals);
+    return;
+  }
+  else if(F->getName().str() == "qthread_exec"){
+    //dbgs()<<"Handling QThread_exec function\n";
+    //callQThreadExec(F, ArgVals);
+    return;
+  }
+  else if(F->getName().str() == "qthread_quit"){
+    //dbgs()<<"Handling QThread_quit function\n";
+    //callQThreadQuit(F, ArgVals);
     return;
   }
 

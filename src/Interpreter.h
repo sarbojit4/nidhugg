@@ -607,6 +607,13 @@ protected:  // Helper functions
   virtual void callFree(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callAssertFail(Function *F, const std::vector<GenericValue> &ArgVals);
   virtual void callAtexit(Function *F, const std::vector<GenericValue> &ArgVals);
+  //qt functions
+  virtual void callQThreadCreate(Function *F, const std::vector<GenericValue> &ArgVals);
+  virtual void callQThreadStart(Function *F, const std::vector<GenericValue> &ArgVals);
+  virtual void callQThreadWait(Function *F, const std::vector<GenericValue> &ArgVals);
+  virtual void callQThreadQuit(Function *F, const std::vector<GenericValue> &ArgVals);
+  virtual void callQThreadPostMsg(Function *F, const std::vector<GenericValue> &ArgVals);
+  virtual void callQThreadExec(Function *F, const std::vector<GenericValue> &ArgVals);
 };
 
 } // End llvm namespace
