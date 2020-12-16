@@ -69,6 +69,7 @@
 #include <llvm/Support/ErrorHandling.h>
 #include <llvm/Support/raw_ostream.h>
 
+#include <queue>
 #include <random>
 #include <stdexcept>
 
@@ -112,9 +113,17 @@ protected:
   /* A Thread object keeps track of each running thread. */
   class Thread{
   public:
-    Thread() : AssumeBlocked(false), RandEng(42), pending_mutex_lock(0), pending_condvar_awake(0) {};
+    Thread() : AssumeBlocked(false), RandEng(42), pending_mutex_lock(0),
+	       pending_condvar_awake(0), quitQ(false), handler_id(-1),
+               ready_to_receive(false) {};
     /* The complex thread identifier of this thread. */
     CPid cpid;
+    /* Id of actual handler thread for messages. For normal threads, it is -1 */
+    int handler_id;
+    /* If the thread is waiting for next message, then true */
+    bool ready_to_receive;
+    /* contains post events posted message to this thread's queue */
+    std::queue<int> posts;
     /* The runtime stack of executing code. The top of the stack is the
      * current function record.
      */
@@ -148,6 +157,12 @@ protected:
     void *pending_condvar_awake;
     /* Thread local global values are stored here. */
     std::map<GlobalValue*,GenericValue> ThreadLocalValues;
+    /*QThread extension*/
+    /* True if thread wants to quit event queue */
+    bool quitQ;
+    /* function going to execute */
+    Function *F_inner;
+    std::vector<GenericValue> ArgVals_inner;
   };
   /* All threads that are or have been running during this execution
    * have an entry in Threads, in the order in which they were
@@ -156,6 +171,8 @@ protected:
   std::vector<Thread> Threads;
   /* The index into Threads of the currently running thread. */
   int CurrentThread;
+  /* Inactive handlers waiting for more messages */
+  std::vector<int> inactive_handlers;
   /* The CPid System for all threads in this execution. */
   CPidSystem CPS;
 

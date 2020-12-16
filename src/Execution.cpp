@@ -3034,7 +3034,7 @@ void Interpreter::callAssertFail(Function *F,
 /* TODO: reuse code of pthread_create to do qthread_create */
 void Interpreter::callQThreadCreate(Function *F,
 				    const std::vector<GenericValue> &ArgVals) {
-  TB.create();
+  //TB.create();
   // Return 0 (success)
   GenericValue Result;
   Result.IntVal = APInt(F->getReturnType()->getIntegerBitWidth(),0);
@@ -3078,10 +3078,10 @@ void Interpreter::callQThreadStart(Function *F,
   // Memory fence
   int caller_thread = CurrentThread;
   CurrentThread = pthread_t_to_tid(F->arg_begin()->getType(), ArgVals[0]);
-  if(!TB.fence() || !TB.start(CurrentThread)){//callback to TraceBuilder
+  /*if(!TB.fence() || !TB.start(CurrentThread)){//callback to TraceBuilder
     abort();
     return;
-  }
+    }*/
   callFunction(Threads[CurrentThread].F_inner,
 	       Threads[CurrentThread].ArgVals_inner);
   // Return to caller
@@ -3096,10 +3096,10 @@ void Interpreter::callQThreadWait(Function *F,
 void Interpreter::callQThreadPostMsg(Function *F,
 				     const std::vector<GenericValue> &ArgVals) {
   int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
-  if(!TB.post(tid)){
+  /*if(!TB.post(tid)){
     abort();
     return;
-  }
+    }*/
   if(DryRun) return;
   Function *F_msg = (Function*)GVTOP(ArgVals[1]);
   std::vector<GenericValue> ArgVals_msg(1,ArgVals[2]);
@@ -3109,7 +3109,6 @@ void Interpreter::callQThreadPostMsg(Function *F,
   if(Threads[tid].ready_to_receive){
     TB.mark_available(Threads.size()-1);
   }else{
-    //TB.mark_unavailable(Threads.size()-1);
     Threads[tid].posts.push(Threads.size()-1);
   }
   callFunction(F_msg,ArgVals_msg);
@@ -3432,6 +3431,21 @@ void Interpreter::terminate(Type *RetTy, GenericValue Result){
   if(CurrentThread != 0){
     assert(RetTy == Type::getInt8PtrTy(RetTy->getContext()));
     Threads[CurrentThread].RetVal = Result;
+    if(0 <= Threads[CurrentThread].handler_id){
+      if(!Threads[Threads[CurrentThread].handler_id].posts.empty()){//consume next message
+        int next_msg = Threads[Threads[CurrentThread].handler_id].posts.front();
+        Threads[Threads[CurrentThread].handler_id].posts.pop();
+        TB.mark_available(next_msg);
+        return;
+      }
+      for(int i = 0; i<Threads.size();i++){
+        //if there is some available thread, don't termiate handler threads
+        if(TB.is_available(i)){
+          Threads[Threads[CurrentThread].handler_id].ready_to_receive = true;
+	  return;
+        }
+      }
+    }
   }
   for(int p : Threads[CurrentThread].AwaitingJoin){
     TB.mark_available(p);
@@ -3480,6 +3494,7 @@ void Interpreter::run() {
   int aux;
   bool rerun = false;
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
+    //llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";////////////
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
     rerun = false;
     if(0 <= aux){ // Run some auxiliary thread
@@ -3487,6 +3502,7 @@ void Interpreter::run() {
       continue;
     }
 
+    assert(!ECStack()->empty());
     // Interpret a single instruction & increment the "PC".
     ExecutionContext &SF = ECStack()->back();  // Current stack frame
     Instruction &I = *SF.CurInst++;            // Increment before execute
