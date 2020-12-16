@@ -504,7 +504,7 @@ void TSOTraceBuilder::wut_string_add_node
     nodes.pop_back();
   }
 }
-#ifndef NDEBUG
+
 static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
   if (e.size() == 0) return "None()";
   std::string res;
@@ -515,6 +515,7 @@ static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
   return res;
 }
 
+#ifndef NDEBUG
 void TSOTraceBuilder::check_symev_vclock_equiv() const {
   /* Check for SymEv<->VClock equivalence
    * SymEv considers that event i happens after event j iff there is a
@@ -612,14 +613,15 @@ void TSOTraceBuilder::check_symev_vclock_equiv() const {
 void TSOTraceBuilder::debug_print() const {
   llvm::dbgs() << "TSOTraceBuilder (debug print):\n";
   int iid_offs = 0;
-  int clock_offs = 0;
+  int symev_offs = 0;
   std::vector<std::string> lines;
   struct obs_sleep sleep_set;
 
   for(unsigned i = 0; i < prefix.len(); ++i){
     IPid ipid = prefix[i].iid.get_pid();
     iid_offs = std::max(iid_offs,2*ipid+int(iid_string(i).size()));
-    clock_offs = std::max(clock_offs,int(prefix[i].clock.to_string().size()));
+    symev_offs = std::max(symev_offs,
+                          int(events_to_string(prefix[i].sym).size()));
     obs_sleep_add(sleep_set, prefix[i]);
     lines.push_back(" SLP:" + oslp_string(sleep_set));
     obs_sleep_wake(sleep_set, ipid, prefix[i].sym);
@@ -642,11 +644,11 @@ void TSOTraceBuilder::debug_print() const {
     llvm::dbgs() << rpad("",2+ipid*2)
                  << rpad(iid_string(i),iid_offs-ipid*2)
       //<< rpad(events_to_string(prefix[i].sym), 40)///////////////////////
-                 << " " << rpad(prefix[i].clock.to_string(),clock_offs)
+                 << " " << rpad(events_to_string(prefix[i].sym),symev_offs)
                  << lines[i] << "\n";
   }
   for (unsigned i = prefix.len(); i < lines.size(); ++i){
-    llvm::dbgs() << std::string(2+iid_offs + 1+clock_offs, ' ') << lines[i] << "\n";
+    llvm::dbgs() << std::string(2+iid_offs + 1+symev_offs, ' ') << lines[i] << "\n";
   }
   if(errors.size()){
     llvm::dbgs() << "Errors:\n";

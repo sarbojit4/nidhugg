@@ -232,60 +232,58 @@ bool RFSCTraceBuilder::reset(){
     /* DecisionNodes have been pruned and its trailing thread-task need to return. */
     return false;
   }
-  // This will always pass except for the first exploration.
-  if (work_item->depth != -1) {
 
-    Leaf l = std::move(work_item->leaf);
-    auto unf = std::move(work_item->unfold_node);
+  Leaf l = std::move(work_item->leaf);
+  auto unf = std::move(work_item->unfold_node);
 
-    if (conf.debug_print_on_reset)
-        llvm::dbgs() << "Backtracking to decision node " << (work_item->depth)
-                    << ", replaying " << l.prefix.size() << " events to read from "
-                    << (unf ? std::to_string(unf->seqno) : "init") << "\n";
+  assert(!l.is_bottom());
+  if (conf.debug_print_on_reset && !l.prefix.empty())
+    llvm::dbgs() << "Backtracking to decision node " << (work_item->depth)
+                 << ", replaying " << l.prefix.size() << " events to read from "
+                 << (unf ? std::to_string(unf->seqno) : "init") << "\n";
 
-    assert(!l.is_bottom());
+  assert(l.prefix.empty() == (work_item->depth == -1));
 
-    replay_point = l.prefix.size();
+  replay_point = l.prefix.size();
 
-    std::vector<Event> new_prefix;
-    new_prefix.reserve(l.prefix.size());
-    std::vector<int> iid_map;
-    for (Branch &b : l.prefix) {
-      int index = (int(iid_map.size()) <= b.pid) ? 1 : iid_map[b.pid];
-      IID<IPid> iid(b.pid, index);
-      new_prefix.emplace_back(iid);
-      new_prefix.back().size = b.size;
-      new_prefix.back().sym = std::move(b.sym);
-      new_prefix.back().pinned = b.pinned;
-      new_prefix.back().set_branch_decision(b.decision_depth, work_item);
-      iid_map_step(iid_map, new_prefix.back());
-    }
-
-  #ifndef NDEBUG
-    for (int d = 0; d < work_item->depth; ++d) {
-      assert(std::any_of(new_prefix.begin(), new_prefix.end(),
-                        [&](const Event &e) { return e.get_decision_depth() == d; }));
-    }
-  #endif
-
-    prefix = std::move(new_prefix);
-
-    CPS = CPidSystem();
-    threads.clear();
-    threads.push_back(Thread(CPid(),-1));
-    mutexes.clear();
-    cond_vars.clear();
-    mem.clear();
-    mutex_deadlocks.clear();
-    last_full_memory_conflict = -1;
-    prefix_idx = -1;
-    replay = true;
-    cancelled = false;
-    last_md = 0;
-    tasks_created = 0;
-    reset_cond_branch_log();
-
+  std::vector<Event> new_prefix;
+  new_prefix.reserve(l.prefix.size());
+  std::vector<int> iid_map;
+  for (Branch &b : l.prefix) {
+    int index = (int(iid_map.size()) <= b.pid) ? 1 : iid_map[b.pid];
+    IID<IPid> iid(b.pid, index);
+    new_prefix.emplace_back(iid);
+    new_prefix.back().size = b.size;
+    new_prefix.back().sym = std::move(b.sym);
+    new_prefix.back().pinned = b.pinned;
+    new_prefix.back().set_branch_decision(b.decision_depth, work_item);
+    iid_map_step(iid_map, new_prefix.back());
   }
+
+#ifndef NDEBUG
+  for (int d = 0; d < work_item->depth; ++d) {
+    assert(std::any_of(new_prefix.begin(), new_prefix.end(),
+                       [&](const Event &e) { return e.get_decision_depth() == d; }));
+  }
+#endif
+
+  prefix = std::move(new_prefix);
+
+  CPS = CPidSystem();
+  threads.clear();
+  threads.push_back(Thread(CPid(),-1));
+  mutexes.clear();
+  cond_vars.clear();
+  mem.clear();
+  mutex_deadlocks.clear();
+  last_full_memory_conflict = -1;
+  prefix_idx = -1;
+  replay = true;
+  cancelled = false;
+  last_md = 0;
+  tasks_created = 0;
+  reset_cond_branch_log();
+
   return true;
 }
 
@@ -1253,7 +1251,8 @@ void RFSCTraceBuilder::compute_prefixes() {
           = unfold_find_unfolding_node(jp, jidx, original_read_from);
         DecisionNode &decision = *prefix[i].decision_ptr;
         if (!decision.try_alloc_unf(alt)) return;
-        int j = prefix.size();
+        int j = ++prefix_idx;
+        assert(prefix.size() == j);
         prefix.emplace_back(IID<IPid>(jp, jidx), 0, std::move(sym));
         prefix[j].event = alt; // Only for debug print
         threads[jp].event_indices.push_back(j); // Not needed?
@@ -1284,6 +1283,7 @@ void RFSCTraceBuilder::compute_prefixes() {
         /* Delete j */
         threads[jp].event_indices.pop_back();
         prefix.pop_back();
+        --prefix_idx;
       };
     if (!prefix[i].pinned && is_lock_type(i)) {
       Timing::Guard ponder_mutex_guard(ponder_mutex_context);
