@@ -107,6 +107,7 @@ public:
    * replay from here on, so that the computation may continue
    * according to an arbitrary schedule.
    */
+  virtual bool is_available(int proc, int aux = -1) = 0;
   virtual void cancel_replay() = 0;
   /* Associate the currently scheduled event with LLVM "dbg" metadata. */
   virtual void metadata(const llvm::MDNode *md) = 0;
@@ -124,6 +125,12 @@ public:
    * Returns true on success, false if an error has been generated.
    */
   virtual NODISCARD bool spawn() = 0;
+  /* The current event creates a new qthread. */
+  virtual void create(){};
+  /* The current event starts a new qthread. */
+  virtual NODISCARD bool start(int pid){ return true; }
+  /* The current event posts msg to another thread */
+  virtual NODISCARD bool post(const int tgt_th){ return true; }
   /* Perform a store to ml.
    *
    * Returns true on success, false if an error has been generated.

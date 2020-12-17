@@ -233,6 +233,10 @@ void TSOTraceBuilder::mark_unavailable(int proc, int aux){
   threads[ipid(proc,aux)].available = false;
 }
 
+bool TSOTraceBuilder::is_available(int proc, int aux){
+  return threads[proc*2].available;
+}
+
 bool TSOTraceBuilder::is_replaying() const {
   return prefix_idx < replay_point;
 }

@@ -173,6 +173,10 @@ void RFSCTraceBuilder::mark_unavailable(int proc, int aux){
   threads[ipid(proc,aux)].available = false;
 }
 
+bool RFSCTraceBuilder::is_available(int proc, int aux){
+  return threads[proc*2].available;
+}
+
 bool RFSCTraceBuilder::is_replaying() const {
   return prefix_idx < replay_point;
 }
