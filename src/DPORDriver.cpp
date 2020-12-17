@@ -21,6 +21,7 @@
 
 #include "CheckModule.h"
 #include "Debug.h"
+#include "EventTraceBuilder.h"
 #include "Interpreter.h"
 #include "POWERInterpreter.h"
 #include "POWERARMTraceBuilder.h"
@@ -410,15 +411,17 @@ DPORDriver::Result DPORDriver::run(){
 
   switch(conf.memory_model){
   case Configuration::SC:
-    if(conf.dpor_algorithm != Configuration::READS_FROM){
-      TB = new TSOTraceBuilder(conf);
-    }else{
+    if(conf.dpor_algorithm == Configuration::READS_FROM){
       if (conf.n_threads == 1){
         res = run_rfsc_sequential();
       } else {
         res = run_rfsc_parallel();
       }
       return res;
+    }else if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
+      TB = new EventTraceBuilder(conf);
+    }else{
+      TB = new TSOTraceBuilder(conf);
     }
     break;
   case Configuration::TSO:
