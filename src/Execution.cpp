@@ -1073,7 +1073,8 @@ void Interpreter::visitAllocaInst(AllocaInst &I) {
 
   if (I.getOpcode() == Instruction::Alloca){
     AllocatedMemStack.insert(Memory);
-    SymMBlock mb = SymMBlock::Stack(CurrentThread, StackAllocCount[CurrentThread]++);
+    int spid = TB.get_spid(CurrentThread);
+    SymMBlock mb = SymMBlock::Stack(spid, StackAllocCount[CurrentThread]++);
     AllocatedMem.emplace(Memory, SymMBlockSize(std::move(mb), MemToAlloc));
   }
 }
@@ -2405,7 +2406,8 @@ GenericValue Interpreter::getOperandValue(Value *V, ExecutionContext &SF) {
           GenericValue Result = PTOGV(Memory);
           assert(Result.PointerVal != 0 && "Null pointer returned by malloc!");
           AllocatedMemHeap.insert(Memory);
-          SymMBlock mb = SymMBlock::Heap(CurrentThread, HeapAllocCount[CurrentThread]++);
+	  int spid = TB.get_spid(CurrentThread);
+          SymMBlock mb = SymMBlock::Heap(spid, HeapAllocCount[CurrentThread]++);
           AllocatedMem.emplace(Memory, SymMBlockSize(std::move(mb), TypeSize));
           Threads[CurrentThread].ThreadLocalValues[GV] = Result;
           InitializeMemory(GV->getInitializer(),Memory);
@@ -2975,7 +2977,8 @@ void Interpreter::callMCalloc(Function *F,
     }
     Result.PointerVal = Memory;
     AllocatedMemHeap.insert(Result.PointerVal);
-    SymMBlock mb = SymMBlock::Heap(CurrentThread, HeapAllocCount[CurrentThread]++);
+    int spid = TB.get_spid(CurrentThread);
+    SymMBlock mb = SymMBlock::Heap(spid, HeapAllocCount[CurrentThread]++);
     AllocatedMem.emplace(Memory, SymMBlockSize(std::move(mb), Size));
     returnValueToCaller(F->getReturnType(),Result);
   }

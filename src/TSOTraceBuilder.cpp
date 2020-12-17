@@ -386,6 +386,11 @@ IID<CPid> TSOTraceBuilder::get_iid() const{
   return IID<CPid>(threads[pid].cpid,idx);
 }
 
+int TSOTraceBuilder::get_spid(int pid){
+  CPid cpid = threads[pid*2].cpid;
+  return (SPS.get_spid(cpid))/2;
+}
+
 static std::string rpad(std::string s, int n){
   while(int(s.size()) < n) s += " ";
   return s;
@@ -628,6 +633,7 @@ void TSOTraceBuilder::debug_print() const {
 bool TSOTraceBuilder::spawn(){
   IPid parent_ipid = curev().iid.get_pid();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
+  SPS.set_spid_map(child_cpid,threads.size());
   /* TODO: First event of thread happens before parents spawn */
   threads.push_back(Thread(child_cpid,prefix_idx));
   threads.push_back(Thread(CPS.new_aux(child_cpid),prefix_idx));

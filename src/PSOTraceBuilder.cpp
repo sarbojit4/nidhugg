@@ -341,6 +341,11 @@ IID<CPid> PSOTraceBuilder::get_iid() const{
   return IID<CPid>(threads[pid].cpid,idx);
 }
 
+int PSOTraceBuilder::get_spid(int pid){
+  //CPid cpid = threads[pid*2].cpid;
+  return pid;//(SPS.get_spid(cpid))/2;
+}
+
 static std::string rpad(std::string s, int n){
   while(int(s.size()) < n) s += " ";
   return s;
@@ -409,6 +414,7 @@ bool PSOTraceBuilder::spawn(){
   IPid parent_ipid = curnode().iid.get_pid();
   IPid child_ipid = threads.size();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
+  SPS.set_spid_map(child_cpid,child_ipid);
   int proc = 0;
   for(unsigned i = 0; i < threads.size(); ++i){
     proc = std::max(proc,threads[i].proc+1);

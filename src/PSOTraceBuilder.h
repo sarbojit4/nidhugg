@@ -41,6 +41,7 @@ public:
   virtual Trace *get_trace() const override;
   virtual bool reset() override;
   virtual IID<CPid> get_iid() const override;
+  virtual int get_spid(int pid) override;
 
   virtual void debug_print() const  override;
 
@@ -216,6 +217,8 @@ protected:
   std::vector<IPid> proc_to_ipid;
   /* The CPids of threads in the current execution. */
   CPidSystem CPS;
+  /* The SPids of threads in the current execution. */
+  SPidSys SPS;
   /* The set sleepers contains precisely the IPids p such that
    * threads[p].sleeping is true.
    */

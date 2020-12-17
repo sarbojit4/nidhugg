@@ -154,7 +154,7 @@ private:
 class SPidSys{
 public:
   SPidSys(){
-    spid_to_ipid[cpid_to_spid.size()] = 0;
+    spid_to_ipid[0] = 0;
     cpid_to_spid[CPid()] = 0;
   }
   //int get_spid(int ipid){ return ipid_to_spid.at(ipid); }
