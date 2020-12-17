@@ -128,6 +128,7 @@ public:
    * Pre: c is in this set.
    */
   CPid new_aux(const CPid &c);
+  int get_pid(const CPid &c) { return identifiers[c]; }
 private:
   /* Each CPid in the set is identified by a natural number: its index
    * in the sequence of CPids in creation order. Each CPid with
@@ -148,6 +149,33 @@ private:
   std::vector<int> parent;
   std::vector<CPid> cpids;
   std::map<CPid,int> identifiers;
+};
+
+class SPidSys{
+public:
+  SPidSys(){
+    spid_to_ipid[cpid_to_spid.size()] = 0;
+    cpid_to_spid[CPid()] = 0;
+  }
+  //int get_spid(int ipid){ return ipid_to_spid.at(ipid); }
+  int get_spid(CPid cpid) const{
+    assert(cpid_to_spid.find(cpid) != cpid_to_spid.end());
+    return cpid_to_spid.at(cpid);
+  }
+  int get_pid(int spid) const{
+    assert(spid_to_ipid.find(spid) != spid_to_ipid.end());
+    return spid_to_ipid.at(spid);
+  }
+  void set_spid_map(CPid cpid, int ipid){
+    if(cpid_to_spid.find(cpid) == cpid_to_spid.end()){
+      spid_to_ipid[cpid_to_spid.size()*2] = ipid;
+      cpid_to_spid[cpid] = cpid_to_spid.size()*2;
+    }
+    spid_to_ipid[cpid_to_spid[cpid]] = ipid;
+  }
+private:
+  std::map<CPid,int> cpid_to_spid;
+  std::map<int,int> spid_to_ipid;
 };
 
 #endif
