@@ -3037,8 +3037,8 @@ void Interpreter::callAssertFail(Function *F,
 /* TODO: reuse code of pthread_create to do qthread_create */
 void Interpreter::callQThreadCreate(Function *F,
 				    const std::vector<GenericValue> &ArgVals) {
-  //TB.create();
-  // Return 0 (success)
+  TB.create();
+  //Return 0 (success)
   GenericValue Result;
   Result.IntVal = APInt(F->getReturnType()->getIntegerBitWidth(),0);
   returnValueToCaller(F->getReturnType(),Result);//return 0 on success
@@ -3081,10 +3081,10 @@ void Interpreter::callQThreadStart(Function *F,
   // Memory fence
   int caller_thread = CurrentThread;
   CurrentThread = pthread_t_to_tid(F->arg_begin()->getType(), ArgVals[0]);
-  /*if(!TB.fence() || !TB.start(CurrentThread)){//callback to TraceBuilder
+  if(!TB.fence() || !TB.start(CurrentThread)){//callback to TraceBuilder
     abort();
     return;
-    }*/
+  }
   callFunction(Threads[CurrentThread].F_inner,
 	       Threads[CurrentThread].ArgVals_inner);
   // Return to caller
@@ -3099,10 +3099,10 @@ void Interpreter::callQThreadWait(Function *F,
 void Interpreter::callQThreadPostMsg(Function *F,
 				     const std::vector<GenericValue> &ArgVals) {
   int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
-  /*if(!TB.post(tid)){
+  if(!TB.post(tid)){
     abort();
     return;
-    }*/
+  }
   if(DryRun) return;
   Function *F_msg = (Function*)GVTOP(ArgVals[1]);
   std::vector<GenericValue> ArgVals_msg(1,ArgVals[2]);
@@ -3213,33 +3213,33 @@ void Interpreter::callFunction(Function *F,
 
     //Qt functions----
   else if(F->getName().str() == "qthread_create"){
-    //callQThreadCreate(F, ArgVals);
+    callQThreadCreate(F, ArgVals);
     //dbgs()<<"Handling QThread_create function\n";
     return;
   }
   else if(F->getName().str() == "qthread_start"){
     //dbgs()<<"Handling QThread_start function\n";
-    //callQThreadStart(F, ArgVals);
+    callQThreadStart(F, ArgVals);
     return;
   }
   else if(F->getName().str() == "qthread_wait"){
     //dbgs()<<"Handling QThread_wait function\n";
-    //callQThreadWait(F, ArgVals);
+    callQThreadWait(F, ArgVals);
     return;
   }
   else if(F->getName().str() == "qthread_post_event"){
     //dbgs()<<"Handling QThread_post_event function\n";
-    //callQThreadPostMsg(F, ArgVals);
+    callQThreadPostMsg(F, ArgVals);
     return;
   }
   else if(F->getName().str() == "qthread_exec"){
     //dbgs()<<"Handling QThread_exec function\n";
-    //callQThreadExec(F, ArgVals);
+    callQThreadExec(F, ArgVals);
     return;
   }
   else if(F->getName().str() == "qthread_quit"){
     //dbgs()<<"Handling QThread_quit function\n";
-    //callQThreadQuit(F, ArgVals);
+    callQThreadQuit(F, ArgVals);
     return;
   }
 
