@@ -309,6 +309,8 @@ bool TSOTraceBuilder::reset(){
     llvm::dbgs() << " =============================\n";
   }
 
+  if(max_branches < branches) max_branches = branches;
+  branches--;
 #ifndef NDEBUG
   /* The if-statement is just so we can control which test cases need to
    *  satisfy this assertion for now. Eventually, all should.
@@ -1827,6 +1829,8 @@ bool TSOTraceBuilder::do_symevs_conflict
  IPid snd_pid, const SymEv &snd) const {
   if (fst.kind == SymEv::NONDET || snd.kind == SymEv::NONDET) return false;
   if (fst.kind == SymEv::FULLMEM || snd.kind == SymEv::FULLMEM) return true;
+  if (fst.kind == SymEv::POST && snd.kind == SymEv::POST)
+    return fst.num() == snd.num();
   if (symev_is_load(fst) && symev_is_load(snd)) return false;
   if (symev_is_unobs_store(fst) && symev_is_unobs_store(snd)
       && fst.addr() == snd.addr()) return false;
