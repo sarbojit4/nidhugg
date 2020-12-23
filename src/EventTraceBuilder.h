@@ -142,7 +142,7 @@ protected:
     Thread(const CPid &cpid, int spawn_event, IPid handler_id = -1)
       : cpid(cpid), available(true), spawn_event(spawn_event),
 	sleeping(false), sleep_full_memory_conflict(false),
-	sleep_sym(nullptr), last_post(-1), handler_id(handler_id) {};
+	sleep_sym(nullptr), handler_id(handler_id) {};
     CPid cpid;
     int spid;
     /* Is the thread available for scheduling? */
@@ -178,12 +178,6 @@ protected:
      * Empty if !sleeping.
      */
     VecSet<SymAddr> sleep_accesses_w;
-    /* sleep_posts is the set of ids of threads that to which it posts 
-     * message.
-     *
-     * Empty if !sleeping.
-     */
-    VecSet<IPid> sleep_posts;
     /* sleep_full_memory_conflict is set when the next event to be
      * executed by this thread will be a full memory conflict (as
      * determined by dry running).
@@ -196,8 +190,6 @@ protected:
      * NULL if !sleeping.
      */
     sym_ty *sleep_sym;
-    /* contains last event that posted message to this thread */
-    int last_post;
     /* Each time a handler thread receives a  meesage, it creates a new 
      * thread to execute the message. If this thread is solely for 
      * executing message, handler_id contains the id of the handler thread
@@ -430,9 +422,7 @@ protected:
      * after a full execution sequence has been explored.
      */
     VClock<IPid> clock;
-    /* Indices into prefix of events that happen before
-     * this one because of data dependency.
-     */
+    /* Indices into prefix of events that happen before this one. */
     std::vector<unsigned> happens_after;
     /* Indices into prefix of events that happen before
      * this one because of eop.
@@ -446,6 +436,7 @@ protected:
      * this one because of ppm.
      */
     std::vector<unsigned> ppm_before;
+    /* Relation among post events */
     std::vector<unsigned> rsc_before;
     /* Possibly reversible races found in the current execution
      * involving this event as the main event.
@@ -468,8 +459,6 @@ protected:
      * sleep and sleep_evs are of the same size and correspond pairwise.
      */
     std::vector<sym_ty> sleep_evs;
-    /* same as sleep but contains IIDs instead of thread ids */
-    std::vector<IID<IPid>> done_posts;
     /* The set of sleeping threads that wake up during or after this
      * event sequence.
      */
@@ -611,15 +600,12 @@ protected:
   void add_lock_fail_race(const Mutex &m, int event);
   /* Check if two events in the current prefix are in conflict. */
   bool do_events_conflict(int i, int j) const;
-  bool do_events_conflict(const Event &fst, const Event &snd,
-			  bool is_ppm_ordered) const;
+  bool do_events_conflict(const Event &fst, const Event &snd) const;
   /* Check if two symbolic events conflict. */
   bool do_events_conflict(IPid fst_pid, const sym_ty &fst,
-                          IPid snd_pid, const sym_ty &snd,
-			  bool is_ppm_ordered) const;
+                          IPid snd_pid, const sym_ty &snd) const;
   bool do_symevs_conflict(IPid fst_pid, const SymEv &fst,
-                          IPid snd_pid, const SymEv &snd,
-			  bool is_ppm_ordered) const;
+                          IPid snd_pid, const SymEv &snd) const;
   /* Check if events fst and snd are in an observed race with thd as an
    * observer.
    */
@@ -678,17 +664,7 @@ protected:
   void compute_ppm();
   /* Compute eop, eom, and ppm happens after */
   void compute_derived_happens_after();
-  void recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq, const int& fpid);
-  void clear_rsc_edges(std::map<int,Event> &wakeup_ev_seq);
-  /* Clear all vector clocks */
-  void clear_vclocks();
-  /* Computes the vector clocks of all events in a complete execution
-   * sequence from happens_after and race edges.
-   */
-  void compute_vclocks_for_seq(std::map<int,Event> &seq, int &cut_point);
-  void vclocks_for_seq(std::map<int,Event> &seq, const std::vector<int> &indices,
-		       std::vector<Branch> &v);
-  void compute_vclocks(int pass=1);
+  void compute_vclocks();
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
   /* Perform planning of future executions. Requires the trace to be
@@ -765,10 +741,9 @@ protected:
    */
   void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
   void race_detect(const Race&, const struct obs_sleep&);
+  /* Do topological sort to linearize wakeup squence */
   void linearize_wakeup_seq(const std::map<int,Event> &wakeup_ev_seq,
 			    std::vector<int> &event_indices) const;
-  bool redundant_wakeup_seq(std::map<int,Event> wakeup_ev_seq,
-			    int ins_point);
   void race_detect_optimal(const Race&, const struct obs_sleep&);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch> wakeup_sequence(const Race& race) const;
@@ -796,3 +771,4 @@ protected:
 };
 
 #endif
+

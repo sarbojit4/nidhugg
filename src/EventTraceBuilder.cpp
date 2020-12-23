@@ -60,7 +60,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
        curev().iid.get_index() + curbranch().size - 1){
       /* Continue executing the current Event */
       IPid pid = curev().iid.get_pid();
-      //llvm::dbgs()<<"Scheduling1 "<<threads[pid].cpid<<"\n";////////////////////
       *proc = pid/2;
       *aux = pid % 2 - 1;
       *alt = 0;
@@ -93,7 +92,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       threads[pid].sleep_sym->clear();
       ++dry_sleepers;
       threads[pid].sleeping = true;
-      //llvm::dbgs()<<"Scheduling2 "<<threads[pid].cpid<<"\n";//////////////////
       *proc = pid/2;
       *aux = pid % 2 - 1;
       *alt = 0;
@@ -114,9 +112,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
         /* The event is already in prefix */
         pid = curev().iid.get_pid();
         curev().happens_after.clear();
-        curev().eop_before.clear();
-	curev().eom_before.clear();
-	curev().ppm_before.clear();
       } else {
         /* We are replaying from the wakeup tree */
 	pid = SPS.get_pid(WuT.first_child().spid);
@@ -126,7 +121,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
                   * calling enter_first_child() */
                  WuT.parent_at(prefix_idx).begin().branch().sym));
       }
-      //llvm::dbgs()<<"Scheduling3 "<<threads[pid].cpid<<"\n";/////////////////
       *proc = pid/2;
       *aux = pid % 2 - 1;
       *alt = curbranch().alt;
@@ -151,7 +145,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
      WuT[WuT.len()-1].sleep.empty()){
     assert(WuT.children_after(WuT.len()-1) == 0);
     assert(WuT[WuT.len()-1].wakeup.empty());
-    assert(prefix_idx == WuT.len() - 1);
     assert(curev().sym.empty()); /* Would need to be copied */
     assert(curbranch().sym.empty()); /* Can't happen */
     unsigned size = curbranch().size;
@@ -217,7 +210,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       *aux = -1;
       return true;
     }
-    //else   llvm::dbgs()<<p<<" unavailable\n";///////////////////////
   }
 
 
@@ -274,16 +266,14 @@ void EventTraceBuilder::metadata(const llvm::MDNode *md){
 
 bool EventTraceBuilder::sleepset_is_empty() const{
   for(unsigned i = 0; i < threads.size(); ++i){
-    if(threads[i].sleeping) {
-      return false;
-    }
+    if(threads[i].sleeping) return false;
   }
   return true;
 }
 
 bool EventTraceBuilder::check_for_cycles(){
   /* We need vector clocks for this check */
-  compute_vclocks(1);
+  compute_vclocks();
 
   IID<IPid> i_iid;
   if(!has_cycle(&i_iid)) return false;
@@ -315,15 +305,10 @@ Trace *EventTraceBuilder::get_trace() const{
 }
 
 bool EventTraceBuilder::reset(){
-  compute_vclocks(1);
-  if (conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
-    compute_derived_happens_after();
-    clear_vclocks();
-    compute_vclocks(2);
-  }
+  compute_vclocks();
 
   do_race_detect();
-  
+
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === EventTraceBuilder reset ===\n";
     debug_print();
@@ -375,13 +360,8 @@ bool EventTraceBuilder::reset(){
 
     evt.sym = br.sym; /* For replay sanity assertions only */
     evt.sleep = prev_evt.sleep;
-    evt.done_posts = prev_evt.done_posts;
     if(br.spid != threads[prev_evt.iid.get_pid()].spid){
-      if(!prev_evt.sym.empty() && prev_evt.sym.front().kind == SymEv::POST &&
-	 conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
-        evt.done_posts.push_back(prev_evt.iid);
-      }
-      else evt.sleep.insert(threads[prev_evt.iid.get_pid()].spid);
+      evt.sleep.insert(threads[prev_evt.iid.get_pid()].spid);
     }
     evt.sleep_branch_trace_count = sleep_branch_trace_count;
 
@@ -394,7 +374,6 @@ bool EventTraceBuilder::reset(){
   threads.push_back(Thread(CPS.new_aux(CPid()),-1));
   threads[1].available = false; // Store buffer is empty.
   threads[0].spid = 0;
-  SPS.set_spid_map(CPid(),0);
   mutexes.clear();
   cond_vars.clear();
   mem.clear();
@@ -505,7 +484,6 @@ void EventTraceBuilder::wut_string_add_node
     nodes.pop_back();
   }
 }
-#ifndef NDEBUG
 static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
   if (e.size() == 0) return "None()";
   std::string res;
@@ -516,6 +494,7 @@ static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
   return res;
 }
 
+#ifndef NDEBUG
 void EventTraceBuilder::check_symev_vclock_equiv() const {
   /* Check for SymEv<->VClock equivalence
    * SymEv considers that event i happens after event j iff there is a
@@ -613,14 +592,14 @@ void EventTraceBuilder::check_symev_vclock_equiv() const {
 void EventTraceBuilder::debug_print() const {
   llvm::dbgs() << "EventTraceBuilder (debug print):\n";
   int iid_offs = 0;
-  int clock_offs = 0;
+  int symev_offs = 0;
   std::vector<std::string> lines;
   struct obs_sleep sleep_set;
 
   for(unsigned i = 0; i < WuT.len(); ++i){
     IPid ipid = WuT[i].iid.get_pid();
     iid_offs = std::max(iid_offs,2*ipid+int(iid_string(i).size()));
-    clock_offs = std::max(clock_offs,int(WuT[i].clock.to_string().size()));
+    symev_offs = std::max(symev_offs,int(WuT[i].clock.to_string().size()));
     obs_sleep_add(sleep_set, WuT[i]);
     lines.push_back(" SLP:" + oslp_string(sleep_set));
     obs_sleep_wake(sleep_set, ipid, WuT[i].sym);
@@ -643,11 +622,11 @@ void EventTraceBuilder::debug_print() const {
     llvm::dbgs() << rpad("",2+ipid*2)
                  << rpad(iid_string(i),iid_offs-ipid*2)
       //<< rpad(events_to_string(WuT[i].sym), 40)///////////////////////
-                 << " " << rpad(WuT[i].clock.to_string(),clock_offs)
-                 << lines[i] << "\n";
+                 << " " << rpad(events_to_string(WuT[i].sym),symev_offs)	
+	                 << lines[i] << "\n";
   }
   for (unsigned i = WuT.len(); i < lines.size(); ++i){
-    llvm::dbgs() << std::string(2+iid_offs + 1+clock_offs, ' ') << lines[i] << "\n";
+    llvm::dbgs() << std::string(2+iid_offs + 1+symev_offs, ' ') << lines[i] << "\n";
   }
   if(errors.size()){
     llvm::dbgs() << "Errors:\n";
@@ -668,6 +647,7 @@ bool EventTraceBuilder::spawn(){
   threads.push_back(Thread(CPS.new_aux(child_cpid),prefix_idx));
   threads.back().spid = SPS.get_spid(child_cpid);
   threads.back().available = false; // Empty store buffer
+  curev().may_conflict = true;
   return record_symbolic(SymEv::Spawn(threads.size() / 2 - 1));
 }
 //TODO: Reuse code of spawn to do create()
@@ -707,34 +687,12 @@ bool EventTraceBuilder::post(const int tgt_th) {
     return false;
   }
   if(!record_symbolic(SymEv::Post(tpid))) return false;
-  if(dryrun) {
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
-    VecSet<IPid> &A = threads[pid].sleep_posts;
-    A.insert(tpid);
-    return true;
-  }
 
   IPid ipid = curev().iid.get_pid();
   assert(0 <= tpid && tpid<threads.size());
   create();
   threads[threads.size()-2].handler_id = tpid;
   threads[threads.size()-1].handler_id = tpid;
-  int &last_post = threads[tpid].last_post;
-  if(conf.dpor_algorithm != Configuration::EVENT_DRIVEN){
-    if(0 <= last_post) {
-      assert(last_post < int(WuT.len()));
-      VecSet<int> seen_accesses;
-      IPid lp_pid = WuT[last_post].iid.get_pid();
-      if(lp_pid != ipid) {
-        seen_accesses.insert(last_post);
-      }
-      see_events(seen_accesses);
-    }
-    wakeup_posts(tpid);
-  }
-  last_post = prefix_idx;
   return true;
 }
 
@@ -1479,7 +1437,7 @@ EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
       } else {
         return obs_wake_res::BLOCK;
       }
-    } else if (do_events_conflict(p, sym, s.pid, *s.sym, false)){
+    } else if (do_events_conflict(p, sym, s.pid, *s.sym)){
       unordered_vector_delete(sleep.sleep, i);
     } else {
       ++i;
@@ -1708,6 +1666,12 @@ void EventTraceBuilder::add_happens_after(unsigned second, unsigned first){
   vec.push_back(first);
 }
 
+void EventTraceBuilder::add_happens_after_thread(unsigned second, IPid thread){
+  assert((int)second == prefix_idx);
+  if (threads[thread].event_indices.empty()) return;
+  add_happens_after(second, threads[thread].event_indices.back());
+}
+
 void EventTraceBuilder::add_eop(unsigned second, unsigned first){
   assert(first != ~0u);
   assert(second != ~0u);
@@ -1721,52 +1685,31 @@ void EventTraceBuilder::add_eop(unsigned second, unsigned first){
   vec.push_back(first);
 }
 
-void EventTraceBuilder::add_eom(unsigned second, unsigned first){
-  assert(first != ~0u);
-  assert(second != ~0u);
-  assert(first != second);
-  assert(first < second);
-  assert((long long)second <= prefix_idx);
+// void EventTraceBuilder::add_eom(unsigned second, unsigned first){
+//   assert(first != ~0u);
+//   assert(second != ~0u);
+//   assert(first != second);
+//   assert(first < second);
+//   assert((long long)second <= prefix_idx);
 
-  std::vector<unsigned> &vec = WuT[second].eom_before;
-  if (vec.size() && vec.back() == first) return;
+//   std::vector<unsigned> &vec = WuT[second].eom_before;
+//   if (vec.size() && vec.back() == first) return;
 
-  vec.push_back(first);
-}
+//   vec.push_back(first);
+// }
 
-void EventTraceBuilder::add_ppm(unsigned second, unsigned first){
-  assert(first != ~0u);
-  assert(second != ~0u);
-  assert(first != second);
-  assert(first < second);
-  assert((long long)second <= prefix_idx);
+// void EventTraceBuilder::add_ppm(unsigned second, unsigned first){
+//   assert(first != ~0u);
+//   assert(second != ~0u);
+//   assert(first != second);
+//   assert(first < second);
+//   assert((long long)second <= prefix_idx);
 
-  std::vector<unsigned> &vec = WuT[second].ppm_before;
-  if (vec.size() && vec.back() == first) return;
+//   std::vector<unsigned> &vec = WuT[second].ppm_before;
+//   if (vec.size() && vec.back() == first) return;
 
-  vec.push_back(first);
-}
-
-bool EventTraceBuilder::is_eom_ordered(unsigned second, unsigned first) const{
-  assert(first != ~0u);
-  assert(second != ~0u);
-  assert(first != second);
-  //if(first >= second) return false;
-  assert((long long)second <= WuT.len());
-  assert((long long)first <= WuT.len());
-  IPid fst = WuT[first].iid.get_pid();
-  IPid snd = WuT[second].iid.get_pid();
-  int lst_fst = threads[fst].event_indices.back();
-  int fst_snd = threads[snd].event_indices.front();
-  std::vector<unsigned> eoms = WuT[fst_snd].eom_before;
-  return (std::find(eoms.begin(), eoms.end(), lst_fst) != eoms.end());
-}
-
-void EventTraceBuilder::add_happens_after_thread(unsigned second, IPid thread){
-  assert((int)second == prefix_idx);
-  if (threads[thread].event_indices.empty()) return;
-  add_happens_after(second, threads[thread].event_indices.back());
-}
+//   vec.push_back(first);
+// }
 
 /* Filter the sequence first..last from all elements that are less than
  * any other item. The sequence is modified in place and an iterator to
@@ -1801,212 +1744,209 @@ static It frontier_filter(It first, It last, LessFn less){
   return fill;
 }
 
-void EventTraceBuilder::compute_eom(){
-  for(IPid i = 0; i<threads.size(); i=i+2){//eom order
-    if(threads[i].handler_id == -1) continue;
-    for(IPid j = i+2; j<threads.size(); j=j+2){
-      if(threads[i].handler_id != threads[j].handler_id) continue;
-      unsigned fev_i = threads[i].event_indices.front();
-      unsigned lev_i = threads[i].event_indices.back();
-      unsigned fev_j = threads[j].event_indices.front();
-      unsigned lev_j = threads[j].event_indices.back();
-      std::vector<unsigned> eops = WuT[fev_j].eop_before;
-      if(WuT[fev_i].clock.lt(WuT[lev_j].clock) &&
-	 std::find(eops.begin(),eops.end(),lev_i) == eops.end()){
-        add_eom(fev_j,lev_i);
-	//llvm::dbgs()<<"Adding eom "<<fev_j<<" "<<lev_i<<"\n";
-      }
-    }
-  }
-}
+// void EventTraceBuilder::compute_eom(){
+//   for(IPid i = 0; i<threads.size(); i=i+2){//eom order
+//     if(threads[i].handler_id == -1) continue;
+//     for(IPid j = i+2; j<threads.size(); j=j+2){
+//       if(threads[i].handler_id != threads[j].handler_id) continue;
+//       unsigned fev_i = threads[i].event_indices.front();
+//       unsigned lev_i = threads[i].event_indices.back();
+//       unsigned fev_j = threads[j].event_indices.front();
+//       unsigned lev_j = threads[j].event_indices.back();
+//       std::vector<unsigned> eops = WuT[fev_j].eop_before;
+//       if(WuT[fev_i].clock.lt(WuT[lev_j].clock) &&
+// 	 std::find(eops.begin(),eops.end(),lev_i) == eops.end()){
+//         add_eom(fev_j,lev_i);
+//       }
+//     }
+//   }
+// }
 
-void EventTraceBuilder::compute_ppm(){
-  for(IPid j = threads.size()-2; j>0; j=j-2){//eop order
-    if(threads[j].handler_id == -1) continue;
-    for(IPid i = j-2; i>0; i=i-2){
-      if(threads[i].handler_id != threads[j].handler_id) continue;
-      unsigned lev_i = threads[i].event_indices.back();
-      unsigned fev_j = threads[j].event_indices.front();
-      std::vector<unsigned> eoms = WuT[fev_j].eom_before;
-      if(std::find(eoms.begin(),eoms.end(),lev_i) != eoms.end()){
-	add_ppm(threads[j].spawn_event,
-			  threads[i].spawn_event);
-	//llvm::dbgs()<<"Adding ppm "<<threads[j].spawn_event<<" "<<threads[i].spawn_event<<"\n";
-	Thread th_p1 = threads[WuT[threads[i].spawn_event].iid.get_pid()];
-	Thread th_p2 = threads[WuT[threads[j].spawn_event].iid.get_pid()];
-	if(th_p1.handler_id == th_p2.handler_id && th_p1.handler_id != -1){
-	  add_eom(th_p2.event_indices.front(),th_p1.event_indices.back());
-	}
-      }
-    }
-  }
-}
+// void EventTraceBuilder::compute_ppm(){
+//   for(IPid j = threads.size()-2; j>0; j=j-2){//eop order
+//     if(threads[j].handler_id == -1) continue;
+//     for(IPid i = j-2; i>0; i=i-2){
+//       if(threads[i].handler_id != threads[j].handler_id) continue;
+//       unsigned lev_i = threads[i].event_indices.back();
+//       unsigned fev_j = threads[j].event_indices.front();
+//       std::vector<unsigned> eoms = WuT[fev_j].eom_before;
+//       if(std::find(eoms.begin(),eoms.end(),lev_i) != eoms.end()){
+// 	add_ppm(threads[j].spawn_event,
+// 			  threads[i].spawn_event);
+// 	Thread th_p1 = threads[WuT[threads[i].spawn_event].iid.get_pid()];
+// 	Thread th_p2 = threads[WuT[threads[j].spawn_event].iid.get_pid()];
+// 	if(th_p1.handler_id == th_p2.handler_id && th_p1.handler_id != -1){
+// 	  add_eom(th_p2.event_indices.front(),th_p1.event_indices.back());
+// 	}
+//       }
+//     }
+//   }
+// }
 
-void EventTraceBuilder::compute_derived_happens_after(){
-  compute_eom();
-  compute_ppm();
-}
+// void EventTraceBuilder::compute_derived_happens_after(){
+//   compute_eom();
+//   compute_ppm();
+// }
 
-void EventTraceBuilder::recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq, const int& fpid){
-  for(IPid i = threads.size()-2; 0 < i; i=i-2){
-    if(threads[i].handler_id == -1) continue;//not a message
-    int second = threads[i].event_indices.front();//first event of message
-    if(i == fpid || wakeup_ev_seq.find(second) != wakeup_ev_seq.end()) continue;//first event of message is not in WS
-    for(int ei:WuT[second].eom_before){//for each eom edge
-      int j = WuT[ei].iid.get_pid();
-      int first = threads[j].event_indices.front();
-      if(wakeup_ev_seq.find(first) != wakeup_ev_seq.end()){
-	continue;
-      }
-      assert(threads[i].handler_id == threads[j].handler_id);
-      unsigned first_post = threads[j].spawn_event;
-      unsigned second_post = threads[i].spawn_event;
-      std::vector<unsigned> &vec = wakeup_ev_seq.at(second_post).ppm_before;
-      for(auto it = vec.begin(); it != vec.end(); it++){
-	if(*it == first_post){
-	  vec.erase(it);
-	  break;
-	}
-      }
-    }
-  }
-}
+// void EventTraceBuilder::recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq, const int& fpid){
+//   for(IPid i = threads.size()-2; 0 < i; i=i-2){
+//     if(threads[i].handler_id == -1) continue;//not a message
+//     int second = threads[i].event_indices.front();//first event of message
+//     if(i == fpid || wakeup_ev_seq.find(second) != wakeup_ev_seq.end()) continue;//first event of message is not in WS
+//     for(int ei:WuT[second].eom_before){//for each eom edge
+//       int j = WuT[ei].iid.get_pid();
+//       int first = threads[j].event_indices.front();
+//       if(wakeup_ev_seq.find(first) != wakeup_ev_seq.end()){
+// 	continue;
+//       }
+//       assert(threads[i].handler_id == threads[j].handler_id);
+//       unsigned first_post = threads[j].spawn_event;
+//       unsigned second_post = threads[i].spawn_event;
+//       std::vector<unsigned> &vec = wakeup_ev_seq.at(second_post).ppm_before;
+//       for(auto it = vec.begin(); it != vec.end(); it++){
+// 	if(*it == first_post){
+// 	  vec.erase(it);
+// 	  break;
+// 	}
+//       }
+//     }
+//   }
+// }
 
-void EventTraceBuilder::clear_rsc_edges(std::map<int,Event> &wakeup_ev_seq){
-  for(auto it=wakeup_ev_seq.begin(); it!=wakeup_ev_seq.end(); it++)
-    it->second.rsc_before.clear();
-}
+// void EventTraceBuilder::clear_rsc_edges(std::map<int,Event> &wakeup_ev_seq){
+//   for(auto it=wakeup_ev_seq.begin(); it!=wakeup_ev_seq.end(); it++)
+//     it->second.rsc_before.clear();
+// }
 
-void EventTraceBuilder::clear_vclocks(){
-  for(int i=0;i<WuT.len();i++)
-    WuT[i].clock = VClock<int>();
-  has_vclocks = false;
-}
+// void EventTraceBuilder::clear_vclocks(){
+//   for(int i=0;i<WuT.len();i++)
+//     WuT[i].clock = VClock<int>();
+//   has_vclocks = false;
+// }
 
-void EventTraceBuilder::compute_vclocks_for_seq(std::map<int,Event> &seq, int &cutpoint){
-  for (std::map<int,Event>::iterator it = seq.begin(); it != seq.end(); it++){
-    int i = it->first;
-    Event &curev = it->second;
-    IPid ipid = curev.iid.get_pid();
-    if (curev.iid.get_index() > 1) {
-      unsigned last = find_process_event(curev.iid.get_pid(), curev.iid.get_index()-1);
-      curev.clock = seq.at(last).clock;
-    } else {
-      curev.clock = VClock<IPid>();
-    }
-    curev.clock[ipid] = curev.iid.get_index();
+// void EventTraceBuilder::compute_vclocks_for_seq(std::map<int,Event> &seq, int &cutpoint){
+//   for (std::map<int,Event>::iterator it = seq.begin(); it != seq.end(); it++){
+//     int i = it->first;
+//     Event &curev = it->second;
+//     IPid ipid = curev.iid.get_pid();
+//     if (curev.iid.get_index() > 1) {
+//       unsigned last = find_process_event(curev.iid.get_pid(), curev.iid.get_index()-1);
+//       curev.clock = seq.at(last).clock;
+//     } else {
+//       curev.clock = VClock<IPid>();
+//     }
+//     curev.clock[ipid] = curev.iid.get_index();
 
-    /* First add the non-reversible edges */
-    for (unsigned j : curev.happens_after){
-      assert(j < i);
-      curev.clock += seq.at(j).clock;
-    }
+//     /* First add the non-reversible edges */
+//     for (unsigned j : curev.happens_after){
+//       assert(j < i);
+//       curev.clock += seq.at(j).clock;
+//     }
 
-    for (unsigned j : curev.eop_before){
-      assert(j < i);
-      curev.clock += seq.at(j).clock;
-    }    
+//     for (unsigned j : curev.eop_before){
+//       assert(j < i);
+//       curev.clock += seq.at(j).clock;
+//     }    
 
-    /* Now we want add the possibly reversible edges, but first we must
-     * check for reversibility, since this information is lost (more
-     * accurately less easy to compute) once we add them to the clock.
-     */
-    /* Add clocks of remaining (reversible) races */
-    for(unsigned j : curev.rsc_before){
-      curev.clock += seq.at(j).clock;
-    }
-    for (Race race : curev.races){
-      curev.clock += seq.at(race.first_event).clock;
-    }
-    for (unsigned j : curev.eom_before){
-      curev.clock += seq.at(j).clock;
-    }
-    for (unsigned j : curev.ppm_before){
-      if(j > i){
-	if(i < cutpoint) cutpoint = i;
-      }
-      curev.clock += seq.at(j).clock;
-    }
-  }
-}
+//     /* Now we want add the possibly reversible edges, but first we must
+//      * check for reversibility, since this information is lost (more
+//      * accurately less easy to compute) once we add them to the clock.
+//      */
+//     /* Add clocks of remaining (reversible) races */
+//     for(unsigned j : curev.rsc_before){
+//       curev.clock += seq.at(j).clock;
+//     }
+//     for (Race race : curev.races){
+//       curev.clock += seq.at(race.first_event).clock;
+//     }
+//     for (unsigned j : curev.eom_before){
+//       curev.clock += seq.at(j).clock;
+//     }
+//     for (unsigned j : curev.ppm_before){
+//       if(j > i){
+// 	if(i < cutpoint) cutpoint = i;
+//       }
+//       curev.clock += seq.at(j).clock;
+//     }
+//   }
+// }
 
-void EventTraceBuilder::vclocks_for_seq(std::map<int,Event> &seq,
-				      const std::vector<int> &indices,
-				      std::vector<Branch> &v){
-  for (int i:indices){
-    Event &curev = seq.at(i);
-    IPid ipid = curev.iid.get_pid();
-    if (curev.iid.get_index() > 1) {
-      unsigned last = find_process_event(curev.iid.get_pid(), curev.iid.get_index()-1);
-      curev.clock = seq.at(last).clock;
-    } else {
-      curev.clock = VClock<IPid>();
-    }
-    curev.clock[ipid] = curev.iid.get_index();
+// void EventTraceBuilder::vclocks_for_seq(std::map<int,Event> &seq,
+// 				      const std::vector<int> &indices,
+// 				      std::vector<Branch> &v){
+//   for (int i:indices){
+//     Event &curev = seq.at(i);
+//     IPid ipid = curev.iid.get_pid();
+//     if (curev.iid.get_index() > 1) {
+//       unsigned last = find_process_event(curev.iid.get_pid(), curev.iid.get_index()-1);
+//       curev.clock = seq.at(last).clock;
+//     } else {
+//       curev.clock = VClock<IPid>();
+//     }
+//     curev.clock[ipid] = curev.iid.get_index();
 
-    /* First add the non-reversible edges */
-    for (unsigned j : curev.happens_after){
-      assert(j < i);
-      curev.clock += seq.at(j).clock;
-    }
+//     /* First add the non-reversible edges */
+//     for (unsigned j : curev.happens_after){
+//       assert(j < i);
+//       curev.clock += seq.at(j).clock;
+//     }
 
-    for (unsigned j : curev.eop_before){
-      assert(j < i);
-      curev.clock += seq.at(j).clock;
-    }    
+//     for (unsigned j : curev.eop_before){
+//       assert(j < i);
+//       curev.clock += seq.at(j).clock;
+//     }    
 
-    /* Now we want add the possibly reversible edges, but first we must
-     * check for reversibility, since this information is lost (more
-     * accurately less easy to compute) once we add them to the clock.
-     */
-    /* Add clocks of remaining (reversible) races */
-    for (Race race : curev.races){
-      curev.clock += seq.at(race.first_event).clock;
-    }
-    for (unsigned j : curev.eom_before){
-      curev.clock += seq.at(j).clock;
-    }
-    for (unsigned j : curev.ppm_before){
-      curev.clock += seq.at(j).clock;
-    }
-  }
-  std::map<int,Event> seq1(seq);
-  seq.clear();
-  for(int i=0;i<indices.size();i++){
-    seq.emplace(i, seq1.at(indices[i]));
-    v.push_back(branch_with_symbolic_data(indices[i]));
-  }
-}
+//     /* Now we want add the possibly reversible edges, but first we must
+//      * check for reversibility, since this information is lost (more
+//      * accurately less easy to compute) once we add them to the clock.
+//      */
+//     /* Add clocks of remaining (reversible) races */
+//     for (Race race : curev.races){
+//       curev.clock += seq.at(race.first_event).clock;
+//     }
+//     for (unsigned j : curev.eom_before){
+//       curev.clock += seq.at(j).clock;
+//     }
+//     for (unsigned j : curev.ppm_before){
+//       curev.clock += seq.at(j).clock;
+//     }
+//   }
+//   std::map<int,Event> seq1(seq);
+//   seq.clear();
+//   for(int i=0;i<indices.size();i++){
+//     seq.emplace(i, seq1.at(indices[i]));
+//     v.push_back(branch_with_symbolic_data(indices[i]));
+//   }
+// }
 
-void EventTraceBuilder::compute_vclocks(int pass){
+void EventTraceBuilder::compute_vclocks(){
   /* Be idempotent */
   if (has_vclocks) return;
   /* The first event of a thread happens after the spawn event that
    * created it.
    */
-  if(pass == 1){
-    for (const Thread &t : threads) {
-      if (t.spawn_event >= 0 && t.event_indices.size() > 0){
-        add_happens_after(t.event_indices[0], t.spawn_event);
-      }
-      if(t.handler_id != -1 && t.event_indices.size() > 0){
-        add_happens_after(t.event_indices[0],
-        		  threads[t.handler_id].event_indices.back());//TODO: add happensafter to qthread exec event
-      }
+  for (const Thread &t : threads) {
+    if (t.spawn_event >= 0 && t.event_indices.size() > 0){
+      add_happens_after(t.event_indices[0], t.spawn_event);
     }
-
-    /* Move LockFail races into the right event */
-    std::vector<Race> final_lock_fail_races;
-    for (Race &r : lock_fail_races){
-      if (r.second_event < int(WuT.len())) {
-        WuT[r.second_event].races.emplace_back(std::move(r));
-      } else {
-        assert(r.second_event == int(WuT.len()));
-        final_lock_fail_races.emplace_back(std::move(r));
-      }
+    if(t.handler_id != -1 && t.event_indices.size() > 0){
+      //TODO: add happensafter to qthread exec event
+      add_happens_after(t.event_indices[0],
+			threads[t.handler_id].event_indices.back());
     }
-    lock_fail_races = std::move(final_lock_fail_races);
   }
+
+  /* Move LockFail races into the right event */
+  std::vector<Race> final_lock_fail_races;
+  for (Race &r : lock_fail_races){
+    if (r.second_event < int(WuT.len())) {
+      WuT[r.second_event].races.emplace_back(std::move(r));
+    } else {
+      assert(r.second_event == int(WuT.len()));
+      final_lock_fail_races.emplace_back(std::move(r));
+    }
+  }
+  lock_fail_races = std::move(final_lock_fail_races);
 
   for (unsigned i = 0; i < WuT.len(); i++){
     IPid ipid = WuT[i].iid.get_pid();
@@ -2025,34 +1965,34 @@ void EventTraceBuilder::compute_vclocks(int pass){
     }
 
     /* adding eops */
-    if(pass == 1 && threads[ipid].handler_id != -1){
+    if(threads[ipid].handler_id != -1){
       if(threads[ipid].event_indices.front() == i){
         for(IPid th = ipid-2; th > 0; th=th-2){
-	  if(threads[ipid].handler_id == threads[th].handler_id){
-	    if(WuT[threads[ipid].spawn_event].clock.lt(
-	        WuT[threads[th].spawn_event].clock)){
-	      add_eop(i,threads[th].event_indices.back());
-	    }
-	    break;
-	  }
+    	  if(threads[ipid].handler_id == threads[th].handler_id){
+    	    if(WuT[threads[ipid].spawn_event].clock.lt(
+    	        WuT[threads[th].spawn_event].clock)){
+    	      add_eop(i,threads[th].event_indices.back());
+    	    }
+    	    break;
+    	  }
         }
       }
 
-      /* remove races because of eop */
-      for (std::vector<Race>::iterator r_it = WuT[i].races.begin();
-	   r_it != WuT[i].races.end(); r_it++){
-        IPid fst_pid = WuT[r_it->first_event].iid.get_pid();
-	if(threads[fst_pid].handler_id == threads[ipid].handler_id){
-          unsigned lev_i = threads[fst_pid].event_indices.back();
-          unsigned fev_j = threads[ipid].event_indices.front();
-          std::vector<unsigned> eops = WuT[fev_j].eop_before;
-          if(std::find(eops.begin(),eops.end(),lev_i) != eops.end())
-          {
-            r_it = WuT[i].races.erase(r_it);
- 	    r_it--;
-	  }
-        }
-      }
+      // /* remove races because of eop */
+      // for (std::vector<Race>::iterator r_it = WuT[i].races.begin();
+      // 	   r_it != WuT[i].races.end(); r_it++){
+      //   IPid fst_pid = WuT[r_it->first_event].iid.get_pid();
+      // 	if(threads[fst_pid].handler_id == threads[ipid].handler_id){
+      //     unsigned lev_i = threads[fst_pid].event_indices.back();
+      //     unsigned fev_j = threads[ipid].event_indices.front();
+      //     std::vector<unsigned> eops = WuT[fev_j].eop_before;
+      //     if(std::find(eops.begin(),eops.end(),lev_i) != eops.end())
+      //     {
+      //       r_it = WuT[i].races.erase(r_it);
+      // 	    r_it--;
+      // 	  }
+      //   }
+      // }
       for (unsigned j : WuT[i].eop_before){
         assert(j < i);
         WuT[i].clock += WuT[j].clock;
@@ -2074,35 +2014,33 @@ void EventTraceBuilder::compute_vclocks(int pass){
                                 });
 
     auto end = races.end();
-    if(pass == 1){
-      bool changed;
-      do {
-        auto oldend = end;
-        changed = false;
-        end = partition
-          (first_pair, end,
-           [this,i](const Race &r){
-            return !WuT[r.first_event].clock.leq(WuT[i].clock);
-           });
-        for (auto it = end; it != oldend; ++it){
-          if (it->kind == Race::LOCK_SUC){
-            WuT[i].clock += WuT[it->unlock_event].clock;
-            changed = true;
-          }
-        }
-      } while (changed);
+    bool changed;
+    do {
+      auto oldend = end;
+      changed = false;
       end = partition
-          (first_pair, end,
-           [this,i](const Race &r){
-	     IPid fst_pid = WuT[r.first_event].iid.get_pid();
+        (first_pair, end,
+         [this,i](const Race &r){
+          return !WuT[r.first_event].clock.leq(WuT[i].clock);
+         });
+      for (auto it = end; it != oldend; ++it){
+        if (it->kind == Race::LOCK_SUC){
+          WuT[i].clock += WuT[it->unlock_event].clock;
+          changed = true;
+        }
+      }
+    } while (changed);
+    end = partition
+        (first_pair, end,
+         [this,i](const Race &r){
+    	     IPid fst_pid = WuT[r.first_event].iid.get_pid();
              IPid snd_pid = WuT[r.second_event].iid.get_pid();
              int fst_post = threads[fst_pid].spawn_event;
              int snd_post = threads[snd_pid].spawn_event;
              return threads[fst_pid].handler_id == -1 ||
                     threads[fst_pid].handler_id != threads[snd_pid].handler_id ||
-	            !WuT[fst_post].clock.lt(WuT[snd_post].clock);
-           });
-    }
+    	            !WuT[fst_post].clock.lt(WuT[snd_post].clock);
+         });
     /* Then filter out subsumed */
     auto fill = frontier_filter
       (first_pair, end,
@@ -2132,17 +2070,18 @@ void EventTraceBuilder::compute_vclocks(int pass){
         WuT[i].clock += WuT[it->first_event].clock;
       }
     }
+
     /* Now delete the subsumed races. We delayed doing this to avoid
      * iterator invalidation. */
     races.resize(fill - races.begin(), races[0]);
-    for (unsigned j : WuT[i].eom_before){
-      assert(j < i);
-      WuT[i].clock += WuT[j].clock;
-    }
-    for (unsigned j : WuT[i].ppm_before){
-      assert(j < i);
-      WuT[i].clock += WuT[j].clock;
-    }
+    // for (unsigned j : WuT[i].eom_before){
+    //   assert(j < i);
+    //   WuT[i].clock += WuT[j].clock;
+    // }
+    // for (unsigned j : WuT[i].ppm_before){
+    //   assert(j < i);
+    //   WuT[i].clock += WuT[j].clock;
+    // }
   }
 
   has_vclocks = true;
@@ -2154,12 +2093,9 @@ bool EventTraceBuilder::record_symbolic(SymEv event){
     assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
     IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
     assert(threads[pid].sleep_sym);
-    if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
-       event.kind == SymEv::POST) return true;
     threads[pid].sleep_sym->push_back(event);
     return true;
   }
-  curev().may_conflict = true;
   if (!replay) {
     assert(sym_idx == curev().sym.size());
     /* New event */
@@ -2182,28 +2118,13 @@ bool EventTraceBuilder::record_symbolic(SymEv event){
 }
 
 bool EventTraceBuilder::do_events_conflict(int i, int j) const{
-  //--DIRTY HACK! TODO: create proper symbolic post event ------//
-  bool is_ppm_ordered = (std::find(WuT[i].ppm_before.begin(),
-				   WuT[i].ppm_before.end(), j) !=
-			 WuT[i].ppm_before.end());
-  IPid fst = WuT[i].iid.get_pid();
-  IPid snd = WuT[j].iid.get_pid();
-  if(threads[fst].handler_id != -1 && threads[fst].spawn_event == j) return true;
-  if(threads[snd].handler_id != -1 && threads[snd].spawn_event == i) return true;
-  if(threads[fst].handler_id != -1 && threads[snd].handler_id != -1 &&
-     threads[snd].handler_id == threads[snd].handler_id) {
-    if(is_eom_ordered(i,j) || is_eom_ordered(j,i)) return true;
-    else return false;
-  }
-     
-  return do_events_conflict(WuT[i], WuT[j], is_ppm_ordered);
+  return do_events_conflict(WuT[i], WuT[j]);
 }
 
 bool EventTraceBuilder::do_events_conflict
-(const Event &fst, const Event &snd, bool is_ppm_ordered) const{
+(const Event &fst, const Event &snd) const{
   return do_events_conflict(fst.iid.get_pid(), fst.sym,
-                            snd.iid.get_pid(), snd.sym,
-			    is_ppm_ordered);
+                            snd.iid.get_pid(), snd.sym);
 }
 
 static bool symev_has_pid(const SymEv &e) {
@@ -2220,15 +2141,11 @@ static bool symev_is_unobs_store(const SymEv &e) {
 
 bool EventTraceBuilder::do_symevs_conflict
 (IPid fst_pid, const SymEv &fst,
- IPid snd_pid, const SymEv &snd,
- bool is_ppm_ordered) const {
+ IPid snd_pid, const SymEv &snd) const {
   if (fst.kind == SymEv::NONDET || snd.kind == SymEv::NONDET) return false;
   if (fst.kind == SymEv::FULLMEM || snd.kind == SymEv::FULLMEM) return true;
   if (fst.kind == SymEv::POST && snd.kind == SymEv::POST){
-    //if(conf.dpor_algorithm != Configuration::EVENT_DRIVEN &&
-    //   fst.num() == snd.num())
     return false;
-    //else return is_ppm_ordered;
   }
   if (symev_is_load(fst) && symev_is_load(snd)) return false;
   if (symev_is_unobs_store(fst) && symev_is_unobs_store(snd)
@@ -2248,15 +2165,14 @@ bool EventTraceBuilder::do_symevs_conflict
 
 bool EventTraceBuilder::do_events_conflict
 (IPid fst_pid, const sym_ty &fst,
- IPid snd_pid, const sym_ty &snd,
- bool is_ppm_ordered) const{
+ IPid snd_pid, const sym_ty &snd) const{
   if (fst_pid == snd_pid) return true;
   if (threads[fst_pid].handler_id == snd_pid) return true;
   if (threads[snd_pid].handler_id == fst_pid) return true;
   for (const SymEv &fe : fst) {
     if (symev_has_pid(fe) && fe.num() == (snd_pid / 2)) return true;
     for (const SymEv &se : snd) {
-      if (do_symevs_conflict(fst_pid, fe, snd_pid, se, is_ppm_ordered)) {
+      if (do_symevs_conflict(fst_pid, fe, snd_pid, se)) {
         return true;
       }
     }
@@ -2448,52 +2364,6 @@ void EventTraceBuilder::linearize_wakeup_seq(const std::map<int,Event> &wakeup_e
   }
 }					   
 
-bool EventTraceBuilder::redundant_wakeup_seq(std::map<int,Event> wakeup_ev_seq,
-					   int ins_point){
-  std::unordered_map<IID<IPid>,VClock<int>> post_ev_clocks;
-  for(int i = 0; i < ins_point; i++){//go through WuT
-    if(!WuT[i].sym.empty() && WuT[i].sym.front().kind == SymEv::POST){
-      post_ev_clocks.insert(std::pair<IID<IPid>,VClock<int>>(WuT[i].iid,
-   							     WuT[i].clock));
-    }
-  }
-  for(auto ev : wakeup_ev_seq){//collect clocks of post events from WS
-    if(!ev.second.sym.empty() && ev.second.sym.front().kind == SymEv::POST){
-      post_ev_clocks.insert(std::pair<IID<IPid>,VClock<int>>(ev.second.iid,
-   							     ev.second.clock));
-    }
-  }
-  std::vector<std::pair<IID<IPid>,VClock<IPid>>> post_sleep;//record sleeping posts
-  for(int i = 0; i <= ins_point; i++){//go through WuT
-    for(auto s_it = post_sleep.begin(); s_it != post_sleep.end(); s_it++){
-      if(s_it->second.gt(WuT[i].clock)){//erase conflicting events from post_sleep
-        s_it = post_sleep.erase(s_it);
-        s_it--;
-      }
-    }
-    for(IID<IPid> post_iid:WuT[i].done_posts){
-      assert(post_ev_clocks.find(post_iid) != post_ev_clocks.end());
-      VClock<IPid> clk = post_ev_clocks.at(post_iid);
-      if(clk.gt(WuT[i].clock)) continue;//conflicting
-      //insert non-conflicting events to post_sleep
-      post_sleep.push_back(std::pair<IID<IPid>,VClock<int>>(post_iid,clk));
-    }
-  }
-  for(auto it = wakeup_ev_seq.begin(); it != wakeup_ev_seq.end(); it++){//go through WS
-    for(auto s_it = post_sleep.begin(); s_it != post_sleep.end(); s_it++){
-      if(s_it->first == it->second.iid){//Redundant: found weak initial in post_sleep
-	return true;
-      }
-      if(s_it->second.gt(it->second.clock)){///erase conflicting events from post_sleep
-        s_it = post_sleep.erase(s_it);
-        s_it--;
-      }
-    }
-    if(post_sleep.size() == 0) return false;
-  }
-  return true;
-}
-
 void EventTraceBuilder::race_detect_optimal
 (const Race &race, const struct obs_sleep &isleep){
   int i = race.first_event;
@@ -2545,7 +2415,7 @@ void EventTraceBuilder::race_detect_optimal
             for (auto pei = v.begin(); skip == NO && pei != vei; ++pei){
               const Branch &pe = *pei;
               if (do_events_conflict(ve.spid, ve.sym,
-                                     pe.spid, pe.sym, false)){
+                                     pe.spid, pe.sym)){
                 skip = NEXT;
               }
             }
@@ -2600,7 +2470,7 @@ void EventTraceBuilder::race_detect_optimal
         }
         else if (do_events_conflict(ve.spid, ve.sym,
 				    child_it.branch().spid,
-				    child_sym, false)) {
+				    child_sym)) {
           /* This branch is incompatible, try the next */
           skip = NEXT;
         }
@@ -2631,9 +2501,9 @@ void EventTraceBuilder::race_detect_optimal
 
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
 wakeup_sequence(const Race &race) const{
-  int i = race.first_event;
-  int j = race.second_event;
-  IPid spid = WuT[j].iid.get_pid();
+  const int i = race.first_event;
+  const int j = race.second_event;
+
   const Event &first = WuT[i];
   Event second({-1,0});
   Branch second_br(0,0);
@@ -2649,12 +2519,11 @@ wakeup_sequence(const Race &race) const{
   } else {
     second = WuT[j];
     second.sleep.clear();
-    second.done_posts.clear();
     second.wakeup.clear();
     second_br = branch_with_symbolic_data(j);
   }
   if (race.kind == Race::OBSERVED) {
-  } else{
+  } else {
     /* Only replay the racy event. */
     second_br.size = 1;
   }
@@ -2668,7 +2537,7 @@ wakeup_sequence(const Race &race) const{
   std::vector<Branch> v;
   std::vector<const Event*> observers;
   std::vector<Branch> notobs;
-  
+
   for (int k = i + 1; k < int(WuT.len()); ++k){
     if (!first.clock.leq(WuT[k].clock)) {
       v.emplace_back(branch_with_symbolic_data(k));
@@ -2683,7 +2552,7 @@ wakeup_sequence(const Race &race) const{
           notobs.emplace_back(branch_with_symbolic_data(k));
         }
       }
-    } 
+    }
   }
 
   if (race.kind == Race::NONBLOCK) {
@@ -2697,7 +2566,7 @@ wakeup_sequence(const Race &race) const{
     Branch witness_br = branch_with_symbolic_data(k);
     /* Only replay the racy event. */
     witness_br.size = 1;
-    
+
     v.emplace_back(std::move(first_br));
     v.back().spid = threads[WuT[i].iid.get_pid()].spid;
     v.insert(v.end(), std::make_move_iterator(notobs.begin()),
@@ -2711,113 +2580,6 @@ wakeup_sequence(const Race &race) const{
     /* Recompute observed states on events in v */
     recompute_observed(v);
   }
-  return v;
-}
-
-std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
-ws_for_msg_msg_race(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
-  /* Make race between first events of two conflicting messages */
-  IPid fpid = WuT[race.first_event].iid.get_pid();
-  IPid spid = WuT[race.second_event].iid.get_pid();
-  int i = threads[fpid].event_indices.front();
-  int j = threads[spid].event_indices.front();
-  const Event &first = WuT[i];
-  /* v is the subsequence of events in prefix come after WuT[i],
-   * but do not "happen after" (i.e. their vector clocks are not strictly
-   * greater than WuT[i].clock), followed by the second event.
-   *
-   * It is the sequence we want to insert into the wakeup tree.
-   */
-  std::vector<Branch> v;
-  IPid last_msg[threads.size()];
-  std::forward_list<IPid> confl_msgs[threads.size()];
-
-  /* Determine which is the first message after the race in conflict with the race */
-  for(int k = threads.size()-2; k > 0; k = k-2){
-    int last_event = threads[k].event_indices.back();
-    IPid handler = threads[k].handler_id;
-    if(handler != -1 &&
-       first.clock.leq(WuT[last_event].clock) &&
-       k != fpid){
-      last_msg[handler] = k;
-      confl_msgs[handler].push_front(k);
-    }
-  }
-
-  /* Extract notdep */
-  for(int k = i + 1; k < int(WuT.len()); ++k){
-    IPid ipid = WuT[k].iid.get_pid();
-    if(!first.clock.leq(WuT[k].clock)){
-      IPid handler = threads[ipid].handler_id;
-      /* skip conflicting messages */
-      if(handler != 1 &&
-	 !confl_msgs[handler].empty() &&
-	 confl_msgs[handler].front() == ipid){
-	if(k == threads[ipid].event_indices.back())
-	  confl_msgs[handler].pop_front();
-        continue;
-      }
-      wakeup_ev_seq.insert(std::pair<int,Event>(k,WuT[k]));
-    }
-  }
-
-  /* Include second message of the race */
-  for(int k = 0; k < threads[spid].event_indices.size();){
-    int ev = threads[spid].event_indices[k];
-    Branch second_br = branch_with_symbolic_data(ev);
-    recompute_cmpxhg_success(second_br.sym, v, i);
-    Event e = WuT[ev];
-    /* remove races between messages */
-    for(auto r_it = e.races.begin(); r_it != e.races.end(); r_it++){
-      if(WuT[r_it->first_event].iid.get_pid() == fpid){
-        r_it = e.races.erase(r_it);
-        r_it--;
-      }
-    }
-    if(k == 0){
-      std::vector<unsigned> &eoms = e.eom_before;
-      for(auto it = eoms.begin(); it!=eoms.end(); it++){
-        if(*it==threads[fpid].event_indices.back()){
-	  eoms.erase(it);
-	  break;
-	}
-      }
-    }
-    wakeup_ev_seq.insert(std::pair<int,Event>(ev, e));
-    k += second_br.size;
-  }
-
-  for(int k = 0; k < threads.size(); k = k+2){
-    IPid handler = threads[k].handler_id;
-    if(handler != -1){
-      IPid last = last_msg[handler];
-      auto e_it = wakeup_ev_seq.find(threads[k].event_indices.back());
-      if(last != -1 && last != k && e_it != wakeup_ev_seq.end()){
-	int post_k = threads[k].spawn_event;
-	wakeup_ev_seq.at(threads[last].spawn_event).rsc_before.push_back(post_k);
-	auto first_ev = wakeup_ev_seq.find(threads[last].event_indices.front());
-	//llvm::dbgs()<<"Adding rsc edges:"<<WuT[post_k].iid<<":"<<WuT[threads[last].spawn_event].iid<<"\n";/////////////
-	if(first_ev != wakeup_ev_seq.end()){
-	  first_ev->second.rsc_before.push_back(e_it->first);
-	  //llvm::dbgs()<<"Adding rsc edges:"<<e_it->second.iid<<":"<<first_ev->second.iid<<"\n";/////////////
-
-	}
-      }
-    }
-  }
-  /* TODO: reverse ppms recursively */
-  //reverse_ppms_recursively(wakup_eve_seq, fpid, spid);
-  Event &sec_post = wakeup_ev_seq.at(threads[spid].spawn_event);
-  assert(sec_post.ppm_before.size()>0);
-  for(auto it = sec_post.ppm_before.begin();
-    it != sec_post.ppm_before.end(); it++){
-    if(*it==threads[fpid].spawn_event){
-      sec_post.ppm_before.erase(it);
-      break;
-    }
-  }
-  Event &fst_post = wakeup_ev_seq.at(threads[fpid].spawn_event);
-  fst_post.ppm_before.push_back(threads[spid].spawn_event);
   return v;
 }
 
@@ -2969,7 +2731,7 @@ void EventTraceBuilder::wakeup(Access::Type type, SymAddr ml){
       if (!threads[p].sleeping) continue;
       assert(threads[p].sleep_sym);
       assert(bool(wakeup_set.count(p))
-             == do_events_conflict(pid, ev, p, *threads[p].sleep_sym, false));
+             == do_events_conflict(pid, ev, p, *threads[p].sleep_sym));
     }
   }
 #endif
@@ -2979,25 +2741,6 @@ void EventTraceBuilder::wakeup(Access::Type type, SymAddr ml){
     threads[p].sleep_accesses_r.clear();
     threads[p].sleep_accesses_w.clear();
     threads[p].sleep_full_memory_conflict = false;
-    threads[p].sleep_sym = nullptr;
-    threads[p].sleeping = false;
-    curev().wakeup.insert(p);
-  }
-}
-
-void EventTraceBuilder::wakeup_posts(const int tpid) {
-  IPid pid = curev().iid.get_pid();
-  IFDEBUG(sym_ty ev);
-  std::vector<IPid> wakeup; // Wakeup these
-  IFDEBUG(ev.push_back(SymEv::Post(tpid)));
-  for(unsigned p = 0; p < threads.size(); ++p) {
-    if(threads[p].sleep_posts.count(tpid)) {
-      wakeup.push_back(p);
-    }
-  }
-  for(IPid p : wakeup){
-    assert(threads[p].sleeping);
-    threads[p].sleep_posts.clear();
     threads[p].sleep_sym = nullptr;
     threads[p].sleeping = false;
     curev().wakeup.insert(p);
