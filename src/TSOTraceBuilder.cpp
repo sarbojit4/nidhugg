@@ -2103,17 +2103,6 @@ void TSOTraceBuilder::compute_vclocks(int pass){
           }
         }
       } while (changed);
-      end = partition
-          (first_pair, end,
-           [this,i](const Race &r){
-	     IPid fst_pid = prefix[r.first_event].iid.get_pid();
-             IPid snd_pid = prefix[r.second_event].iid.get_pid();
-             int fst_post = threads[fst_pid].spawn_event;
-             int snd_post = threads[snd_pid].spawn_event;
-             return threads[fst_pid].handler_id == -1 ||
-                    threads[fst_pid].handler_id != threads[snd_pid].handler_id ||
-	            !prefix[fst_post].clock.lt(prefix[snd_post].clock);
-           });
     }
     /* Then filter out subsumed */
     auto fill = frontier_filter
@@ -2512,7 +2501,7 @@ void TSOTraceBuilder::race_detect_optimal
   int i = race.first_event;
   IPid fpid = prefix[i].iid.get_pid();
   IPid spid = prefix[race.second_event].iid.get_pid();
-  //llvm::dbgs()<<"Race "<<prefix[i].iid<<" "<<prefix[race.second_event].iid<<"\n";
+  llvm::dbgs()<<"Race "<<prefix[i].iid<<" "<<prefix[race.second_event].iid<<"\n";
 
   /* sequence of events in wakeup sequence */
   std::map<int,Event> wakeup_ev_seq;
