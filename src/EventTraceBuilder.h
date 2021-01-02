@@ -472,12 +472,11 @@ protected:
     uint64_t sleep_branch_trace_count;
   };
 
-  /* The fixed prefix of events in the current execution. This may be
-   * either the complete sequence of events executed thus far in the
-   * execution, or the events executed followed by the subsequent
-   * events that are determined in advance to be executed.
-   */
+  /* A tree contains the current and future prefix of events to be executed. */
   WakeupTreeExplorationBuffer<Branch, Event> WuT;
+
+  /* The fixed prefix of events in the current execution. */
+  std::vector<std::pair<Branch, Event>> prefix;
 
   /* The number of threads that have been dry run since the last
    * non-dry run event was scheduled.
@@ -520,21 +519,28 @@ protected:
 
   Event &curev() {
     assert(0 <= prefix_idx);
-    assert(prefix_idx < int(WuT.len()));
-    return WuT[prefix_idx];
+    assert(prefix_idx < int(prefix.size()));
+    return prefix[prefix_idx].second;
   };
 
   const Event &curev() const {
     assert(0 <= prefix_idx);
-    assert(prefix_idx < int(WuT.len()));
-    return WuT[prefix_idx];
+    assert(prefix_idx < int(prefix.size()));
+    return prefix[prefix_idx].second;
   };
 
   const Branch &curbranch() const {
     assert(0 <= prefix_idx);
-    assert(prefix_idx < int(WuT.len()));
-    return WuT.branch(prefix_idx);
+    assert(prefix_idx < int(prefix.size()));
+    return prefix[prefix_idx].first;
   };
+
+  inline Branch &branch_at(int i){ return prefix[i].first; }
+  inline const Branch &branch_at(int i) const{ return prefix[i].first; }
+  inline Event &event_at(int i){ return prefix[i].second; }
+  inline const Event &event_at(int i) const{ return prefix[i].second; }
+  inline Branch &lastbranch(){ return prefix[prefix.size()-1].first; }
+  inline Event &lastevent(){ return prefix[prefix.size()-1].second; }
 
   /* Symbolic events in Branches in the wakeup tree do not record the
    * data of memory accesses as these can change between executions.
@@ -542,7 +548,7 @@ protected:
    * with data of memory accesses in the symbolic events.
    */
   Branch branch_with_symbolic_data(unsigned index) const {
-    return Branch(WuT.branch(index), WuT[index].sym);
+    return Branch(prefix[index].first, prefix[index].second.sym);
   };
 
   /* Perform the logic of atomic_store(), aside from recording a
@@ -566,7 +572,7 @@ protected:
   unsigned iid_to_event(IID<IPid> iid){ return find_process_event(iid.get_pid(),iid.get_index()); }
 
 
-  /* Pretty-prints the iid of WuT[pos]. */
+  /* Pretty-prints the iid of prefix[pos]. */
   std::string iid_string(std::size_t pos) const;
   /* Pretty-prints the iid <branch.pid, index>. */
   std::string iid_string(const Branch &branch, int index) const;
@@ -636,13 +642,13 @@ protected:
 			const Branch &event) const;
   /* Add clocks and branches.
    *
-   * All elements e in seen should either be indices into WuT, or
+   * All elements e in seen should either be indices into prefix, or
    * be negative. In the latter case they are ignored.
    */
   void see_events(const VecSet<int> &seen);
   /* Add clocks and branches.
    *
-   * All pairs in seen should be increasing indices into WuT.
+   * All pairs in seen should be increasing indices into prefix.
    */
   void see_event_pairs(const VecSet<std::pair<int,int>> &seen);
   /* Adds a non-reversible happens-before edge between first and

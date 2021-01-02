@@ -66,7 +66,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       assert(threads[pid].available);
       threads[pid].event_indices.push_back(prefix_idx);
       return true;
-    }else if(prefix_idx + 1 == int(WuT.len()) && WuT.lastnode().size() == 0){
+    }else if(prefix_idx + 1 == int(prefix.size())){// && WuT.lastnode().size() == 0){
 
       /* We are done replaying. Continue below... */
       assert(prefix_idx < 0 || curev().sym.size() == sym_idx
@@ -80,15 +80,15 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
                               curev().iid.get_index()))
              || std::all_of(threads.cbegin(), threads.cend(),
                             [](const Thread &t) { return !t.sleeping; }));
-    }else if(prefix_idx + 1 != int(WuT.len()) &&
-             dry_sleepers < int(WuT[prefix_idx+1].sleep.size())){
+    }else if(prefix_idx + 1 != int(prefix.size()) &&
+             dry_sleepers < int(event_at(prefix_idx+1).sleep.size())){
       /* Before going to the next event, dry run the threads that are
        * being put to sleep.
        */
-      IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers];
-      WuT[prefix_idx+1].sleep_evs.resize
-        (WuT[prefix_idx+1].sleep.size());
-      threads[pid].sleep_sym = &WuT[prefix_idx+1].sleep_evs[dry_sleepers];
+      IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers];
+      event_at(prefix_idx+1).sleep_evs.resize
+        (event_at(prefix_idx+1).sleep.size());
+      threads[pid].sleep_sym = &event_at(prefix_idx+1).sleep_evs[dry_sleepers];
       threads[pid].sleep_sym->clear();
       ++dry_sleepers;
       threads[pid].sleeping = true;
@@ -107,20 +107,10 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       dry_sleepers = 0;
       sym_idx = 0;
       ++prefix_idx;
-      IPid pid;
-      if (prefix_idx < int(WuT.len())) {
-        /* The event is already in prefix */
-        pid = curev().iid.get_pid();
-        curev().happens_after.clear();
-      } else {
-        /* We are replaying from the wakeup tree */
-	pid = SPS.get_pid(WuT.first_child().spid);
-        WuT.enter_first_child
-          (Event(IID<IPid>(pid,threads[pid].last_event_index() + 1),
-                 /* Jump a few hoops to get the next Branch before
-                  * calling enter_first_child() */
-                 WuT.parent_at(prefix_idx).begin().branch().sym));
-      }
+      /* The event is already in prefix */
+      IPid pid = SPS.get_pid(curbranch().spid);
+      curev() = Event(IID<IPid>(pid,threads[pid].last_event_index() + 1),
+                      curbranch().sym);
       *proc = pid/2;
       *aux = pid % 2 - 1;
       *alt = curbranch().alt;
@@ -138,26 +128,26 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   // assert(prefix_idx < 0 || !!curev().sym.size() == curev().may_conflict);
 
   /* Should we merge the last two events? */
-  if(WuT.len() > 1 &&
-     WuT[WuT.len()-1].iid.get_pid()
-     == WuT[WuT.len()-2].iid.get_pid() &&
-     !WuT[WuT.len()-1].may_conflict &&
-     WuT[WuT.len()-1].sleep.empty()){
-    assert(WuT.children_after(WuT.len()-1) == 0);
-    assert(WuT[WuT.len()-1].wakeup.empty());
+  if(prefix.size() > 1 &&
+     event_at(prefix.size()-1).iid.get_pid()
+     == event_at(prefix.size()-2).iid.get_pid() &&
+     !event_at(prefix.size()-1).may_conflict &&
+     event_at(prefix.size()-1).sleep.empty()){
+    //assert(WuT.children_after(WuT.len()-1) == 0);
+    assert(event_at(prefix.size()-1).wakeup.empty());
     assert(curev().sym.empty()); /* Would need to be copied */
     assert(curbranch().sym.empty()); /* Can't happen */
     unsigned size = curbranch().size;
-    WuT.delete_last();
+    prefix.pop_back();
     --prefix_idx;
     Branch b = curbranch();
     b.size += size;
-    WuT.set_last_branch(std::move(b));
+    lastbranch() = b;
     assert(int(threads[curev().iid.get_pid()].event_indices.back()) == prefix_idx + 1);
     threads[curev().iid.get_pid()].event_indices.back() = prefix_idx;
   } else {
     /* Copy symbolic events to wakeup tree */
-    if (WuT.len() > 0) {
+    if (prefix.size() > 0) {
       if (!curbranch().sym.empty()) {
 #ifndef NDEBUG
         sym_ty expected = curev().sym;
@@ -171,7 +161,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
         if (conf.dpor_algorithm == Configuration::OBSERVERS)
           clear_observed(b.sym);
         for (SymEv &e : b.sym) e.purge_data();
-        WuT.set_last_branch(std::move(b));
+        lastbranch() = b;
       }
     }
   }
@@ -190,9 +180,9 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
     if(threads[p].available && !threads[p].sleeping &&
        (conf.max_search_depth < 0 || threads[p].last_event_index() < conf.max_search_depth)){
       threads[p].event_indices.push_back(++prefix_idx);
-      assert(prefix_idx == int(WuT.len()));
+      assert(prefix_idx == int(prefix.size()));
       IID<IPid> iid(IPid(p),threads[p].last_event_index());
-      WuT.push(Branch(threads[p].spid,threads[p].last_event_index()),Event(iid));
+      prefix.emplace_back(Branch(threads[p].spid,threads[p].last_event_index()),Event(iid));
       *proc = p/2;
       *aux = 0;
       return true;
@@ -205,7 +195,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       threads[p].event_indices.push_back(++prefix_idx);
       assert(prefix_idx == int(WuT.len()));
       IID<IPid> iid(IPid(p),threads[p].last_event_index());
-      WuT.push(Branch(threads[p].spid,threads[p].last_event_index()),Event(iid));
+      prefix.emplace_back(Branch(threads[p].spid,threads[p].last_event_index()),Event(iid));
       *proc = p/2;
       *aux = -1;
       return true;
@@ -217,14 +207,14 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
 }
 
 void EventTraceBuilder::refuse_schedule(){
-  assert(prefix_idx == int(WuT.len())-1);
-  assert(WuT.lastbranch().size == 1);
-  assert(!WuT.last().may_conflict);
-  assert(WuT.last().sleep.empty());
-  assert(WuT.last().wakeup.empty());
-  assert(WuT.children_after(prefix_idx) == 0);
-  IPid last_pid = WuT.last().iid.get_pid();
-  WuT.delete_last();
+  assert(prefix_idx == int(prefix.size())-1);
+  assert(lastbranch().size == 1);
+  assert(!lastevent().may_conflict);
+  assert(lastevent().sleep.empty());
+  assert(lastevent().wakeup.empty());
+  //assert(WuT.children_after(prefix_idx) == 0);
+  IPid last_pid = lastevent().iid.get_pid();
+  prefix.pop_back();
   assert(int(threads[last_pid].event_indices.back()) == prefix_idx);
   threads[last_pid].event_indices.pop_back();
   --prefix_idx;
@@ -250,11 +240,12 @@ bool EventTraceBuilder::is_replaying() const {
 void EventTraceBuilder::cancel_replay(){
   if(!replay) return;
   replay = false;
-  while (prefix_idx + 1 < int(WuT.len())) WuT.delete_last();
-  if (WuT.node(prefix_idx).size()) {
+  while (prefix_idx + 1 < int(prefix.size())) prefix.pop_back();
+  //TODO: carefully do cancel replay.
+  /*if (WuT.node(prefix_idx).size()) {
     WuT.enter_first_child(Event(IID<IPid>()));
-    WuT.delete_last();
-  }
+    prefix.pop_back();
+    }*/
 }
 
 void EventTraceBuilder::metadata(const llvm::MDNode *md){
@@ -280,7 +271,7 @@ bool EventTraceBuilder::check_for_cycles(){
 
   /* Report cycle */
   {
-    assert(WuT.len());
+    assert(prefix.size());
     IID<CPid> c_iid(threads[i_iid.get_pid()].cpid,i_iid.get_index());
     errors.push_back(new RobustnessError(c_iid));
   }
@@ -292,9 +283,9 @@ Trace *EventTraceBuilder::get_trace() const{
   std::vector<IID<CPid> > cmp;
   SrcLocVectorBuilder cmp_md;
   std::vector<Error*> errs;
-  for(unsigned i = 0; i < WuT.len(); ++i){
-    cmp.push_back(IID<CPid>(threads[WuT[i].iid.get_pid()].cpid,WuT[i].iid.get_index()));
-    cmp_md.push_from(WuT[i].md);
+  for(unsigned i = 0; i < prefix.size(); ++i){
+    cmp.push_back(IID<CPid>(threads[event_at(i).iid.get_pid()].cpid,event_at(i).iid.get_index()));
+    cmp_md.push_from(event_at(i).md);
   };
   for(unsigned i = 0; i < errors.size(); ++i){
     errs.push_back(errors[i]->clone());
@@ -307,13 +298,13 @@ Trace *EventTraceBuilder::get_trace() const{
 bool EventTraceBuilder::reset(){
   compute_vclocks();
 
-  do_race_detect();
+  //do_race_detect();
 
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === EventTraceBuilder reset ===\n";
     debug_print();
     llvm::dbgs() << " =============================\n";
-    return true;
+    return false;
   }
 
   if(max_branches < branches) max_branches = branches;
@@ -406,7 +397,7 @@ static std::string rpad(std::string s, int n){
 }
 
 std::string EventTraceBuilder::iid_string(std::size_t pos) const{
-  return iid_string(WuT.branch(pos), WuT[pos].iid.get_index());
+  return iid_string(branch_at(pos), event_at(pos).iid.get_index());
 }
 
 std::string EventTraceBuilder::iid_string(const Branch &branch, int index) const{
@@ -598,36 +589,36 @@ void EventTraceBuilder::debug_print() const {
   std::vector<std::string> lines;
   struct obs_sleep sleep_set;
 
-  for(unsigned i = 0; i < WuT.len(); ++i){
-    IPid ipid = WuT[i].iid.get_pid();
+  for(unsigned i = 0; i < prefix.size(); ++i){
+    IPid ipid = event_at(i).iid.get_pid();
     iid_offs = std::max(iid_offs,2*ipid+int(iid_string(i).size()));
-    symev_offs = std::max(symev_offs,int(WuT[i].clock.to_string().size()));
-    clock_offs = std::max(clock_offs,int(WuT[i].clock.to_string().size()));
-    obs_sleep_add(sleep_set, WuT[i]);
+    symev_offs = std::max(symev_offs,int(event_at(i).clock.to_string().size()));
+    clock_offs = std::max(clock_offs,int(event_at(i).clock.to_string().size()));
+    obs_sleep_add(sleep_set, event_at(i));
     lines.push_back(" SLP:" + oslp_string(sleep_set));
-    obs_sleep_wake(sleep_set, ipid, WuT[i].sym);
+    obs_sleep_wake(sleep_set, ipid, event_at(i).sym);
   }
 
   /* Add wakeup tree */
-  std::vector<int> iid_map = iid_map_at(WuT.len());
-  for(int i = WuT.len()-1; 0 <= i; --i){
-    auto node = WuT.parent_at(i);
-    iid_map_step_rev(iid_map, WuT.branch(i));
-    for (auto it = node.begin(); it != node.end(); ++it) {
-      Branch b = it.branch();
-      if (b == WuT.branch(i)) continue; /* Only print others */
-      wut_string_add_node(lines, iid_map, i, it.branch(), it.node());
-    }
-  }
+  // std::vector<int> iid_map = iid_map_at(prefix.size());
+  // for(int i = prefix.size()-1; 0 <= i; --i){
+  //   auto node = WuT.parent_at(i);
+  //   iid_map_step_rev(iid_map, WuT.branch(i));
+  //   for (auto it = node.begin(); it != node.end(); ++it) {
+  //     Branch b = it.branch();
+  //     if (b == WuT.branch(i)) continue; /* Only print others */
+  //     wut_string_add_node(lines, iid_map, i, it.branch(), it.node());
+  //   }
+  // }
 
-  for(unsigned i = 0; i < WuT.len(); ++i){
-    IPid ipid = WuT[i].iid.get_pid();
+  for(unsigned i = 0; i < prefix.size(); ++i){
+    IPid ipid = event_at(i).iid.get_pid();
     llvm::dbgs() << rpad("",2+ipid*2)
                  << rpad(iid_string(i),iid_offs-ipid*2)
-                 << " " << rpad(WuT[i].clock.to_string(),clock_offs)//rpad(events_to_string(WuT[i].sym),symev_offs)	
+                 << " " << rpad(event_at(i).clock.to_string(),clock_offs)//rpad(events_to_string(WuT[i].sym),symev_offs)	
 	                 << lines[i] << "\n";
   }
-  for (unsigned i = WuT.len(); i < lines.size(); ++i){
+  for (unsigned i = prefix.size(); i < lines.size(); ++i){
     llvm::dbgs() << std::string(2+iid_offs + 1+symev_offs, ' ') << lines[i] << "\n";
   }
   if(errors.size()){
@@ -738,9 +729,9 @@ static SymAddrSize sym_get_last_write(const sym_ty &sym, SymAddr addr){
 void EventTraceBuilder::do_atomic_store(const SymData &sd){
   const SymAddrSize &ml = sd.get_ref();
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     VecSet<SymAddr> &A = threads[pid].sleep_accesses_w;
     for(SymAddr b : ml){
       A.insert(b);
@@ -759,7 +750,7 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
     const PendingStore &pst = threads[tipid].store_buffer.front();
     assert(pst.store_event != (unsigned)prefix_idx);
     add_happens_after(prefix_idx, pst.store_event);
-    curev().origin_iid = WuT[pst.store_event].iid;
+    curev().origin_iid = event_at(pst.store_event).iid;
     curev().md = pst.md;
   }else{ // Add the clock of the auxiliary thread (because of fence semantics)
     assert(threads[tipid].store_buffer.empty());
@@ -772,12 +763,12 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
   for(SymAddr b : ml){
     ByteInfo &bi = mem[b];
     int lu = bi.last_update;
-    assert(lu < int(WuT.len()));
+    assert(lu < int(prefix.size()));
     if(0 <= lu){
-      IPid lu_tipid = 2*(WuT[lu].iid.get_pid() / 2);
+      IPid lu_tipid = 2*(event_at(lu).iid.get_pid() / 2);
       if(lu_tipid != tipid){
         if(conf.dpor_algorithm == Configuration::OBSERVERS){
-          SymAddrSize lu_addr = sym_get_last_write(WuT[lu].sym, b);
+          SymAddrSize lu_addr = sym_get_last_write(event_at(lu).sym, b);
           if (lu_addr != ml) {
             /* When there is "partial overlap", observers requires
              * writes to be unconditionally racing
@@ -791,7 +782,7 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
       }
     }
     for(int i : bi.last_read){
-      if(0 <= i && WuT[i].iid.get_pid() != tipid) seen_accesses.insert(i);
+      if(0 <= i && event_at(i).iid.get_pid() != tipid) seen_accesses.insert(i);
     }
 
     /* Register in memory */
@@ -829,9 +820,9 @@ bool EventTraceBuilder::load(const SymAddrSize &ml){
 
 void EventTraceBuilder::do_load(const SymAddrSize &ml){
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     VecSet<SymAddr> &A = threads[pid].sleep_accesses_r;
     for(SymAddr b : ml){
       A.insert(b);
@@ -858,7 +849,7 @@ void EventTraceBuilder::do_load(const SymAddrSize &ml){
     int lu = mem[b].last_update;
     const SymAddrSize &lu_ml = mem[b].last_update_ml;
     if(0 <= lu){
-      IPid lu_tipid = WuT[lu].iid.get_pid() & ~0x1;
+      IPid lu_tipid = event_at(lu).iid.get_pid() & ~0x1;
       if(lu_tipid == ipid && ml != lu_ml && lu != prefix_idx){
         add_happens_after(prefix_idx, lu);
       }
@@ -891,9 +882,9 @@ bool EventTraceBuilder::compare_exchange
 bool EventTraceBuilder::full_memory_conflict(){
   if (!record_symbolic(SymEv::Fullmem())) return false;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_full_memory_conflict = true;
     return true;
   }
@@ -929,14 +920,14 @@ void EventTraceBuilder::do_load(ByteInfo &m){
   int lu = m.last_update;
   const SymAddrSize &lu_ml = m.last_update_ml;
   if(0 <= lu){
-    IPid lu_tipid = WuT[lu].iid.get_pid() & ~0x1;
+    IPid lu_tipid = event_at(lu).iid.get_pid() & ~0x1;
     if(lu_tipid != ipid){
       seen_accesses.insert(lu);
     }
     if (conf.dpor_algorithm == Configuration::OBSERVERS) {
       /* Update last_update to be an observed store */
-      for (auto it = WuT[lu].sym.end();;){
-        assert(it != WuT[lu].sym.begin());
+      for (auto it = event_at(lu).sym.end();;){
+        assert(it != event_at(lu).sym.begin());
         --it;
         if((it->kind == SymEv::STORE || it->kind == SymEv::CMPXHG)
            && it->addr() == lu_ml) break;
@@ -947,7 +938,7 @@ void EventTraceBuilder::do_load(ByteInfo &m){
       }
       /* Add races */
       for (int u : m.unordered_updates){
-        if (WuT[lu].iid != WuT[u].iid) {
+        if (event_at(lu).iid != event_at(u).iid) {
           seen_pairs.insert(std::pair<int,int>(u, lu));
         }
       }
@@ -980,9 +971,9 @@ bool EventTraceBuilder::join(int tgt_proc){
 bool EventTraceBuilder::mutex_lock(const SymAddrSize &ml){
   if (!record_symbolic(SymEv::MLock(ml))) return false;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1028,9 +1019,9 @@ bool EventTraceBuilder::mutex_lock_fail(const SymAddrSize &ml){
 bool EventTraceBuilder::mutex_trylock(const SymAddrSize &ml){
   if (!record_symbolic(SymEv::MLock(ml))) return false;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1055,9 +1046,9 @@ bool EventTraceBuilder::mutex_trylock(const SymAddrSize &ml){
 bool EventTraceBuilder::mutex_unlock(const SymAddrSize &ml){
   if (!record_symbolic(SymEv::MUnlock(ml))) return false;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1081,9 +1072,9 @@ bool EventTraceBuilder::mutex_unlock(const SymAddrSize &ml){
 bool EventTraceBuilder::mutex_init(const SymAddrSize &ml){
   if (!record_symbolic(SymEv::MInit(ml))) return false;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1098,9 +1089,9 @@ bool EventTraceBuilder::mutex_init(const SymAddrSize &ml){
 bool EventTraceBuilder::mutex_destroy(const SymAddrSize &ml){
   if (!record_symbolic(SymEv::MDelete(ml))) return false;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1122,9 +1113,9 @@ bool EventTraceBuilder::mutex_destroy(const SymAddrSize &ml){
 bool EventTraceBuilder::cond_init(const SymAddrSize &ml){
   if (!record_symbolic(SymEv::CInit(ml))) return false;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1141,9 +1132,9 @@ bool EventTraceBuilder::cond_init(const SymAddrSize &ml){
 bool EventTraceBuilder::cond_signal(const SymAddrSize &ml){
   if (!record_symbolic(SymEv::CSignal(ml))) return false;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1166,7 +1157,7 @@ bool EventTraceBuilder::cond_signal(const SymAddrSize &ml){
     /* Wake up the alt:th waiter. */
     int i = cond_var.waiters[curbranch().alt];
     assert(0 <= i && i < prefix_idx);
-    IPid ipid = WuT[i].iid.get_pid();
+    IPid ipid = event_at(i).iid.get_pid();
     assert(!threads[ipid].available);
     threads[ipid].available = true;
     seen_events.insert(i);
@@ -1187,9 +1178,9 @@ bool EventTraceBuilder::cond_signal(const SymAddrSize &ml){
 bool EventTraceBuilder::cond_broadcast(const SymAddrSize &ml){
   if (!record_symbolic(SymEv::CBrdcst(ml))) return false;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1205,7 +1196,7 @@ bool EventTraceBuilder::cond_broadcast(const SymAddrSize &ml){
   VecSet<int> seen_events = {last_full_memory_conflict};
   for(int i : cond_var.waiters){
     assert(0 <= i && i < prefix_idx);
-    IPid ipid = WuT[i].iid.get_pid();
+    IPid ipid = event_at(i).iid.get_pid();
     assert(!threads[ipid].available);
     threads[ipid].available = true;
     seen_events.insert(i);
@@ -1230,7 +1221,7 @@ bool EventTraceBuilder::cond_wait(const SymAddrSize &cond_ml, const SymAddrSize 
       return false;
     }
     Mutex &mtx = it->second;
-    if(!dryrun && (mtx.last_lock < 0 || WuT[mtx.last_lock].iid.get_pid() != curev().iid.get_pid())){
+    if(!dryrun && (mtx.last_lock < 0 || event_at(mtx.last_lock).iid.get_pid() != curev().iid.get_pid())){
       pthreads_error("cond_wait called with mutex which is not locked by the same thread.");
       return false;
     }
@@ -1239,9 +1230,9 @@ bool EventTraceBuilder::cond_wait(const SymAddrSize &cond_ml, const SymAddrSize 
   if (!mutex_unlock(mutex_ml)) return false;
   if (!record_symbolic(SymEv::CWait(cond_ml))) return false;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_accesses_r.insert(cond_ml.addr);
     return true;
   }
@@ -1284,9 +1275,9 @@ int EventTraceBuilder::cond_destroy(const SymAddrSize &ml){
 
   if (!record_symbolic(SymEv::CDelete(ml))) return err;
   if(dryrun){
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return 0;
   }
@@ -1325,10 +1316,10 @@ EventTraceBuilder::obs_sleep_at(int i) const{
   std::vector<int> iid_map = iid_map_at(0);
   struct obs_sleep sleep;
   for(int j = 0;; ++j){
-    obs_sleep_add(sleep, WuT[j]);
+    obs_sleep_add(sleep, event_at(j));
     if (j == i) break;
-    obs_sleep_wake(sleep, WuT[j]);
-    iid_map_step(iid_map, WuT.branch(j));
+    obs_sleep_wake(sleep, event_at(j));
+    iid_map_step(iid_map, branch_at(j));
   }
 
   return sleep;
@@ -1519,7 +1510,7 @@ void EventTraceBuilder::recompute_cmpxhg_success
         rev_recompute_data(data, needed, vb.sym.end(), vb.sym.begin());
       }
       for (int k = i-1; !needed.empty() && (k >= 0); --k){
-        const sym_ty &ps = WuT[k].sym;
+        const sym_ty &ps = event_at(k).sym;
         rev_recompute_data(data, needed, ps.end(), ps.begin());
       }
 
@@ -1588,7 +1579,7 @@ void EventTraceBuilder::see_events(const VecSet<int> &seen_accesses){
   for(int i : seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
-    IPid fst_pid = WuT[i].iid.get_pid();
+    IPid fst_pid = event_at(i).iid.get_pid();
     IPid snd_pid = curev().iid.get_pid();
     add_noblock_race(i);
   }
@@ -1638,7 +1629,7 @@ void EventTraceBuilder::add_observed_race(int first, int second){
   assert(do_events_conflict(first, second));
   assert(do_events_conflict(second, prefix_idx));
 
-  std::vector<Race> &races = WuT[second].races;
+  std::vector<Race> &races = event_at(second).races;
   if (races.size()) {
     const Race &prev = races.back();
     if (prev.kind == Race::OBSERVED
@@ -1658,7 +1649,7 @@ void EventTraceBuilder::add_happens_after(unsigned second, unsigned first){
   assert(first < second);
   assert((long long)second <= prefix_idx);
 
-  std::vector<unsigned> &vec = WuT[second].happens_after;
+  std::vector<unsigned> &vec = event_at(second).happens_after;
   if (vec.size() && vec.back() == first) return;
 
   vec.push_back(first);
@@ -1677,7 +1668,7 @@ void EventTraceBuilder::add_eop(unsigned second, unsigned first){
   assert(first < second);
   assert((long long)second <= prefix_idx);
 
-  std::vector<unsigned> &vec = WuT[second].eop_before;
+  std::vector<unsigned> &vec = event_at(second).eop_before;
   if (vec.size() && vec.back() == first) return;
 
   vec.push_back(first);
@@ -1937,29 +1928,29 @@ void EventTraceBuilder::compute_vclocks(){
   /* Move LockFail races into the right event */
   std::vector<Race> final_lock_fail_races;
   for (Race &r : lock_fail_races){
-    if (r.second_event < int(WuT.len())) {
-      WuT[r.second_event].races.emplace_back(std::move(r));
+    if (r.second_event < int(prefix.size())) {
+      event_at(r.second_event).races.emplace_back(std::move(r));
     } else {
-      assert(r.second_event == int(WuT.len()));
+      assert(r.second_event == int(prefix.size()));
       final_lock_fail_races.emplace_back(std::move(r));
     }
   }
   lock_fail_races = std::move(final_lock_fail_races);
 
-  for (unsigned i = 0; i < WuT.len(); i++){
-    IPid ipid = WuT[i].iid.get_pid();
-    if (WuT[i].iid.get_index() > 1) {
-      unsigned last = find_process_event(ipid, WuT[i].iid.get_index()-1);
-      WuT[i].clock = WuT[last].clock;
+  for (unsigned i = 0; i < prefix.size(); i++){
+    IPid ipid = event_at(i).iid.get_pid();
+    if (event_at(i).iid.get_index() > 1) {
+      unsigned last = find_process_event(ipid, event_at(i).iid.get_index()-1);
+      event_at(i).clock = event_at(last).clock;
     } else {
-      WuT[i].clock = VClock<IPid>();
+      event_at(i).clock = VClock<IPid>();
     }
-    WuT[i].clock[ipid] = WuT[i].iid.get_index();
+    event_at(i).clock[ipid] = event_at(i).iid.get_index();
 
     /* First add the non-reversible edges */
-    for (unsigned j : WuT[i].happens_after){
+    for (unsigned j : event_at(i).happens_after){
       assert(j < i);
-      WuT[i].clock += WuT[j].clock;
+      event_at(i).clock += event_at(j).clock;
     }
 
     /* adding eops */
@@ -1967,17 +1958,17 @@ void EventTraceBuilder::compute_vclocks(){
       if(threads[ipid].event_indices.front() == i){
         for(IPid th = ipid-2; th > 0; th=th-2){
     	  if(threads[ipid].handler_id == threads[th].handler_id){
-    	    if(WuT[threads[ipid].spawn_event].clock.lt(
-    	        WuT[threads[th].spawn_event].clock)){
+    	    if(event_at(threads[ipid].spawn_event).clock.lt(
+	       event_at(threads[th].spawn_event).clock)){
     	      add_eop(i,threads[th].event_indices.back());
     	    }
     	    break;
     	  }
         }
       }
-      for (unsigned j : WuT[i].eop_before){
+      for (unsigned j : event_at(i).eop_before){
         assert(j < i);
-        WuT[i].clock += WuT[j].clock;
+        event_at(i).clock += event_at(j).clock;
       }
     }
 
@@ -1985,7 +1976,7 @@ void EventTraceBuilder::compute_vclocks(){
      * check for reversibility, since this information is lost (more
      * accurately less easy to compute) once we add them to the clock.
      */
-    std::vector<Race> &races = WuT[i].races;
+    std::vector<Race> &races = event_at(i).races;
 
     /* First move all races that are not pairs (and thus cannot be
      * subsumed by other events) to the front.
@@ -2003,11 +1994,11 @@ void EventTraceBuilder::compute_vclocks(){
       end = partition
         (first_pair, end,
          [this,i](const Race &r){
-          return !WuT[r.first_event].clock.leq(WuT[i].clock);
+	   return !event_at(r.first_event).clock.leq(event_at(i).clock);
          });
       for (auto it = end; it != oldend; ++it){
         if (it->kind == Race::LOCK_SUC){
-          WuT[i].clock += WuT[it->unlock_event].clock;
+          event_at(i).clock += event_at(it->unlock_event).clock;
           changed = true;
         }
       }
@@ -2016,12 +2007,12 @@ void EventTraceBuilder::compute_vclocks(){
       end = partition
           (first_pair, end,
            [this](const Race &r){
-    	       IPid fst_pid = WuT[r.first_event].iid.get_pid();
-               IPid snd_pid = WuT[r.second_event].iid.get_pid();
+	     IPid fst_pid = event_at(r.first_event).iid.get_pid();
+	     IPid snd_pid = event_at(r.second_event).iid.get_pid();
                int fst_post = threads[fst_pid].spawn_event;
                int snd_post = threads[snd_pid].spawn_event;
                return threads[fst_pid].handler_id == threads[snd_pid].handler_id &&
-    	              WuT[fst_post].clock.lt(WuT[snd_post].clock);
+		       event_at(fst_post).clock.lt(event_at(snd_post).clock);
            });
     }
     /* Then filter out subsumed */
@@ -2041,16 +2032,16 @@ void EventTraceBuilder::compute_vclocks(){
           return s.witness_event <= f.witness_event;
         }
         int se = s.kind == Race::LOCK_SUC ? s.unlock_event : s.first_event;
-        return WuT[f.first_event].clock.leq(WuT[se].clock);
+        return event_at(f.first_event).clock.leq(event_at(se).clock);
        });
     /* Add clocks of remaining (reversible) races */
     for (auto it = first_pair; it != fill; ++it){
       if (it->kind == Race::LOCK_SUC){
-        assert(WuT[it->first_event].clock.leq
-               (WuT[it->unlock_event].clock));
-        WuT[i].clock += WuT[it->unlock_event].clock;
+        assert(event_at(it->first_event).clock.leq
+               (event_at(it->unlock_event).clock));
+        event_at(i).clock += event_at(it->unlock_event).clock;
       }else if (it->kind != Race::LOCK_FAIL){
-        WuT[i].clock += WuT[it->first_event].clock;
+        event_at(i).clock += event_at(it->first_event).clock;
       }
     }
 
@@ -2072,9 +2063,9 @@ void EventTraceBuilder::compute_vclocks(){
 
 bool EventTraceBuilder::record_symbolic(SymEv event){
   if(dryrun) {
-    assert(prefix_idx+1 < int(WuT.len()));
-    assert(dry_sleepers <= WuT[prefix_idx+1].sleep.size());
-    IPid pid = WuT[prefix_idx+1].sleep[dry_sleepers-1];
+    assert(prefix_idx+1 < int(prefix.size()));
+    assert(dry_sleepers <= event_at(prefix_idx+1).sleep.size());
+    IPid pid = event_at(prefix_idx+1).sleep[dry_sleepers-1];
     assert(threads[pid].sleep_sym);
     threads[pid].sleep_sym->push_back(event);
     return true;
@@ -2101,7 +2092,7 @@ bool EventTraceBuilder::record_symbolic(SymEv event){
 }
 
 bool EventTraceBuilder::do_events_conflict(int i, int j) const{
-  return do_events_conflict(WuT[i], WuT[j]);
+  return do_events_conflict(event_at(i), event_at(j));
 }
 
 bool EventTraceBuilder::do_events_conflict
@@ -2208,117 +2199,117 @@ bool EventTraceBuilder::is_observed_conflict
 void EventTraceBuilder::do_race_detect() {
   assert(has_vclocks);
   /* Bucket sort races by first_event index */
-  std::vector<std::vector<const Race*>> races(WuT.len());
+  std::vector<std::vector<const Race*>> races(prefix.size());
   for (const Race &r : lock_fail_races) races[r.first_event].push_back(&r);
-  for (unsigned i = 0; i < WuT.len(); ++i){
-    for (const Race &r : WuT[i].races)
+  for (unsigned i = 0; i < prefix.size(); ++i){
+    for (const Race &r : event_at(i).races)
       races[r.first_event].push_back(&r);
   }
 
   /* Do race detection */
   struct obs_sleep sleep;
   for (unsigned i = 0; i < races.size(); ++i){
-    obs_sleep_add(sleep, WuT[i]);
+    obs_sleep_add(sleep, event_at(i));
     for (const Race *race : races[i]) {
       assert(race->first_event == int(i));
-      race_detect(*race, (const struct obs_sleep&)sleep);
+      race_detect_optimal(*race, (const struct obs_sleep&)sleep);
     }
-    obs_sleep_wake(sleep, WuT[i]);
+    obs_sleep_wake(sleep, event_at(i));
   }
 
-  for (unsigned i = 0; i < WuT.len(); ++i) WuT[i].races.clear();
+  for (unsigned i = 0; i < prefix.size(); ++i) event_at(i).races.clear();
   lock_fail_races.clear();
 }
 
-void EventTraceBuilder::race_detect
-(const Race &race, const struct obs_sleep &isleep){
-  if (conf.dpor_algorithm != Configuration::SOURCE) {
-    race_detect_optimal(race, isleep);
-    return;
-  }
+// void EventTraceBuilder::race_detect
+// (const Race &race, const struct obs_sleep &isleep){
+//   if (conf.dpor_algorithm != Configuration::SOURCE) {
+//     race_detect_optimal(race, isleep);
+//     return;
+//   }
 
-  int i = race.first_event;
-  int j = race.second_event;
+//   int i = race.first_event;
+//   int j = race.second_event;
 
-  if (race.kind == Race::NONDET){
-    assert(race.alternative > WuT.branch(i).alt);
-    WuT.parent_at(i)
-      .put_child(Branch({threads[WuT[i].iid.get_pid()].spid,
-			 WuT[i].iid.get_index(),
-			 race.alternative,
-                         WuT.branch(i).sym}));
-    return;
-  }
+//   if (race.kind == Race::NONDET){
+//     assert(race.alternative > branch_at(i).alt);
+//     WuT.parent_at(i)
+//       .put_child(Branch({threads[event_at(i).iid.get_pid()].spid,
+// 			 event_at(i).iid.get_index(),
+// 			 race.alternative,
+//                          WuT.branch(i).sym}));
+//     return;
+//   }
 
-  /* In the case that race is a failed mutex probe, there's no Event in WuT
-   * for it, so we'll reconstruct it on demand.
-   */
-  Event mutex_probe_event({-1,0});
+//   /* In the case that race is a failed mutex probe, there's no Event in WuT
+//    * for it, so we'll reconstruct it on demand.
+//    */
+//   Event mutex_probe_event({-1,0});
 
-  /* candidates is a map from IPid p to event index i such that the
-   * IID (p,i) identifies an event between WuT[i] (exclusive) and
-   * WuT[j] (inclusive) such that (p,i) does not happen-after any
-   * other IID between WuT[i] (inclusive) and WuT[j]
-   * (inclusive).
-   *
-   * If no such event has yet been found for a thread p, then
-   * candidates[p] is out of bounds, or has the value -1.
-   */
-  std::vector<int> candidates;
-  Branch cand(0,0);
-  const sym_ty *cand_sym = nullptr;
-  const VClock<IPid> &iclock = WuT[i].clock;
-  for(int k = i+1; k <= j; ++k){
-    const IID<IPid> &iid = k == j && race.kind == Race::LOCK_FAIL
-      ? race.second_process : WuT[k].iid;
-    IPid p = iid.get_pid();
-    /* Did we already cover p? */
-    if(p < int(candidates.size()) && 0 <= candidates[p]) continue;
-    const Event *pevent;
-    int psize = 1;
-    if (k == j && race.kind == Race::LOCK_FAIL) {
-      mutex_probe_event = reconstruct_lock_event(race);
-      pevent = &mutex_probe_event;
-    } else {pevent = &WuT[k]; psize = WuT.branch(k).size;}
-    if (k == j) psize = 1;
-    const VClock<IPid> *pclock = &pevent->clock;
-    /* Is p after WuT[i]? */
-    if(k != j && iclock.leq(*pclock)) continue;
-    /* Is p after some other candidate? */
-    bool is_after = false;
-    for(int q = 0; !is_after && q < int(candidates.size()); ++q){
-      if(0 <= candidates[q] && candidates[q] <= (*pclock)[q]){
-        is_after = true;
-      }
-    }
-    if(is_after) continue;
-    if(int(candidates.size()) <= p){
-      candidates.resize(p+1,-1);
-    }
-    candidates[p] = iid.get_index();
-    cand.spid = threads[p].spid;
-    cand.size = psize;
-    cand_sym = &pevent->sym;
-    if(WuT.parent_at(i).has_child(cand)){
-      /* There is already a satisfactory candidate branch */
-      return;
-    }
-    if(isleep.count(SPS.get_pid(cand.spid))){
-      /* This candidate is already sleeping (has been considered) at
-       * WuT[i]. */
-      return;
-    }
-  }
+//   /* candidates is a map from IPid p to event index i such that the
+//    * IID (p,i) identifies an event between event_at(i) (exclusive) and
+//    * WuT[j] (inclusive) such that (p,i) does not happen-after any
+//    * other IID between event_at(i) (inclusive) and WuT[j]
+//    * (inclusive).
+//    *
+//    * If no such event has yet been found for a thread p, then
+//    * candidates[p] is out of bounds, or has the value -1.
+//    */
+//   std::vector<int> candidates;
+//   Branch cand(0,0);
+//   const sym_ty *cand_sym = nullptr;
+//   const VClock<IPid> &iclock = event_at(i).clock;
+//   for(int k = i+1; k <= j; ++k){
+//     const IID<IPid> &iid = k == j && race.kind == Race::LOCK_FAIL
+//       ? race.second_process : WuT[k].iid;
+//     IPid p = iid.get_pid();
+//     /* Did we already cover p? */
+//     if(p < int(candidates.size()) && 0 <= candidates[p]) continue;
+//     const Event *pevent;
+//     int psize = 1;
+//     if (k == j && race.kind == Race::LOCK_FAIL) {
+//       mutex_probe_event = reconstruct_lock_event(race);
+//       pevent = &mutex_probe_event;
+//     } else {pevent = &WuT[k]; psize = WuT.branch(k).size;}
+//     if (k == j) psize = 1;
+//     const VClock<IPid> *pclock = &pevent->clock;
+//     /* Is p after event_at(i)? */
+//     if(k != j && iclock.leq(*pclock)) continue;
+//     /* Is p after some other candidate? */
+//     bool is_after = false;
+//     for(int q = 0; !is_after && q < int(candidates.size()); ++q){
+//       if(0 <= candidates[q] && candidates[q] <= (*pclock)[q]){
+//         is_after = true;
+//       }
+//     }
+//     if(is_after) continue;
+//     if(int(candidates.size()) <= p){
+//       candidates.resize(p+1,-1);
+//     }
+//     candidates[p] = iid.get_index();
+//     cand.spid = threads[p].spid;
+//     cand.size = psize;
+//     cand_sym = &pevent->sym;
+//     if(WuT.parent_at(i).has_child(cand)){
+//       /* There is already a satisfactory candidate branch */
+//       return;
+//     }
+//     if(isleep.count(SPS.get_pid(cand.spid))){
+//       /* This candidate is already sleeping (has been considered) at
+//        * event_at(i). */
+//       return;
+//     }
+//   }
 
-  assert(0 <= SPS.get_pid(cand.spid));
-  assert(cand_sym);
-  cand.sym = *cand_sym;
-  if (race.kind == Race::NONBLOCK) {
-    /* Needed for assertions */
-    recompute_cmpxhg_success(cand.sym, {}, i);
-  }
-  WuT.parent_at(i).put_child(cand);
-}
+//   assert(0 <= SPS.get_pid(cand.spid));
+//   assert(cand_sym);
+//   cand.sym = *cand_sym;
+//   if (race.kind == Race::NONBLOCK) {
+//     /* Needed for assertions */
+//     recompute_cmpxhg_success(cand.sym, {}, i);
+//   }
+//   WuT.parent_at(i).put_child(cand);
+// }
 
 void EventTraceBuilder::linearize_wakeup_seq(const std::map<int,Event> &wakeup_ev_seq,
 					   std::vector<int> &event_indices) const{
@@ -2350,16 +2341,15 @@ void EventTraceBuilder::linearize_wakeup_seq(const std::map<int,Event> &wakeup_e
 void EventTraceBuilder::race_detect_optimal
 (const Race &race, const struct obs_sleep &isleep){
   int i = race.first_event;
-  IPid fpid = WuT[i].iid.get_pid();
-  IPid spid = WuT[race.second_event].iid.get_pid();
-  //llvm::dbgs()<<"Race "<<WuT[i].iid<<" "<<WuT[race.second_event].iid<<"\n";
+  IPid fpid = event_at(i).iid.get_pid();
+  IPid spid = event_at(race.second_event).iid.get_pid();
+  //llvm::dbgs()<<"Race "<<event_at(i).iid<<" "<<WuT[race.second_event].iid<<"\n";
 
   std::vector<Branch> v;
-
-  /*if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN) {
-    for(int k = 0; i >= k; k++) v.push_back(branch_with_symbolic_data(k));
-    i = 0;
-  }*/
+  /*for(int k = 0; i >= k; k++) {
+    v.push_back(branch_with_symbolic_data(k));
+  }
+  i = 0;*/
   v = wakeup_sequence(race);
 
   //for(auto ev:wakeup_ev_seq) llvm::dbgs()<<ev.first;
@@ -2486,7 +2476,7 @@ wakeup_sequence(const Race &race) const{
   const int i = race.first_event;
   const int j = race.second_event;
 
-  const Event &first = WuT[i];
+  const Event &first = event_at(i);
   Event second({-1,0});
   Branch second_br(0,0);
   if (race.kind == Race::LOCK_FAIL) {
@@ -2499,7 +2489,7 @@ wakeup_sequence(const Race &race) const{
     second_br = branch_with_symbolic_data(i);
     second_br.alt = race.alternative;
   } else {
-    second = WuT[j];
+    second = event_at(j);
     second.sleep.clear();
     second.wakeup.clear();
     second_br = branch_with_symbolic_data(j);
@@ -2510,9 +2500,9 @@ wakeup_sequence(const Race &race) const{
     second_br.size = 1;
   }
 
-  /* v is the subsequence of events in prefix come after WuT[i],
+  /* v is the subsequence of events in prefix come after event_at(i),
    * but do not "happen after" (i.e. their vector clocks are not strictly
-   * greater than WuT[i].clock), followed by the second event.
+   * greater than event_at(i).clock), followed by the second event.
    *
    * It is the sequence we want to insert into the wakeup tree.
    */
@@ -2520,16 +2510,16 @@ wakeup_sequence(const Race &race) const{
   std::vector<const Event*> observers;
   std::vector<Branch> notobs;
 
-  for (int k = i + 1; k < int(WuT.len()); ++k){
-    if (!first.clock.leq(WuT[k].clock)) {
+  for (int k = i + 1; k < int(prefix.size()); ++k){
+    if (!first.clock.leq(event_at(k).clock)) {
       v.emplace_back(branch_with_symbolic_data(k));
     } else if (race.kind == Race::OBSERVED && k != j) {
       if (!std::any_of(observers.begin(), observers.end(),
                        [this,k](const Event* o){
-                         return o->clock.leq(WuT[k].clock); })){
-        if (is_observed_conflict(first, second, WuT[k])){
+                         return o->clock.leq(event_at(k).clock); })){
+        if (is_observed_conflict(first, second, event_at(k))){
           assert(!observers.empty() || k == race.witness_event);
-          observers.push_back(&WuT[k]);
+          observers.push_back(&event_at(k));
         } else if (race.kind == Race::OBSERVED) {
           notobs.emplace_back(branch_with_symbolic_data(k));
         }
@@ -2550,12 +2540,12 @@ wakeup_sequence(const Race &race) const{
     witness_br.size = 1;
 
     v.emplace_back(std::move(first_br));
-    v.back().spid = threads[WuT[i].iid.get_pid()].spid;
+    v.back().spid = threads[event_at(i).iid.get_pid()].spid;
     v.insert(v.end(), std::make_move_iterator(notobs.begin()),
              std::make_move_iterator(notobs.end()));
     notobs.clear(); /* Since their states are undefined after std::move */
     v.emplace_back(std::move(witness_br));
-    v.back().spid = threads[WuT[k].iid.get_pid()].spid;
+    v.back().spid = threads[event_at(k).iid.get_pid()].spid;
   }
 
   if (conf.dpor_algorithm == Configuration::OBSERVERS) {
@@ -2568,7 +2558,7 @@ wakeup_sequence(const Race &race) const{
 std::vector<int> EventTraceBuilder::iid_map_at(int event) const{
   std::vector<int> map(threads.size(), 1);
   for (int i = 0; i < event; ++i) {
-    iid_map_step(map, WuT.branch(i));
+    iid_map_step(map, branch_at(i));
   }
   return map;
 }
@@ -2592,16 +2582,16 @@ reconstruct_lock_event(const Race &race) const {
   IPid p = race.second_process.get_pid();
   if (race.second_process.get_index() != 1) {
     int last = find_process_event(p, race.second_process.get_index()-1);
-    ret.clock = WuT[last].clock;
+    ret.clock = event_at(last).clock;
   }
   /* Recompute the clock of this mutex_lock_fail */
   ++ret.clock[p];
 
-  assert(std::any_of(WuT[race.first_event].sym.begin(),
-                     WuT[race.first_event].sym.end(),
+  assert(std::any_of(event_at(race.first_event).sym.begin(),
+                     event_at(race.first_event).sym.end(),
                      [](const SymEv &e){ return e.kind == SymEv::M_LOCK
                          || e.kind == SymEv::FULLMEM; }));
-  ret.sym = WuT[race.first_event].sym;
+  ret.sym = event_at(race.first_event).sym;
   return ret;
 }
 
@@ -2614,11 +2604,11 @@ try_find_process_event(IPid pid, int index) const{
   }
 
   unsigned k = threads[pid].event_indices[index-1];
-  assert(k < WuT.len());
-  assert(WuT.branch(k).size > 0);
-  assert(WuT[k].iid.get_pid() == pid
-         && WuT[k].iid.get_index() <= index
-         && (WuT[k].iid.get_index() + WuT.branch(k).size) > index);
+  assert(k < prefix.size());
+  assert(branch_at(k).size > 0);
+  assert(event_at(k).iid.get_pid() == pid
+         && event_at(k).iid.get_index() <= index
+         && (event_at(k).iid.get_index() + branch_at(k).size) > index);
 
   return {true, k};
 }
@@ -2627,11 +2617,11 @@ inline unsigned EventTraceBuilder::find_process_event(IPid pid, int index) const
   assert(pid >= 0 && pid < int(threads.size()));
   assert(index >= 1 && index <= int(threads[pid].event_indices.size()));
   unsigned k = threads[pid].event_indices[index-1];
-  assert(k < WuT.len());
-  assert(WuT.branch(k).size > 0);
-  assert(WuT[k].iid.get_pid() == pid
-         && WuT[k].iid.get_index() <= index
-         && (WuT[k].iid.get_index() + WuT.branch(k).size) > index);
+  assert(k < prefix.size());
+  assert(branch_at(k).size > 0);
+  assert(event_at(k).iid.get_pid() == pid
+         && event_at(k).iid.get_index() <= index
+         && (event_at(k).iid.get_index() + branch_at(k).size) > index);
 
   return k;
 }
@@ -2731,7 +2721,7 @@ void EventTraceBuilder::wakeup(Access::Type type, SymAddr ml){
 
 bool EventTraceBuilder::has_cycle(IID<IPid> *loc) const{
   int proc_count = threads.size();
-  int pfx_size = WuT.len();
+  int pfx_size = prefix.size();
 
   /* Identify all store events */
   struct stupd_t{
@@ -2745,11 +2735,11 @@ bool EventTraceBuilder::has_cycle(IID<IPid> *loc) const{
    */
   std::vector<std::vector<stupd_t> > stores(proc_count);
   for(int i = 0; i < pfx_size; ++i){
-    if(WuT[i].iid.get_pid() % 2){ // Update
-      assert(WuT[i].origin_iid.get_pid()
-             == WuT[i].iid.get_pid()-1);
-      stores[WuT[i].iid.get_pid() / 2].push_back
-        ({WuT[i].origin_iid.get_index(),i});
+    if(event_at(i).iid.get_pid() % 2){ // Update
+      assert(event_at(i).origin_iid.get_pid()
+             == event_at(i).iid.get_pid()-1);
+      stores[event_at(i).iid.get_pid() / 2].push_back
+        ({event_at(i).origin_iid.get_index(),i});
     }
   }
 
@@ -2773,7 +2763,7 @@ bool EventTraceBuilder::has_cycle(IID<IPid> *loc) const{
   while(true){
     // Advance pfx_index to the right Event in WuT
     while(procs[proc].pfx_index < pfx_size &&
-          WuT[procs[proc].pfx_index].iid.get_pid() != proc*2){
+          event_at(procs[proc].pfx_index).iid.get_pid() != proc*2){
       ++procs[proc].pfx_index;
     }
     if(pfx_size <= procs[proc].pfx_index){
@@ -2787,8 +2777,8 @@ bool EventTraceBuilder::has_cycle(IID<IPid> *loc) const{
     }
 
     int next_pc = procs[proc].pc+1;
-    const Event &evt = WuT[procs[proc].pfx_index];
-    const Branch &branch = WuT.branch(procs[proc].pfx_index);
+    const Event &evt = event_at(procs[proc].pfx_index);
+    const Branch &branch = branch_at(procs[proc].pfx_index);
 
     if(!procs[proc].blocked){
       assert(evt.iid.get_pid() == 2*proc);
@@ -2801,7 +2791,7 @@ bool EventTraceBuilder::has_cycle(IID<IPid> *loc) const{
          stores[proc][procs[proc].store_index].store == next_pc){
         // This is a store. Also consider the update's clock.
         procs[proc].block_clock
-          += WuT[stores[proc][procs[proc].store_index].update].clock;
+          += event_at(stores[proc][procs[proc].store_index].update).clock;
         ++procs[proc].store_index;
       }
     }
@@ -2859,7 +2849,7 @@ bool EventTraceBuilder::has_cycle(IID<IPid> *loc) const{
         if(0 < procs[i].store_index && stores[i][procs[i].store_index-1].store == next_pc){
           if(stores[i][procs[i].store_index-1].update > upd_idx){
             upd_idx = stores[i][procs[i].store_index-1].update;
-            *loc = WuT[upd_idx].iid;
+            *loc = event_at(upd_idx).iid;
           }
         }
       }
@@ -2874,14 +2864,14 @@ long double EventTraceBuilder::estimate_trace_count() const{
 }
 
 long double EventTraceBuilder::estimate_trace_count(int idx) const{
-  if(idx > int(WuT.len())) return 0;
-  if(idx == int(WuT.len())) return 1;
+  if(idx > int(prefix.size())) return 0;
+  if(idx == int(prefix.size())) return 1;
 
   long double count = 1;
-  for(int i = int(WuT.len())-1; idx <= i; --i){
-    count += WuT[i].sleep_branch_trace_count;
+  for(int i = int(prefix.size())-1; idx <= i; --i){
+    count += event_at(i).sleep_branch_trace_count;
     count += std::max(0, int(WuT.children_after(i)))
-      * (count / (1 + WuT[i].sleep.size()));
+      * (count / (1 + event_at(i).sleep.size()));
   }
 
   return count;
