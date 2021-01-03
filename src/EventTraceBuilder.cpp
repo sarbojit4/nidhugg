@@ -298,7 +298,7 @@ Trace *EventTraceBuilder::get_trace() const{
 bool EventTraceBuilder::reset(){
   compute_vclocks();
 
-  //do_race_detect();
+  do_race_detect();
 
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === EventTraceBuilder reset ===\n";
@@ -2343,19 +2343,15 @@ void EventTraceBuilder::race_detect_optimal
   int i = race.first_event;
   IPid fpid = event_at(i).iid.get_pid();
   IPid spid = event_at(race.second_event).iid.get_pid();
-  //llvm::dbgs()<<"Race "<<event_at(i).iid<<" "<<WuT[race.second_event].iid<<"\n";
+  llvm::dbgs()<<"Race "<<event_at(i).iid<<" "<<event_at(race.second_event).iid<<"\n";
 
-  std::vector<Branch> v;
-  /*for(int k = 0; i >= k; k++) {
-    v.push_back(branch_with_symbolic_data(k));
-  }
-  i = 0;*/
-  v = wakeup_sequence(race);
+  std::vector<Branch> v = wakeup_sequence(race);
+  i = 0;
 
-  //for(auto ev:wakeup_ev_seq) llvm::dbgs()<<ev.first;
+  for(auto br:v) llvm::dbgs()<<"<"<<br.spid<<","<<br.index<<">";
 
   /* Check if we have previously explored everything startable with v */
-  if (!sequence_clears_sleep(v, isleep)) return;
+  //if (!sequence_clears_sleep(v, isleep)) return;
 
   /* Do insertion into the wakeup tree */
   WakeupTreeRef<Branch> node = WuT.parent_at(i);
@@ -2500,8 +2496,8 @@ wakeup_sequence(const Race &race) const{
     second_br.size = 1;
   }
 
-  /* v is the subsequence of events in prefix come after event_at(i),
-   * but do not "happen after" (i.e. their vector clocks are not strictly
+  /* v is the subsequence of events in prefix that do not
+   * "happen after" event_at(i) (i.e. their vector clocks are not strictly
    * greater than event_at(i).clock), followed by the second event.
    *
    * It is the sequence we want to insert into the wakeup tree.
@@ -2510,6 +2506,11 @@ wakeup_sequence(const Race &race) const{
   std::vector<const Event*> observers;
   std::vector<Branch> notobs;
 
+  /* including the events before event_at(i) */
+  for(int k = 0; i >= k; k++) {
+    v.emplace_back(branch_with_symbolic_data(k));
+  }
+  
   for (int k = i + 1; k < int(prefix.size()); ++k){
     if (!first.clock.leq(event_at(k).clock)) {
       v.emplace_back(branch_with_symbolic_data(k));

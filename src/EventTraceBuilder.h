@@ -548,7 +548,7 @@ protected:
    * with data of memory accesses in the symbolic events.
    */
   Branch branch_with_symbolic_data(unsigned index) const {
-    return Branch(prefix[index].first, prefix[index].second.sym);
+    return Branch(branch_at(index), event_at(index).sym);
   };
 
   /* Perform the logic of atomic_store(), aside from recording a
