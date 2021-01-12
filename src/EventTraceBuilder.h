@@ -472,8 +472,10 @@ protected:
     uint64_t sleep_branch_trace_count;
   };
 
+  typedef std::vector<std::pair<IPid,sym_ty>> doneset_t;
+  
   /* A tree contains the current and future prefix of events to be executed. */
-  WakeupTreeExplorationBuffer<Branch, Event> WuT;
+  WakeupTreeExplorationBuffer<Branch, doneset_t> WuT;
 
   /* The fixed prefix of events in the current execution. */
   std::vector<std::pair<Branch, Event>> prefix;
@@ -750,7 +752,7 @@ protected:
   /* Do topological sort to linearize wakeup squence */
   void linearize_wakeup_seq(const std::map<int,Event> &wakeup_ev_seq,
 			    std::vector<int> &event_indices) const;
-  void race_detect_optimal(const Race&, const struct obs_sleep&);
+  void race_detect_optimal(const Race&);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch> wakeup_sequence(const Race& race) const;
   /* Compute the wakeup sequence for reversing a race. */
