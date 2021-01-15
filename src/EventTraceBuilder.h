@@ -670,8 +670,10 @@ protected:
   void compute_eom();
   /* Compute ppm */
   void compute_ppm();
-  /* Compute eop, eom, and ppm happens after */
+  /* Compute eom, and ppm happens after */
   void compute_derived_happens_after();
+  void reverse_ppms_recursively(int fst, int snd,
+				std::vector<std::vector<unsigned>> &trace);
   void compute_vclocks();
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
@@ -750,14 +752,17 @@ protected:
   void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
   void race_detect(const Race&, const struct obs_sleep&);
   /* Do topological sort to linearize wakeup squence */
-  void linearize_wakeup_seq(const std::map<int,Event> &wakeup_ev_seq,
-			    std::vector<int> &event_indices) const;
+  std::vector<unsigned> linearize_wakeup_sequence(int fst, int snd,
+						  std::vector<unsigned> &seq);
+  void visit_event(int i, const std::vector<std::vector<unsigned>> &trace,
+		   std::vector<bool> &visited,
+		   std::vector<unsigned> &sorted_seq);
   void race_detect_optimal(const Race&);
+  void insert_new_seq(std::vector<Branch> &v, WakeupTreeRef<Branch> node,
+		      int first, bool leftmostbranch);
   /* Compute the wakeup sequence for reversing a race. */
-  std::vector<Branch> wakeup_sequence(const Race& race) const;
-  /* Compute the wakeup sequence for reversing a race. */
-  std::vector<Branch> ws_for_msg_msg_race(const Race&,
-				      std::map<int,Event> &wakeup_ev_seq) const;
+  std::vector<Branch> wakeup_sequence(const Race& race,
+				      std::vector<unsigned> &wakeup_index_seq) const;
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
                              const struct obs_sleep &sleep) const;
