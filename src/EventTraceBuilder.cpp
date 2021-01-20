@@ -326,10 +326,10 @@ bool EventTraceBuilder::reset(){
   }
   /* copying leftmost branch into prefix */
   prefix.clear();
+  std::vector<Branch> sorted_seq = WuT.lastbranch().sorted_sequence;
   auto node = WuT.parent_at(0);
-  while(node.size()){
-    prefix.emplace_back(node.begin().branch(),Event({-1,0}));
-    node = node.begin().node();
+  for(Branch br : sorted_seq){
+    prefix.emplace_back(br,Event({-1,0}));
   }
 
   CPS = CPidSystem();
@@ -350,7 +350,7 @@ bool EventTraceBuilder::reset(){
   reset_cond_branch_log();
   has_vclocks = false;
 
-  return false;//true;
+  return true;
 }
 
 IID<CPid> EventTraceBuilder::get_iid() const{
@@ -587,14 +587,14 @@ void EventTraceBuilder::debug_print() const {
     }
   }
 
-  // for(unsigned i = 0; i < prefix.size(); ++i){
-  //   IPid ipid = event_at(i).iid.get_pid();
-  //   llvm::dbgs() << rpad("",2+ipid*2)
-  //                << rpad(iid_string(i),iid_offs-ipid*2)
-  //                << " " << rpad(event_at(i).clock.to_string(),clock_offs)
-  //     //<<rpad(events_to_string(event_at(i).sym),symev_offs)	
-  // 	                 << lines[i] << "\n";
-  // }
+  for(unsigned i = 0; i < prefix.size(); ++i){
+    IPid ipid = event_at(i).iid.get_pid();
+    llvm::dbgs() << rpad("",2+ipid*2)
+                 << rpad(iid_string(i),iid_offs-ipid*2)
+                 << " " //<< rpad(event_at(i).clock.to_string(),clock_offs)
+                 <<rpad(events_to_string(event_at(i).sym),symev_offs)	
+  	                 << lines[i] << "\n";
+  }
   for (unsigned i = prefix.size(); i < lines.size(); ++i){
     llvm::dbgs() << std::string(2+iid_offs + 1+symev_offs, ' ') << lines[i] << "\n";
   }
@@ -2105,7 +2105,7 @@ void EventTraceBuilder::do_race_detect() {
   lock_fail_races.clear();
 }
 
-std::vector<unsigned> EventTraceBuilder::
+std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
 linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
   std::vector<std::vector<unsigned>> trace(prefix.size());
   for(int i : seq){
@@ -2127,7 +2127,7 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
   }
   reverse_ppms_recursively(fst,snd,trace);
   std::vector<bool> visited(prefix.size(),false);
-  std::vector<unsigned> sorted_seq;
+  std::vector<Branch> sorted_seq;
   for(int i : seq){
     if(!visited[i]) visit_event(i,trace,visited,sorted_seq);
   }
@@ -2137,21 +2137,28 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
 void EventTraceBuilder::
 visit_event(int i, const std::vector<std::vector<unsigned>> &trace,
 	    std::vector<bool> &visited,
-	    std::vector<unsigned> &sorted_seq){
+	    std::vector<Branch> &sorted_seq){
   for(unsigned j : trace[i]){
     if(!visited[j]) visit_event(j,trace,visited,sorted_seq);
   }
   visited[i] = true;
-  sorted_seq.push_back(i);
+  Branch br = branch_with_symbolic_data(i);
+  //br.purge_data();
+  sorted_seq.push_back(br);
 }
 
 void EventTraceBuilder::race_detect_optimal(const Race &race){
+  //llvm::dbgs()<<"Race "<<event_at(race.first_event).iid<<" "<<event_at(race.second_event).iid<<"\n";///////////////////
+
   std::vector<unsigned> wakeup_index_seq;
   std::vector<Branch> v = wakeup_sequence(race,wakeup_index_seq);
 
-  std::vector<unsigned> sorted_seq = linearize_wakeup_sequence(race.first_event,
+  std::vector<Branch> sorted_seq = linearize_wakeup_sequence(race.first_event,
 							       race.second_event,
 							       wakeup_index_seq);
+
+  // for(auto i : sorted_seq) llvm::dbgs()<<"<"<<i.spid<<","<<i.index<<">";
+  // llvm::dbgs()<<"\n";//////////////////////
 
   /* Do insertion into the wakeup tree */
   int i = 0;
@@ -2272,7 +2279,7 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
     if (!sequence_clears_sleep(v, sleepset)) return;
 
     /* No existing child was compatible with v. Insert v as a new sequence. */
-    insert_new_seq(v,node,race.first_event,leftmostbranch);
+    insert_new_seq(v,node,race.first_event,leftmostbranch,sorted_seq);
     branches++;
     return;
   }
@@ -2280,18 +2287,22 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
 
 void EventTraceBuilder::
 insert_new_seq(std::vector<EventTraceBuilder::Branch> &v,
-	       WakeupTreeRef<EventTraceBuilder::Branch> node,
-	       int first,bool leftmostbranch){
+	       WakeupTreeRef<EventTraceBuilder::Branch> &node,
+	       int first,bool leftmostbranch,
+	       std::vector<Branch> &sorted_seq){
+  WakeupTreeRef<Branch> parent = node;
   bool flag=false;
-  for (Branch &ve : v) {
+  for (int i = 0; i < v.size(); i++) {
+    Branch ve = v[i];
+    parent = node;
     if (conf.dpor_algorithm == Configuration::OBSERVERS)
       clear_observed(ve.sym);
     for (SymEv &e : ve.sym) e.purge_data();
       
     /* when extending leftmost branch */
     if(leftmostbranch && !flag){
-      //Branch last = WuT.lastbranch();
       IPid fpid = threads[event_at(first-1).iid.get_pid()].spid;
+      /* branch point */
       if(WuT.len() && WuT.lastbranch().spid == fpid &&
 	 WuT.lastbranch().index == event_at(first-1).iid.get_index()){
 	/* create a dummy extension of leftmost branch */
@@ -2308,10 +2319,12 @@ insert_new_seq(std::vector<EventTraceBuilder::Branch> &v,
       }
     }
     else{
+      if(i == (v.size() - 1)){
+	ve.sorted_sequence = std::move(sorted_seq);
+      }
       node = node.put_child(std::move(ve));
     }
   }
-  //linearize_wakeup_seq(v);
 }
 
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
@@ -2340,7 +2353,7 @@ wakeup_sequence(const Race &race, std::vector<unsigned> &wakeup_index_seq) const
   if (race.kind == Race::OBSERVED) {
   } else {
     /* Only replay the racy event. */
-    second_br.size = 1;
+    //second_br.size = 1;
   }
 
   /* v is the subsequence of events in prefix that do not
@@ -2353,12 +2366,12 @@ wakeup_sequence(const Race &race, std::vector<unsigned> &wakeup_index_seq) const
   std::vector<const Event*> observers;
   std::vector<Branch> notobs;
 
-  /* including the events before event_at(i) */
+  /* Including the events occurs before event_at(i) in the execution */
   for(int k = 0; i > k; k++) {
     v.emplace_back(branch_with_symbolic_data(k));
     wakeup_index_seq.push_back(k);
   }
-  
+  /* Including notdep */
   for (int k = i + 1; k < int(prefix.size()); ++k){
     if (!first.clock.leq(event_at(k).clock)) {
       v.emplace_back(branch_with_symbolic_data(k));

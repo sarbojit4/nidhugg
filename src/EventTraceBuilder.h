@@ -335,6 +335,10 @@ protected:
     int alt;
     /* The number of events in this sequence. */
     int size;
+    /* The sorted sequence of event indices according to event-driven execution. 
+     * This is stored in the leaves of WUT.
+     */
+    std::vector<Branch> sorted_sequence;
     bool operator<(const Branch &b) const{
       return spid < b.spid || (spid == b.spid && alt < b.alt);
     };
@@ -752,14 +756,15 @@ protected:
   void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
   void race_detect(const Race&, const struct obs_sleep&);
   /* Do topological sort to linearize wakeup squence */
-  std::vector<unsigned> linearize_wakeup_sequence(int fst, int snd,
+  std::vector<Branch> linearize_wakeup_sequence(int fst, int snd,
 						  std::vector<unsigned> &seq);
   void visit_event(int i, const std::vector<std::vector<unsigned>> &trace,
 		   std::vector<bool> &visited,
-		   std::vector<unsigned> &sorted_seq);
+		   std::vector<Branch> &sorted_seq);
   void race_detect_optimal(const Race&);
-  void insert_new_seq(std::vector<Branch> &v, WakeupTreeRef<Branch> node,
-		      int first, bool leftmostbranch);
+  void insert_new_seq(std::vector<Branch> &v, WakeupTreeRef<Branch> &node,
+		      int first, bool leftmostbranch,
+		      std::vector<Branch> &sorted_seq);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch> wakeup_sequence(const Race& race,
 				      std::vector<unsigned> &wakeup_index_seq) const;
