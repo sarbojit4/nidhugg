@@ -3222,11 +3222,11 @@ void Interpreter::callFunction(Function *F,
     callQThreadStart(F, ArgVals);
     return;
   }
-  else if(F->getName().str() == "qthread_wait"){
-    //dbgs()<<"Handling QThread_wait function\n";
-    callQThreadWait(F, ArgVals);
-    return;
-  }
+  // else if(F->getName().str() == "qthread_wait"){
+  //   //dbgs()<<"Handling QThread_wait function\n";
+  //   callQThreadWait(F, ArgVals);
+  //   return;
+  // }
   else if(F->getName().str() == "qthread_post_event"){
     //dbgs()<<"Handling QThread_post_event function\n";
     callQThreadPostMsg(F, ArgVals);
