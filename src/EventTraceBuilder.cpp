@@ -2395,6 +2395,24 @@ wakeup_sequence(const Race &race, std::vector<unsigned> &wakeup_index_seq) const
   }
   v.push_back(std::move(second_br));
   wakeup_index_seq.push_back(race.second_event);
+  /* Remove meseages without any global events.
+     This will remove incomplete messages from notdep */
+  //TODO: optimize
+  std::vector<bool> has_global(threads.size(),false);
+  for(int k = 0; k < v.size(); k++){
+    if(v[k].access_global())
+      has_global[v[k].spid] = true;
+  }
+  auto w_it = wakeup_index_seq.begin();
+  for(auto v_it = v.begin();
+      v_it != v.end() && w_it != wakeup_index_seq.end(); w_it++,v_it++){
+    if(!has_global[v_it->spid]) {
+      v_it = v.erase(v_it);
+      w_it = wakeup_index_seq.erase(w_it);
+      v_it--;
+      w_it--;
+    }
+  }
 
   if (race.kind == Race::OBSERVED) {
     int k = race.witness_event;

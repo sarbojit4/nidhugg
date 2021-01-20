@@ -345,6 +345,12 @@ protected:
     bool operator==(const Branch &b) const{
       return spid == b.spid && alt == b.alt;
     };
+    bool access_global() const {
+      for(const SymEv &e : sym){
+	if(e.access_global()) return true;
+      }
+      return false;
+    }
   };
 
   struct Race {

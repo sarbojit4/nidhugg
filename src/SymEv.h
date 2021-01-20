@@ -134,6 +134,12 @@ struct SymEv {
 
   void purge_data();
   void set_observed(bool observed);
+  bool access_global() const{
+    if(has_addr()){
+      return arg.addr.is_global();
+    }
+    return false;
+  }
 
 private:
   SymEv(enum kind kind, union arg arg) : kind(kind), arg(arg) {};

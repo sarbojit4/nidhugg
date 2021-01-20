@@ -77,6 +77,9 @@ public:
   iterator end()   { return iterator((*this)->children.end()); }
 
   WakeupTreeRef put_child(Branch b);
+  void update_first_child(Branch &br) {
+    node->children.front().first = std::move(br);
+  }
   bool has_child(const Branch &b) const;
 
 private:
