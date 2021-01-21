@@ -297,7 +297,6 @@ bool EventTraceBuilder::reset(){
     //check_symev_vclock_equiv();
   }
 #endif
-
   /* delete the leftmost branch */
   int i = int(WuT.len())-1;
   Branch last(-1,0);
@@ -306,6 +305,7 @@ bool EventTraceBuilder::reset(){
     last = WuT.branch(i);
     /* Found branch point. Add event to done set */
     if(WuT.children_after(i)){
+      done = WuT.last();
       done.emplace_back(last.spid,last.sym);
       WuT.delete_last();
       WuT.enter_first_child(std::move(done));
@@ -319,11 +319,12 @@ bool EventTraceBuilder::reset(){
     /* No more branching is possible. */
     return false;
   }
-  WuT.enter_first_child(doneset_t());
-  while(WuT.lastnode().size()){
+
+  while(WuT.lastnode().size() > 0){
     WuT.enter_first_child(doneset_t());
     assert(!WuT.last().size());
   }
+
   /* copying leftmost branch into prefix */
   prefix.clear();
   std::vector<Branch> sorted_seq = WuT.lastbranch().sorted_sequence;
@@ -574,6 +575,17 @@ void EventTraceBuilder::debug_print() const {
   /* Add wakeup tree */
   std::vector<std::string> WuTstr(prefix.size(),"");
   std::vector<int> iid_map = iid_map_at(WuT.len());
+  int done_offs;
+  for(int i = WuT.len()-1; 0 <= i; --i){
+    std::string done = "";
+    for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
+    done_offs = std::max(done_offs,int(done.size()));
+  }
+  for(int i = WuT.len()-1; 0 <= i; --i){
+    std::string done = "";
+    for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
+    WuTstr[i] += rpad(done,done_offs);
+  }
   for(int i = WuT.len()-1; 0 <= i; --i){
     auto node = WuT.parent_at(i);
     iid_map_step_rev(iid_map, WuT.branch(i));
@@ -2152,13 +2164,9 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
 
   std::vector<unsigned> wakeup_index_seq;
   std::vector<Branch> v = wakeup_sequence(race,wakeup_index_seq);
-
   std::vector<Branch> sorted_seq = linearize_wakeup_sequence(race.first_event,
 							       race.second_event,
 							       wakeup_index_seq);
-
-  // for(auto i : sorted_seq) llvm::dbgs()<<"<"<<i.spid<<","<<i.index<<">";
-  // llvm::dbgs()<<"\n";//////////////////////
 
   /* Do insertion into the wakeup tree */
   int i = 0;
@@ -2300,16 +2308,13 @@ insert_new_seq(std::vector<EventTraceBuilder::Branch> &v,
     for (SymEv &e : ve.sym) e.purge_data();
       
     /* when extending leftmost branch */
-    if(leftmostbranch && !flag){
+    if(leftmostbranch){
       IPid fpid = threads[event_at(first-1).iid.get_pid()].spid;
       /* branch point */
-      if(WuT.len() && WuT.lastbranch().spid == fpid &&
-	 WuT.lastbranch().index == event_at(first-1).iid.get_index()){
+      if(i == (v.size() - 1)){
 	/* create a dummy extension of leftmost branch */
-	doneset_t done;
-	done.emplace_back(branch_at(first).spid,
-			  branch_at(first).sym);
-	WuT.push(branch_at(first),std::move(done));
+	WuT.push(branch_at(first),doneset_t());
+	ve.sorted_sequence = std::move(sorted_seq);
 	node = node.put_child(std::move(ve));
 	flag = true;
       }
@@ -2319,9 +2324,7 @@ insert_new_seq(std::vector<EventTraceBuilder::Branch> &v,
       }
     }
     else{
-      if(i == (v.size() - 1)){
-	ve.sorted_sequence = std::move(sorted_seq);
-      }
+      if(i == (v.size() - 1)) ve.sorted_sequence = std::move(sorted_seq);
       node = node.put_child(std::move(ve));
     }
   }

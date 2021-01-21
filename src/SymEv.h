@@ -138,6 +138,7 @@ struct SymEv {
     if(has_addr()){
       return arg.addr.is_global();
     }
+    else if(kind == SPAWN || kind == JOIN || kind == POST) return true;
     return false;
   }
 
