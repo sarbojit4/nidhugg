@@ -576,16 +576,16 @@ void EventTraceBuilder::debug_print() const {
   std::vector<std::string> WuTstr(prefix.size(),"");
   std::vector<int> iid_map = iid_map_at(WuT.len());
   int done_offs;
-  for(int i = WuT.len()-1; 0 <= i; --i){
-    std::string done = "";
-    for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
-    done_offs = std::max(done_offs,int(done.size()));
-  }
-  for(int i = WuT.len()-1; 0 <= i; --i){
-    std::string done = "";
-    for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
-    WuTstr[i] += rpad(done,done_offs);
-  }
+  // for(int i = WuT.len()-1; 0 <= i; --i){
+  //   std::string done = "";
+  //   for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
+  //   done_offs = std::max(done_offs,int(done.size()));
+  // }
+  // for(int i = WuT.len()-1; 0 <= i; --i){
+  //   std::string done = "";
+  //   for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
+  //   WuTstr[i] += rpad(done,done_offs);
+  // }
   for(int i = WuT.len()-1; 0 <= i; --i){
     auto node = WuT.parent_at(i);
     iid_map_step_rev(iid_map, WuT.branch(i));
@@ -2119,6 +2119,22 @@ void EventTraceBuilder::do_race_detect() {
 
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
 linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
+  /* Remove meseages without any global events.
+     This will remove incomplete messages from notdep */
+  //TODO: optimize
+  std::vector<bool> has_global(threads.size(),false);
+  for(int k = 0; k < seq.size(); k++){
+    IPid pid = event_at(seq[k]).iid.get_pid();
+    if(threads[pid].handler_id == -1 || event_at(seq[k]).access_global())
+      has_global[pid] = true;
+  }
+  for(auto s_it = seq.begin(); s_it != seq.end(); s_it++){
+    if(!has_global[event_at(*s_it).iid.get_pid()]) {
+      s_it = seq.erase(s_it);
+      s_it--;
+    }
+  }
+  /* Extract trace(happens before edges) from prefix */
   std::vector<std::vector<unsigned>> trace(prefix.size());
   for(int i : seq){
     trace[i] = event_at(i).happens_after;
@@ -2160,14 +2176,12 @@ visit_event(int i, const std::vector<std::vector<unsigned>> &trace,
 }
 
 void EventTraceBuilder::race_detect_optimal(const Race &race){
-  //llvm::dbgs()<<"Race "<<event_at(race.first_event).iid<<" "<<event_at(race.second_event).iid<<"\n";///////////////////
-
   std::vector<unsigned> wakeup_index_seq;
   std::vector<Branch> v = wakeup_sequence(race,wakeup_index_seq);
   std::vector<Branch> sorted_seq = linearize_wakeup_sequence(race.first_event,
 							       race.second_event,
 							       wakeup_index_seq);
-
+  
   /* Do insertion into the wakeup tree */
   int i = 0;
   WakeupTreeRef<Branch> node = WuT.parent_at(i);
@@ -2200,6 +2214,7 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
 
       for (auto vei = v.begin(); skip == NO && vei != v.end(); ++vei) {
         const Branch &ve = *vei;
+	/* check sleepset blocked WUS */
         if (child_it.branch() == ve) {
           if (child_sym != ve.sym) {
             /* This can happen due to observer effects. We must now make sure
@@ -2275,7 +2290,11 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
       /* The child is compatible with v, recurse into it. */
       node = child_it.node();
       skip = RECURSE;
-      obs_sleep_wake(sleepset,child_it.branch().spid,child_sym);
+      if(obs_sleep_wake(sleepset,child_it.branch().spid,child_sym) ==
+	   obs_wake_res::BLOCK) {
+	  llvm::dbgs()<<"sleepset blocked WUS\n";
+	  return;
+      }
       i++;
       break;
 
@@ -2398,24 +2417,6 @@ wakeup_sequence(const Race &race, std::vector<unsigned> &wakeup_index_seq) const
   }
   v.push_back(std::move(second_br));
   wakeup_index_seq.push_back(race.second_event);
-  /* Remove meseages without any global events.
-     This will remove incomplete messages from notdep */
-  //TODO: optimize
-  std::vector<bool> has_global(threads.size(),false);
-  for(int k = 0; k < v.size(); k++){
-    if(v[k].access_global())
-      has_global[v[k].spid] = true;
-  }
-  auto w_it = wakeup_index_seq.begin();
-  for(auto v_it = v.begin();
-      v_it != v.end() && w_it != wakeup_index_seq.end(); w_it++,v_it++){
-    if(!has_global[v_it->spid]) {
-      v_it = v.erase(v_it);
-      w_it = wakeup_index_seq.erase(w_it);
-      v_it--;
-      w_it--;
-    }
-  }
 
   if (race.kind == Race::OBSERVED) {
     int k = race.witness_event;
