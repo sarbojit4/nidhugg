@@ -331,6 +331,7 @@ bool EventTraceBuilder::reset(){
   auto node = WuT.parent_at(0);
   for(Branch br : sorted_seq){
     prefix.emplace_back(br,Event({-1,0}));
+    //llvm::dbgs()<<"<"<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<">\n";//////////////////////////
   }
 
   CPS = CPidSystem();
@@ -576,16 +577,16 @@ void EventTraceBuilder::debug_print() const {
   std::vector<std::string> WuTstr(prefix.size(),"");
   std::vector<int> iid_map = iid_map_at(WuT.len());
   int done_offs;
-  // for(int i = WuT.len()-1; 0 <= i; --i){
-  //   std::string done = "";
-  //   for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
-  //   done_offs = std::max(done_offs,int(done.size()));
-  // }
-  // for(int i = WuT.len()-1; 0 <= i; --i){
-  //   std::string done = "";
-  //   for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
-  //   WuTstr[i] += rpad(done,done_offs);
-  // }
+  for(int i = WuT.len()-1; 0 <= i; --i){
+    std::string done = "";
+    for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
+    done_offs = std::max(done_offs,int(done.size()));
+  }
+  for(int i = WuT.len()-1; 0 <= i; --i){
+    std::string done = "";
+    for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
+    WuTstr[i] += rpad(done,done_offs);
+  }
   for(int i = WuT.len()-1; 0 <= i; --i){
     auto node = WuT.parent_at(i);
     iid_map_step_rev(iid_map, WuT.branch(i));
@@ -680,6 +681,7 @@ bool EventTraceBuilder::post(const int tgt_th) {
   threads[threads.size()-2].handler_id = tpid;
   threads[threads.size()-1].handler_id = tpid;
   curev().may_conflict = true;
+  curev().msg_id = threads.size() - 2;
   return true;
 }
 
@@ -1796,9 +1798,6 @@ reverse_ppms_recursively(int fst, int snd,
     if(it != trace[spost].end()){
       trace[spost].erase(it);
     }
-    if(it != trace[spost].end()){
-    }
-
     trace[fpost].push_back(spost);
   }
 }
@@ -2119,17 +2118,20 @@ void EventTraceBuilder::do_race_detect() {
 
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
 linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
-  /* Remove meseages without any global events.
-     This will remove incomplete messages from notdep */
-  //TODO: optimize
-  std::vector<bool> has_global(threads.size(),false);
-  for(int k = 0; k < seq.size(); k++){
-    IPid pid = event_at(seq[k]).iid.get_pid();
-    if(threads[pid].handler_id == -1 || event_at(seq[k]).access_global())
-      has_global[pid] = true;
+  std::vector<bool> partial_msg(threads.size(), false);
+  std::vector<IPid> last_msg(threads.size(), 0);
+  for(int k = 2; k < threads.size(); k = k+2){
+    if(threads[k].handler_id != -1){
+      if(std::find(seq.begin(),seq.end(),threads[k].event_indices.back()) ==
+       seq.end()){
+        partial_msg[k] = true;
+      }
+      else last_msg[threads[k].handler_id] = k;
+    }
   }
+  /* remove partial messages */
   for(auto s_it = seq.begin(); s_it != seq.end(); s_it++){
-    if(!has_global[event_at(*s_it).iid.get_pid()]) {
+    if(partial_msg[event_at(*s_it).iid.get_pid()]){
       s_it = seq.erase(s_it);
       s_it--;
     }
@@ -2154,25 +2156,64 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
     }
   }
   reverse_ppms_recursively(fst,snd,trace);
+  /* all the messages should be before the race */
+  for(int k = 2; k < threads.size(); k = k+2){
+    if(threads[k].handler_id != -1 && k != event_at(fst).iid.get_pid() &&
+       k != event_at(snd).iid.get_pid() &&
+       threads[k].handler_id == threads[event_at(snd).iid.get_pid()].handler_id &&
+       std::find(seq.begin(),seq.end(),threads[k].event_indices.back()) != seq.end()){
+      trace[threads[event_at(snd).iid.get_pid()].spawn_event].push_back(threads[k].spawn_event);
+    }
+  }
+  /* move post events of removed messages later */
+  for(int k = 2; k < threads.size(); k = k+2){
+    if(partial_msg[k] && last_msg[threads[k].handler_id] != 0){
+      int post_of_last = threads[last_msg[threads[k].handler_id]].spawn_event;
+      int post_of_k = threads[k].spawn_event;
+      trace[post_of_k].push_back(post_of_last);
+    }
+  }
   std::vector<bool> visited(prefix.size(),false);
-  std::vector<Branch> sorted_seq;
+  std::vector<unsigned> sorted_seq;
   for(int i : seq){
     if(!visited[i]) visit_event(i,trace,visited,sorted_seq);
   }
-  return sorted_seq;
+  std::vector<Branch> linearized_ws;
+  for(int i : sorted_seq){
+    linearized_ws.push_back(branch_with_symbolic_data(i));
+  }
+  return linearized_ws;
 }
 
 void EventTraceBuilder::
-visit_event(int i, const std::vector<std::vector<unsigned>> &trace,
-	    std::vector<bool> &visited,
-	    std::vector<Branch> &sorted_seq){
+visit_event(int i, std::vector<std::vector<unsigned>> &trace,
+	    std::vector<bool> &visited, std::vector<unsigned> &sorted_seq){
   for(unsigned j : trace[i]){
     if(!visited[j]) visit_event(j,trace,visited,sorted_seq);
   }
   visited[i] = true;
-  Branch br = branch_with_symbolic_data(i);
+  int last_post = -1;
+  if(event_at(i).is_post()){
+    std::vector<unsigned> happbf = trace[i];
+    for(int k : sorted_seq){
+      if(event_at(k).is_post() && event_at(i).sym == event_at(k).sym){
+	last_post = k;
+      }
+    }
+    if(last_post != -1 &&
+       std::find(trace[i].begin(),trace[i].end(),last_post) == trace[i].end()){
+      IPid last_msg = event_at(last_post).msg_id;
+      IPid cur_msg = event_at(i).msg_id;
+      assert(last_msg != 0);
+      assert(cur_msg != 0);
+      unsigned last_of_last = threads[last_msg].event_indices.back();
+      unsigned first_of_cur = threads[cur_msg].event_indices.front();
+      trace[first_of_cur].push_back(last_of_last);
+    }
+  }
+  //Branch br = branch_with_symbolic_data(i);
   //br.purge_data();
-  sorted_seq.push_back(br);
+  sorted_seq.push_back(i);
 }
 
 void EventTraceBuilder::race_detect_optimal(const Race &race){
@@ -2180,8 +2221,7 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
   std::vector<Branch> v = wakeup_sequence(race,wakeup_index_seq);
   std::vector<Branch> sorted_seq = linearize_wakeup_sequence(race.first_event,
 							       race.second_event,
-							       wakeup_index_seq);
-  
+							       wakeup_index_seq);  
   /* Do insertion into the wakeup tree */
   int i = 0;
   WakeupTreeRef<Branch> node = WuT.parent_at(i);
@@ -2292,7 +2332,6 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
       skip = RECURSE;
       if(obs_sleep_wake(sleepset,child_it.branch().spid,child_sym) ==
 	   obs_wake_res::BLOCK) {
-	  llvm::dbgs()<<"sleepset blocked WUS\n";
 	  return;
       }
       i++;

@@ -410,9 +410,9 @@ protected:
    */
   class Event{
   public:
-    Event(const IID<IPid> &iid, sym_ty sym = {})
-      : iid(iid), origin_iid(iid), md(0), clock(), may_conflict(false),
-        sym(std::move(sym)), sleep_branch_trace_count(0) {};
+    Event(const IID<IPid> &iid, sym_ty sym = {}, IPid msg_id = 0)
+      : iid(iid), origin_iid(iid), md(0), msg_id(msg_id), clock(),
+	may_conflict(false), sym(std::move(sym)), sleep_branch_trace_count(0) {};
     /* The identifier for the first event in this event sequence. */
     IID<IPid> iid;
     /* The IID of the program instruction which is the origin of this
@@ -426,6 +426,7 @@ protected:
      * after a full execution sequence has been explored.
      */
     VClock<IPid> clock;
+    IPid msg_id;
     /* Indices into prefix of events that happen before this one. */
     std::vector<unsigned> happens_after;
     /* Indices into prefix of events that happen before
@@ -477,6 +478,12 @@ protected:
     bool access_global() const {
       for(const SymEv &e : sym){
 	if(e.access_global()) return true;
+      }
+      return false;
+    }
+    bool is_post() const {
+      for(const SymEv &e : sym){
+	if(e.kind == SymEv::POST) return true;
       }
       return false;
     }
@@ -764,9 +771,8 @@ protected:
   /* Do topological sort to linearize wakeup squence */
   std::vector<Branch> linearize_wakeup_sequence(int fst, int snd,
 						  std::vector<unsigned> &seq);
-  void visit_event(int i, const std::vector<std::vector<unsigned>> &trace,
-		   std::vector<bool> &visited,
-		   std::vector<Branch> &sorted_seq);
+  void visit_event(int i, std::vector<std::vector<unsigned>> &trace,
+		   std::vector<bool> &visited, std::vector<unsigned> &sorted_seq);
   void race_detect_optimal(const Race&);
   void insert_new_seq(std::vector<Branch> &v, WakeupTreeRef<Branch> &node,
 		      int first, bool leftmostbranch,
