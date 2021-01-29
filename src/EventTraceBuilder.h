@@ -755,6 +755,8 @@ protected:
    */
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep, IPid p,
                               const sym_ty &sym) const;
+  obs_wake_res sleep_wake(doneset_t &osleep, IPid p,
+                              const sym_ty &sym) const;
   /* Performs the second half of a sleep set step, removing sleepers that
    * were identified as waking after event e.
    *
@@ -782,7 +784,7 @@ protected:
 				      std::vector<unsigned> &wakeup_index_seq) const;
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
-                             const struct obs_sleep &sleep) const;
+                             const doneset_t &sleep) const;
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);

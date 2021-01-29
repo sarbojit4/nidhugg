@@ -606,7 +606,7 @@ void EventTraceBuilder::debug_print() const {
                  << rpad(iid_string(i),iid_offs-ipid*2)
                  << " " //<< rpad(event_at(i).clock.to_string(),clock_offs)
                  <<rpad(events_to_string(event_at(i).sym),symev_offs)	
-  	                 << lines[i] << "\n";
+  	         << lines[i] << "\n";
   }
   for (unsigned i = prefix.size(); i < lines.size(); ++i){
     llvm::dbgs() << std::string(2+iid_offs + 1+symev_offs, ' ') << lines[i] << "\n";
@@ -1426,6 +1426,27 @@ EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
   }
 }
 
+EventTraceBuilder::obs_wake_res
+EventTraceBuilder::sleep_wake(doneset_t &sleep,
+                                IPid p, const sym_ty &sym) const{
+  for (auto it = sleep.begin(); it != sleep.end();) {
+    if (it->first == p) {
+      return obs_wake_res::BLOCK;
+    } else if (do_events_conflict(p, sym, it->first, it->second)){
+      it = sleep.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  /* Check if the sleep set became empty */
+  if (sleep.empty()) {
+    return obs_wake_res::CLEAR;
+  } else {
+    return obs_wake_res::CONTINUE;
+  }
+}
+
 static void clear_observed(SymEv &e){
   if (e.kind == SymEv::STORE){
     e.set_observed(false);
@@ -1440,13 +1461,13 @@ static void clear_observed(sym_ty &syms){
 
 bool EventTraceBuilder::
 sequence_clears_sleep(const std::vector<Branch> &seq,
-                      const struct obs_sleep &sleep_const) const{
+                      const doneset_t &sleep_const) const{
   /* We need a writable copy */
-  struct obs_sleep isleep = sleep_const;
+  doneset_t isleep = sleep_const;
   obs_wake_res state = obs_wake_res::CONTINUE;
   for (auto it = seq.cbegin(); state == obs_wake_res::CONTINUE
          && it != seq.cend(); ++it) {
-    state = obs_sleep_wake(isleep, it->spid, it->sym);
+    state = sleep_wake(isleep, it->spid, it->sym);
   }
   /* Redundant */
   return (state == obs_wake_res::CLEAR);
@@ -2225,7 +2246,7 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
   /* Do insertion into the wakeup tree */
   int i = 0;
   WakeupTreeRef<Branch> node = WuT.parent_at(i);
-  struct obs_sleep sleepset;
+  doneset_t sleepset;
   /* Are we inserting in leftmost branch of the tree? */
   bool leftmostbranch = true;
   while(1) {
@@ -2239,8 +2260,8 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
     else if(node.size() && leftmostbranch){
       /* sleepset computation */
       doneset_t done = WuT[i];
-      for(auto ev:done){
-    	sleepset.sleep.push_back({ev.first,&ev.second,nullptr});
+      for(auto &ev:done){
+    	sleepset.push_back(ev);
       }
     }
 
@@ -2330,7 +2351,9 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
       /* The child is compatible with v, recurse into it. */
       node = child_it.node();
       skip = RECURSE;
-      if(obs_sleep_wake(sleepset,child_it.branch().spid,child_sym) ==
+      //for(auto &ev : sleepset) llvm::dbgs()<<threads[SPS.get_pid(ev.first)].cpid<<"\n";//////////
+
+      if(sleep_wake(sleepset,child_it.branch().spid,child_sym) ==
 	   obs_wake_res::BLOCK) {
 	  return;
       }
