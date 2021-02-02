@@ -66,7 +66,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       assert(threads[pid].available);
       threads[pid].event_indices.push_back(prefix_idx);
       return true;
-    }else if(prefix_idx + 1 == int(prefix.size())){// && WuT.lastnode().size() == 0){
+    }else if(prefix_idx + 1 == int(prefix.size())){
 
       /* We are done replaying. Continue below... */
       assert(prefix_idx < 0 || curev().sym.size() == sym_idx
@@ -104,9 +104,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
 
   assert(!replay);
   /* Create a new Event */
-
-  // TEMP: Until we have a SymEv for store()
-  // assert(prefix_idx < 0 || !!curev().sym.size() == curev().may_conflict);
 
   /* Should we merge the last two events? */
   if(prefix.size() > 1 &&
@@ -192,7 +189,6 @@ void EventTraceBuilder::refuse_schedule(){
   assert(!lastevent().may_conflict);
   assert(lastevent().sleep.empty());
   assert(lastevent().wakeup.empty());
-  //assert(WuT.children_after(prefix_idx) == 0);
   IPid last_pid = lastevent().iid.get_pid();
   prefix.pop_back();
   assert(int(threads[last_pid].event_indices.back()) == prefix_idx);
@@ -221,11 +217,6 @@ void EventTraceBuilder::cancel_replay(){
   if(!replay) return;
   replay = false;
   while (prefix_idx + 1 < int(prefix.size())) prefix.pop_back();
-  //TODO: carefully do cancel replay.
-  /*if (WuT.node(prefix_idx).size()) {
-    WuT.enter_first_child(Event(IID<IPid>()));
-    prefix.pop_back();
-    }*/
 }
 
 void EventTraceBuilder::metadata(const llvm::MDNode *md){
@@ -284,7 +275,7 @@ bool EventTraceBuilder::reset(){
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === EventTraceBuilder reset ===\n";
     debug_print();
-    llvm::dbgs() << " =============================\n";
+    llvm::dbgs() << " =============================\n\n";
   }
 
   if(max_branches < branches) max_branches = branches;
@@ -321,7 +312,8 @@ bool EventTraceBuilder::reset(){
   }
 
   while(WuT.lastnode().size() > 0){
-    WuT.enter_first_child(doneset_t());
+    doneset_t done{};
+    WuT.enter_first_child(done);
     assert(!WuT.last().size());
   }
 
@@ -331,7 +323,6 @@ bool EventTraceBuilder::reset(){
   auto node = WuT.parent_at(0);
   for(Branch br : sorted_seq){
     prefix.emplace_back(br,Event({-1,0}));
-    //llvm::dbgs()<<"<"<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<">\n";//////////////////////////
   }
 
   CPS = CPidSystem();
@@ -557,35 +548,47 @@ void EventTraceBuilder::check_symev_vclock_equiv() const {
 
 void EventTraceBuilder::debug_print() const {
   llvm::dbgs() << "EventTraceBuilder (debug print):\n";
+  llvm::dbgs() << "<> Execution =========>\n";
   int iid_offs = 0;
   int symev_offs = 0;
   int clock_offs = 0;
-  std::vector<std::string> lines;
-  struct obs_sleep sleep_set;
 
   for(unsigned i = 0; i < prefix.size(); ++i){
     IPid ipid = event_at(i).iid.get_pid();
     iid_offs = std::max(iid_offs,2*ipid+int(iid_string(i).size()));
     symev_offs = std::max(symev_offs,int(event_at(i).clock.to_string().size()));
     clock_offs = std::max(clock_offs,int(event_at(i).clock.to_string().size()));
-    obs_sleep_add(sleep_set, event_at(i));
-    lines.push_back(" SLP:" + oslp_string(sleep_set));
-    obs_sleep_wake(sleep_set, ipid, event_at(i).sym);
   }
 
-  /* Add wakeup tree */
+  for(unsigned i = 0; i < prefix.size(); ++i){
+    IPid ipid = event_at(i).iid.get_pid();
+    llvm::dbgs() << rpad("",2+ipid*2)
+                 << rpad(iid_string(i),iid_offs-ipid*2)
+                 << " " //<< rpad(event_at(i).clock.to_string(),clock_offs)
+                 << rpad(events_to_string(event_at(i).sym),symev_offs)	
+  	         << "\n";
+  }
+  if(errors.size()){
+    llvm::dbgs() << "Errors:\n";
+    for(unsigned i = 0; i < errors.size(); ++i){
+      llvm::dbgs() << "  Error #" << i+1 << ": "
+                   << errors[i]->to_string() << "\n";
+    }
+  }
+  llvm::dbgs() << "\n<> Wakeup Tree =========>\n";
   std::vector<std::string> WuTstr(prefix.size(),"");
   std::vector<int> iid_map = iid_map_at(WuT.len());
-  int done_offs;
+  int done_offs = 0;
   for(int i = WuT.len()-1; 0 <= i; --i){
-    std::string done = "";
+    std::string done = "{";
     for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
+    done.pop_back();
+    if(!done.empty()) done += "}";
+    WuTstr[i] += done;
     done_offs = std::max(done_offs,int(done.size()));
   }
   for(int i = WuT.len()-1; 0 <= i; --i){
-    std::string done = "";
-    for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
-    WuTstr[i] += rpad(done,done_offs);
+    WuTstr[i] = rpad(WuTstr[i],done_offs);
   }
   for(int i = WuT.len()-1; 0 <= i; --i){
     auto node = WuT.parent_at(i);
@@ -594,32 +597,13 @@ void EventTraceBuilder::debug_print() const {
       Branch b = it.branch();
       if (b == WuT.branch(i)){
         WuTstr[i] += iid_string(b, iid_map[b.spid]);
-	continue; /* Only print others */
+  	continue;
       }
       wut_string_add_node(WuTstr, iid_map, i, it.branch(), it.node());
     }
   }
-
-  for(unsigned i = 0; i < prefix.size(); ++i){
-    IPid ipid = event_at(i).iid.get_pid();
-    llvm::dbgs() << rpad("",2+ipid*2)
-                 << rpad(iid_string(i),iid_offs-ipid*2)
-                 << " " //<< rpad(event_at(i).clock.to_string(),clock_offs)
-                 <<rpad(events_to_string(event_at(i).sym),symev_offs)	
-  	         << lines[i] << "\n";
-  }
-  for (unsigned i = prefix.size(); i < lines.size(); ++i){
-    llvm::dbgs() << std::string(2+iid_offs + 1+symev_offs, ' ') << lines[i] << "\n";
-  }
   for(unsigned i = 0; i < WuTstr.size(); ++i){
     llvm::dbgs() << WuTstr[i] << "\n";
-  }
-  if(errors.size()){
-    llvm::dbgs() << "Errors:\n";
-    for(unsigned i = 0; i < errors.size(); ++i){
-      llvm::dbgs() << "  Error #" << i+1 << ": "
-                   << errors[i]->to_string() << "\n";
-    }
   }
 }
 
@@ -658,8 +642,6 @@ bool EventTraceBuilder::start(int pid){
   if(threads[pid*2].available == true){
     llvm::dbgs() << "Error:Thread already started\n";
   }
-  //add_happens_after(prefix_idx, threads[pid*2].spawn_event);
-  //add_happens_after(prefix_idx, threads[pid*2+1].spawn_event);
   threads[pid*2].spawn_event = prefix_idx;
   threads[pid*2+1].spawn_event = prefix_idx;
   threads[pid*2].available = true; // Empty store buffer
@@ -1965,14 +1947,6 @@ void EventTraceBuilder::compute_vclocks(){
     /* Now delete the subsumed races. We delayed doing this to avoid
      * iterator invalidation. */
     races.resize(fill - races.begin(), races[0]);
-    // for (unsigned j : WuT[i].eom_before){
-    //   assert(j < i);
-    //   WuT[i].clock += WuT[j].clock;
-    // }
-    // for (unsigned j : WuT[i].ppm_before){
-    //   assert(j < i);
-    //   WuT[i].clock += WuT[j].clock;
-    // }
   }
 
   has_vclocks = true;
@@ -2232,8 +2206,6 @@ visit_event(int i, std::vector<std::vector<unsigned>> &trace,
       trace[first_of_cur].push_back(last_of_last);
     }
   }
-  //Branch br = branch_with_symbolic_data(i);
-  //br.purge_data();
   sorted_seq.push_back(i);
 }
 
@@ -2241,8 +2213,8 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
   std::vector<unsigned> wakeup_index_seq;
   std::vector<Branch> v = wakeup_sequence(race,wakeup_index_seq);
   std::vector<Branch> sorted_seq = linearize_wakeup_sequence(race.first_event,
-							       race.second_event,
-							       wakeup_index_seq);  
+							     race.second_event,
+							     wakeup_index_seq);  
   /* Do insertion into the wakeup tree */
   int i = 0;
   WakeupTreeRef<Branch> node = WuT.parent_at(i);
@@ -2351,8 +2323,6 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
       /* The child is compatible with v, recurse into it. */
       node = child_it.node();
       skip = RECURSE;
-      //for(auto &ev : sleepset) llvm::dbgs()<<threads[SPS.get_pid(ev.first)].cpid<<"\n";//////////
-
       if(sleep_wake(sleepset,child_it.branch().spid,child_sym) ==
 	   obs_wake_res::BLOCK) {
 	  return;
@@ -2390,17 +2360,18 @@ insert_new_seq(std::vector<EventTraceBuilder::Branch> &v,
       
     /* when extending leftmost branch */
     if(leftmostbranch){
+      doneset_t done{};
       IPid fpid = threads[event_at(first-1).iid.get_pid()].spid;
       /* branch point */
       if(i == (v.size() - 1)){
 	/* create a dummy extension of leftmost branch */
-	WuT.push(branch_at(first),doneset_t());
+	WuT.push(branch_at(first),done);
 	ve.sorted_sequence = std::move(sorted_seq);
 	node = node.put_child(std::move(ve));
 	flag = true;
       }
       else{
-	WuT.push(std::move(ve),doneset_t());
+	WuT.push(std::move(ve),done);
 	node = WuT.lastnode();
       }
     }
@@ -2433,11 +2404,6 @@ wakeup_sequence(const Race &race, std::vector<unsigned> &wakeup_index_seq) const
     second.sleep.clear();
     second.wakeup.clear();
     second_br = branch_with_symbolic_data(j);
-  }
-  if (race.kind == Race::OBSERVED) {
-  } else {
-    /* Only replay the racy event. */
-    //second_br.size = 1;
   }
 
   /* v is the subsequence of events in prefix that do not
