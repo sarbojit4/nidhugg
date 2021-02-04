@@ -1970,13 +1970,13 @@ bool EventTraceBuilder::record_symbolic(SymEv event){
     /* Replay. SymEv::set() asserts that this is the same event as last time. */
     assert(sym_idx < curev().sym.size());
     SymEv &last = curev().sym[sym_idx++];
-    if (!last.is_compatible_with(event)) {
-      auto pid_str = [this](IPid p) { return threads[p*2].cpid.to_string(); };
-      nondeterminism_error("Event with effect " + last.to_string(pid_str)
-                           + " became " + event.to_string(pid_str)
-                           + " when replayed");
-      return false;
-    }
+    // if (!last.is_compatible_with(event)) {
+    //   auto pid_str = [this](IPid p) { return threads[p*2].cpid.to_string(); };
+    //   nondeterminism_error("Event with effect " + last.to_string(pid_str)
+    //                        + " became " + event.to_string(pid_str)
+    //                        + " when replayed");
+    //   return false;
+    // }
     last = event;
   }
   return true;
@@ -2113,12 +2113,15 @@ void EventTraceBuilder::do_race_detect() {
 
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
 linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
+  IPid fst_pid = event_at(fst).iid.get_pid();
+  IPid snd_pid = event_at(snd).iid.get_pid();
   std::vector<bool> partial_msg(threads.size(), false);
   std::vector<IPid> last_msg(threads.size(), 0);
   for(int k = 2; k < threads.size(); k = k+2){
     if(threads[k].handler_id != -1){
-      if(std::find(seq.begin(),seq.end(),threads[k].event_indices.back()) ==
-       seq.end()){
+      if(k != snd_pid &&
+	 std::find(seq.begin(),seq.end(),
+		   threads[k].event_indices.back()) == seq.end()){
         partial_msg[k] = true;
       }
       else last_msg[threads[k].handler_id] = k;
@@ -2150,14 +2153,16 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
       trace[i].push_back(last_event);
     }
   }
-  reverse_ppms_recursively(fst,snd,trace);
-  /* all the messages should be before the race */
-  for(int k = 2; k < threads.size(); k = k+2){
-    if(threads[k].handler_id != -1 && k != event_at(fst).iid.get_pid() &&
-       k != event_at(snd).iid.get_pid() &&
-       threads[k].handler_id == threads[event_at(snd).iid.get_pid()].handler_id &&
-       std::find(seq.begin(),seq.end(),threads[k].event_indices.back()) != seq.end()){
-      trace[threads[event_at(snd).iid.get_pid()].spawn_event].push_back(threads[k].spawn_event);
+  if(threads[fst_pid].handler_id != -1 &&
+     threads[fst_pid].handler_id == threads[snd_pid].handler_id){
+    reverse_ppms_recursively(fst,snd,trace);
+    /* all the messages should be before the race */
+    for(int k = 2; k < threads.size(); k = k+2){
+      if(threads[k].handler_id != -1 && k != fst_pid && k != snd_pid &&
+         threads[k].handler_id == threads[snd_pid].handler_id &&
+         std::find(seq.begin(),seq.end(),threads[k].event_indices.back()) != seq.end()){
+        trace[threads[snd_pid].spawn_event].push_back(threads[k].spawn_event);
+      }
     }
   }
   /* move post events of removed messages later */
@@ -2404,6 +2409,10 @@ wakeup_sequence(const Race &race, std::vector<unsigned> &wakeup_index_seq) const
     second.sleep.clear();
     second.wakeup.clear();
     second_br = branch_with_symbolic_data(j);
+  }
+  if (race.kind != Race::OBSERVED) {
+    /* Only replay the racy event. */
+    second_br.size = 1;
   }
 
   /* v is the subsequence of events in prefix that do not
