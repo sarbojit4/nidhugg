@@ -683,6 +683,8 @@ protected:
    * executed by thread (if there is such an event), and second.
    */
   void add_happens_after_thread(unsigned second, IPid thread);
+  /* Compute eop */
+  void compute_eop(int i, IPid ipid);
   /* Compute eom */
   void compute_eom();
   /* Compute ppm */

@@ -179,7 +179,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
     }
   }
 
-
   return false; // No available threads
 }
 
@@ -579,15 +578,15 @@ void EventTraceBuilder::debug_print() const {
   std::vector<std::string> WuTstr(prefix.size(),"");
   std::vector<int> iid_map = iid_map_at(WuT.len());
   int done_offs = 0;
-  for(int i = WuT.len()-1; 0 <= i; --i){
+  for(int i = 0; i <  WuT.len()-1; i++){
     std::string done = "{";
     for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
     done.pop_back();
     if(!done.empty()) done += "}";
-    WuTstr[i] += done;
+    WuTstr.push_back(done);
     done_offs = std::max(done_offs,int(done.size()));
   }
-  for(int i = WuT.len()-1; 0 <= i; --i){
+  for(int i = 0; i <  WuT.len()-1; i++){
     WuTstr[i] = rpad(WuTstr[i],done_offs);
   }
   for(int i = WuT.len()-1; 0 <= i; --i){
@@ -1717,6 +1716,17 @@ static It frontier_filter(It first, It last, LessFn less){
   return fill;
 }
 
+void EventTraceBuilder::compute_eop(int i, IPid ipid){
+  for(IPid th = ipid-2; th > 0; th=th-2){
+    if(threads[ipid].handler_id == threads[th].handler_id){
+      if(event_at(threads[ipid].spawn_event).clock.lt(
+        event_at(threads[th].spawn_event).clock)){
+        add_eop(i,threads[th].event_indices.back());
+      }
+      //break;
+    }
+  }
+}
 // TODO: Need to fix derivation of eom edges
 void EventTraceBuilder::compute_eom(){
   for(IPid i = 0; i<threads.size(); i=i+2){//eom order
@@ -1731,7 +1741,7 @@ void EventTraceBuilder::compute_eom(){
       unsigned post_j = threads[j].spawn_event;
       std::vector<unsigned> eops = event_at(fev_j).eop_before;
       if(event_at(fev_i).clock.lt(event_at(lev_j).clock) &&
-	 !event_at(post_i).clock.lt(event_at(post_j).clock)){
+  	 !event_at(post_i).clock.lt(event_at(post_j).clock)){
         add_eom(fev_j,lev_i);
       }
     }
@@ -1850,23 +1860,14 @@ void EventTraceBuilder::compute_vclocks(){
       assert(j < i);
       event_at(i).clock += event_at(j).clock;
     }
-
     /* adding eops */
     if(threads[ipid].handler_id != -1){
       if(threads[ipid].event_indices.front() == i){
-        for(IPid th = ipid-2; th > 0; th=th-2){
-    	  if(threads[ipid].handler_id == threads[th].handler_id){
-    	    if(event_at(threads[ipid].spawn_event).clock.lt(
-	       event_at(threads[th].spawn_event).clock)){
-    	      add_eop(i,threads[th].event_indices.back());
-    	    }
-    	    break;
-    	  }
+        compute_eop(i,ipid);
+	for (unsigned j : event_at(i).eop_before){
+          assert(j < i);
+          event_at(i).clock += event_at(j).clock;
         }
-      }
-      for (unsigned j : event_at(i).eop_before){
-        assert(j < i);
-        event_at(i).clock += event_at(j).clock;
       }
     }
 
@@ -2219,7 +2220,7 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
   std::vector<Branch> v = wakeup_sequence(race,wakeup_index_seq);
   std::vector<Branch> sorted_seq = linearize_wakeup_sequence(race.first_event,
 							     race.second_event,
-							     wakeup_index_seq);  
+							     wakeup_index_seq);
   /* Do insertion into the wakeup tree */
   int i = 0;
   WakeupTreeRef<Branch> node = WuT.parent_at(i);
