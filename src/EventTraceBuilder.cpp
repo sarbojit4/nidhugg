@@ -563,8 +563,8 @@ void EventTraceBuilder::debug_print() const {
     IPid ipid = event_at(i).iid.get_pid();
     llvm::dbgs() << rpad("",2+ipid*2)
                  << rpad(iid_string(i),iid_offs-ipid*2)
-                 << " " //<< rpad(event_at(i).clock.to_string(),clock_offs)
-                 << rpad(events_to_string(event_at(i).sym),symev_offs)	
+                 << " " << rpad(event_at(i).clock.to_string(),clock_offs)
+                 << " " << rpad(events_to_string(event_at(i).sym),symev_offs)	
   	         << "\n";
   }
   if(errors.size()){
@@ -578,6 +578,7 @@ void EventTraceBuilder::debug_print() const {
   std::vector<std::string> WuTstr(prefix.size(),"");
   std::vector<int> iid_map = iid_map_at(WuT.len());
   int done_offs = 0;
+  if(WuT.len() == 0) return;
   for(int i = 0; i <  WuT.len()-1; i++){
     std::string done = "{";
     for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
@@ -1719,15 +1720,27 @@ static It frontier_filter(It first, It last, LessFn less){
 void EventTraceBuilder::compute_eop(int i, IPid ipid){
   for(IPid th = ipid-2; th > 0; th=th-2){
     if(threads[ipid].handler_id == threads[th].handler_id){
-      if(event_at(threads[ipid].spawn_event).clock.lt(
-        event_at(threads[th].spawn_event).clock)){
+      unsigned ipost = threads[ipid].spawn_event;
+      unsigned thpost = threads[th].spawn_event;
+      if(event_at(thpost).clock.lt(
+        event_at(ipost).clock)){
         add_eop(i,threads[th].event_indices.back());
       }
-      //break;
+      // else if(threads[event_at(ipost).iid.get_pid()].handler_id != -1 &&
+      // 	      threads[event_at(ipost).iid.get_pid()].handler_id ==
+      // 	      threads[event_at(thpost).iid.get_pid()].handler_id){
+      // 	unsigned fev_ipost = threads[event_at(ipost).iid.get_pid()].event_indices.front();
+      //   unsigned lev_ipost = threads[event_at(ipost).iid.get_pid()].event_indices.back();
+      //   unsigned fev_thpost = threads[event_at(thpost).iid.get_pid()].event_indices.front();
+      //   unsigned lev_thpost = threads[event_at(thpost).iid.get_pid()].event_indices.back();
+      //   if(event_at(fev_thpost).clock.lt(event_at(lev_ipost).clock)){
+      //     add_eom(i,threads[th].event_indices.back());
+      //   }
+      // }
     }
   }
 }
-// TODO: Need to fix derivation of eom edges
+// TODO: Don't add eom for messages without direct dependency
 void EventTraceBuilder::compute_eom(){
   for(IPid i = 0; i<threads.size(); i=i+2){//eom order
     if(threads[i].handler_id == -1) continue;
@@ -1739,7 +1752,6 @@ void EventTraceBuilder::compute_eom(){
       unsigned lev_j = threads[j].event_indices.back();
       unsigned post_i = threads[i].spawn_event;
       unsigned post_j = threads[j].spawn_event;
-      std::vector<unsigned> eops = event_at(fev_j).eop_before;
       if(event_at(fev_i).clock.lt(event_at(lev_j).clock) &&
   	 !event_at(post_i).clock.lt(event_at(post_j).clock)){
         add_eom(fev_j,lev_i);
@@ -1861,13 +1873,12 @@ void EventTraceBuilder::compute_vclocks(){
       event_at(i).clock += event_at(j).clock;
     }
     /* adding eops */
-    if(threads[ipid].handler_id != -1){
-      if(threads[ipid].event_indices.front() == i){
-        compute_eop(i,ipid);
-	for (unsigned j : event_at(i).eop_before){
-          assert(j < i);
-          event_at(i).clock += event_at(j).clock;
-        }
+    if(threads[ipid].handler_id != -1 &&
+       threads[ipid].event_indices.front() == i){
+      compute_eop(i,ipid);
+      for (unsigned j : event_at(i).eop_before){
+        assert(j < i);
+        event_at(i).clock += event_at(j).clock;
       }
     }
 
@@ -1902,18 +1913,29 @@ void EventTraceBuilder::compute_vclocks(){
         }
       }
     } while (changed);
-    /* remove races because of eop */
     if(threads[ipid].handler_id != -1){
+      /* remove races because of eop or race in upper level in case of multilevel messages*/
       end = partition
-          (first_pair, end,
-           [this](const Race &r){
-    	     IPid fst_pid = event_at(r.first_event).iid.get_pid();
-    	     IPid snd_pid = event_at(r.second_event).iid.get_pid();
-               int fst_post = threads[fst_pid].spawn_event;
-               int snd_post = threads[snd_pid].spawn_event;
-               return threads[fst_pid].handler_id != threads[snd_pid].handler_id ||
-    		       !event_at(fst_post).clock.lt(event_at(snd_post).clock);
-           });
+        (first_pair, end,
+         [this](const Race &r){
+    	   IPid fpid = event_at(r.first_event).iid.get_pid();
+    	   IPid spid = event_at(r.second_event).iid.get_pid();
+	   int fpost = threads[fpid].spawn_event;
+           int spost = threads[spid].spawn_event;
+	   if(threads[fpid].handler_id == threads[spid].handler_id){
+	     if(event_at(fpost).clock.lt(event_at(spost).clock)) return false;
+	     IPid fpostpid = event_at(fpost).iid.get_pid();
+	     IPid spostpid = event_at(spost).iid.get_pid();
+	     int lev_fpostpid = threads[fpostpid].event_indices.back();
+	     int fev_spostpid = threads[spostpid].event_indices.front();
+	     if(threads[fpostpid].handler_id != -1 &&
+	        threads[fpostpid].handler_id == threads[spostpid].handler_id &&
+		event_at(lev_fpostpid).clock.lt(event_at(fev_spostpid).clock)){
+	       return false;
+	     }
+	   }
+	   return true;
+         });
     }
     /* Then filter out subsumed */
     auto fill = frontier_filter
