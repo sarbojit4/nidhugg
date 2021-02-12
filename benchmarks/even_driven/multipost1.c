@@ -3,6 +3,8 @@
 #include <pthread.h>
 #include "qthread.h"
 
+//N! traces
+
 #ifndef N
 #  warning "N was not defined; defining it as 2"
 #  define N 6
@@ -16,8 +18,12 @@ void *mes(void *j){
   return 0;
 }
 
+void *mespost(void *j){
+  qthread_post_event(handler, &mes, j); 
+  return 0;
+}
 void *th_post(void *i){
-  qthread_post_event(handler, &mes, i); 
+  qthread_post_event(handler, &mespost, i); 
   return 0;
 }
 
@@ -28,10 +34,9 @@ void *handler_func(void *i){
 
 int main(){
   pthread_t t[N];
-
+  int a[N];
   qthread_create(&handler, &handler_func, NULL);
   qthread_start(handler);
-  int a[N];
   for (int i = 0; i < N; i++){
     a[i] = i+1;
     pthread_create(&t[i], NULL, &th_post, &a[i]);

@@ -17,7 +17,7 @@ void *mes(void *j){
 }
 
 void *th_post(void *i){
-  qthread_post_event(handler, &mes, &i); 
+  qthread_post_event(handler, &mes, i); 
   return 0;
 }
 
@@ -28,11 +28,10 @@ void *handler_func(void *i){
 
 int main(){
   pthread_t t[N];
-
   qthread_create(&handler, &handler_func, NULL);
   qthread_start(handler);
   for (int i = 0; i < N; i++){
-    pthread_create(&t[i], NULL, &th_post, &i);
+    pthread_create(&t[i], NULL, &th_post, NULL);
   }
   for (int i = 0; i < N; i++){
     pthread_join(t[i], NULL);

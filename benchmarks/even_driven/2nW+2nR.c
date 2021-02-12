@@ -2,7 +2,7 @@
 #include<stdatomic.h>
 #include<pthread.h>
 #include"qthread.h"
-
+/* [((N+1)^N)*(N!)]^2 traces */
 #ifndef N
 #  warning "N was not defined"
 #  define N 2
@@ -28,20 +28,20 @@ void *mes4(void *j){
 }
 
 void *th_post1(void *i){
-  qthread_post_event(1, &mes1, &i); 
+  qthread_post_event(1, &mes1, i); 
   return 0;
 }
 
 void *th_post2(void *i){
-  qthread_post_event(1, &mes2, &i); 
+  qthread_post_event(1, &mes2, i); 
   return 0;
 }
 void *th_post3(void *i){
-  qthread_post_event(1, &mes3, &i); 
+  qthread_post_event(1, &mes3, i); 
   return 0;
 }
 void *th_post4(void *i){
-  qthread_post_event(1, &mes4, &i); 
+  qthread_post_event(1, &mes4, i); 
   return 0;
 }
 void *handler_func(void *i){ 
@@ -52,13 +52,20 @@ void *handler_func(void *i){
 int main() {
   pthread_t t[4*N];
   qthread_t handler;
-
+  int a[4*N];
   qthread_create(&handler, &handler_func, NULL);
   for (int i = 0; i < 4*N; i++){
-    pthread_create(&t[i++], NULL, &th_post1, &i);
-    pthread_create(&t[i++], NULL, &th_post2, &i);
-    pthread_create(&t[i++], NULL, &th_post3, &i);
-    pthread_create(&t[i], NULL, &th_post4, &i);
+    a[i] = i+1;
+    pthread_create(&t[i], NULL, &th_post1, &a[i]);
+    i++;
+    a[i] = i+1;
+    pthread_create(&t[i], NULL, &th_post2, &a[i]);
+    i++;
+    a[i] = i+1;
+    pthread_create(&t[i], NULL, &th_post3, &a[i]);
+    i++;
+    a[i] = i+1;
+    pthread_create(&t[i], NULL, &th_post4, &a[i]);
   }
   for (int i = 0; i < 4*N; i++){
     pthread_join(t[i], NULL);

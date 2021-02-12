@@ -2,10 +2,10 @@
 #include<stdatomic.h>
 #include<pthread.h>
 #include"qthread.h"
-
+/* ((N+1)^N)*(N!) traces*/
 #ifndef N
 #  warning "N was not defined"
-#  define N 4
+#  define N 2
 #endif
 
 atomic_int g;
@@ -20,12 +20,12 @@ void *mes2(void *j){
 }
 
 void *th_post1(void *i){
-  qthread_post_event(1, &mes1, &i); 
+  qthread_post_event(1, &mes1, i); 
   return 0;
 }
 
 void *th_post2(void *i){
-  qthread_post_event(1, &mes2, &i); 
+  qthread_post_event(1, &mes2, i); 
   return 0;
 }
 void *handler_func(void *i){ 

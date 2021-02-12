@@ -3,21 +3,25 @@
 #include <pthread.h>
 #include "qthread.h"
 
+//1 trace
+
 #ifndef N
 #  warning "N was not defined; defining it as 2"
-#  define N 6
+#  define N 5
 #endif
 
 qthread_t handler;
 
 atomic_int x;
 void *mes(void *j){
-  atomic_store_explicit(&x, *(atomic_int *)j, memory_order_seq_cst);
+  atomic_store_explicit(&x, 2, memory_order_seq_cst);
   return 0;
 }
 
 void *th_post(void *i){
-  qthread_post_event(handler, &mes, i); 
+  for (int j = 0; j < N; j++){
+    qthread_post_event(handler, &mes, &j);
+  }
   return 0;
 }
 
@@ -27,17 +31,10 @@ void *handler_func(void *i){
 }
 
 int main(){
-  pthread_t t[N];
-
+  pthread_t t;
   qthread_create(&handler, &handler_func, NULL);
   qthread_start(handler);
-  int a[N];
-  for (int i = 0; i < N; i++){
-    a[i] = i+1;
-    pthread_create(&t[i], NULL, &th_post, &a[i]);
-  }
-  for (int i = 0; i < N; i++){
-    pthread_join(t[i], NULL);
-  }
+  pthread_create(&t, NULL, &th_post, NULL);
+  pthread_join(t, NULL);
   qthread_wait(handler, NULL);
 }
