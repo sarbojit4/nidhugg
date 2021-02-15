@@ -1726,17 +1726,17 @@ void EventTraceBuilder::compute_eop(int i, IPid ipid){
         event_at(ipost).clock)){
         add_eop(i,threads[th].event_indices.back());
       }
-      // else if(threads[event_at(ipost).iid.get_pid()].handler_id != -1 &&
-      // 	      threads[event_at(ipost).iid.get_pid()].handler_id ==
-      // 	      threads[event_at(thpost).iid.get_pid()].handler_id){
-      // 	unsigned fev_ipost = threads[event_at(ipost).iid.get_pid()].event_indices.front();
-      //   unsigned lev_ipost = threads[event_at(ipost).iid.get_pid()].event_indices.back();
-      //   unsigned fev_thpost = threads[event_at(thpost).iid.get_pid()].event_indices.front();
-      //   unsigned lev_thpost = threads[event_at(thpost).iid.get_pid()].event_indices.back();
-      //   if(event_at(fev_thpost).clock.lt(event_at(lev_ipost).clock)){
-      //     add_eom(i,threads[th].event_indices.back());
-      //   }
-      // }
+      else if(threads[event_at(ipost).iid.get_pid()].handler_id != -1 &&
+      	      threads[event_at(ipost).iid.get_pid()].handler_id ==
+      	      threads[event_at(thpost).iid.get_pid()].handler_id){
+      	unsigned fev_ipost = threads[event_at(ipost).iid.get_pid()].event_indices.front();
+        unsigned lev_ipost = threads[event_at(ipost).iid.get_pid()].event_indices.back();
+        unsigned fev_thpost = threads[event_at(thpost).iid.get_pid()].event_indices.front();
+        unsigned lev_thpost = threads[event_at(thpost).iid.get_pid()].event_indices.back();
+        if(event_at(fev_thpost).clock.lt(event_at(lev_ipost).clock)){
+          add_eop(i,threads[th].event_indices.back());
+        }
+      }
     }
   }
 }
