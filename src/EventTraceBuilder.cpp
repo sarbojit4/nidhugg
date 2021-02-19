@@ -105,21 +105,21 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   assert(!replay);
   /* Create a new Event */
 
+  assert(prefix_idx+1 == prefix.size());
   /* Should we merge the last two events? */
   if(prefix.size() > 1 &&
-     event_at(prefix.size()-1).iid.get_pid()
-     == event_at(prefix.size()-2).iid.get_pid() &&
-     !event_at(prefix.size()-1).may_conflict &&
-     event_at(prefix.size()-1).sleep.empty()){
-    assert(event_at(prefix.size()-1).wakeup.empty());
+     curev().iid.get_pid()
+     == event_at(prefix_idx-1).iid.get_pid() &&
+     !curev().may_conflict &&
+     curev().sleep.empty()){
+    assert(curev().wakeup.empty());
     assert(curev().sym.empty()); /* Would need to be copied */
     assert(curbranch().sym.empty()); /* Can't happen */
     unsigned size = curbranch().size;
-    prefix.pop_back();
+    llvm::dbgs()<<prefix_idx<<"\n";//////////////////////////
+    prefix.erase(prefix.begin()+prefix_idx);
     --prefix_idx;
-    Branch b = curbranch();
-    b.size += size;
-    lastbranch() = b;
+    curbranch().size += size;
     assert(int(threads[curev().iid.get_pid()].event_indices.back()) == prefix_idx + 1);
     threads[curev().iid.get_pid()].event_indices.back() = prefix_idx;
   } else {
@@ -133,12 +133,11 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
         assert(curbranch().sym == expected);
 #endif
       } else {
-        Branch b = curbranch();
+        Branch &b = curbranch();
         b.sym = curev().sym;
         if (conf.dpor_algorithm == Configuration::OBSERVERS)
           clear_observed(b.sym);
         for (SymEv &e : b.sym) e.purge_data();
-        lastbranch() = b;
       }
     }
   }

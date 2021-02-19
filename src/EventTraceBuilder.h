@@ -548,6 +548,12 @@ protected:
     return prefix[prefix_idx].second;
   };
 
+  Branch &curbranch() {
+    assert(0 <= prefix_idx);
+    assert(prefix_idx < int(prefix.size()));
+    return prefix[prefix_idx].first;
+  };
+
   const Branch &curbranch() const {
     assert(0 <= prefix_idx);
     assert(prefix_idx < int(prefix.size()));
