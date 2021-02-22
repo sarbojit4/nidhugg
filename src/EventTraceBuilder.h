@@ -522,6 +522,10 @@ protected:
    */
   bool replay;
 
+  /* If there is a hole or gap in the wakeup sequence that means 
+     later part of some message is missing in the wakeup sequence. */
+  IPid unfinished_message;
+
   /* The number of events that were or are going to be replayed in the
    * current computation.
    */
@@ -781,7 +785,7 @@ protected:
   /* Do topological sort to linearize wakeup squence */
   std::vector<Branch> linearize_wakeup_sequence(int fst, int snd,
 						  std::vector<unsigned> &seq);
-  void visit_event(int i, std::vector<std::vector<unsigned>> &trace,
+  bool visit_event(int i, std::vector<std::vector<unsigned>> &trace, std::vector<bool> &visiting,
 		   std::vector<bool> &visited, std::vector<unsigned> &sorted_seq);
   void race_detect_optimal(const Race&);
   void insert_new_seq(std::vector<Branch> &v, WakeupTreeRef<Branch> &node,

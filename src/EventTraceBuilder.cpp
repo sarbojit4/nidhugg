@@ -40,6 +40,7 @@ EventTraceBuilder::EventTraceBuilder(const Configuration &conf) : TSOPSOTraceBui
   prefix_idx = -1;
   dryrun = false;
   replay = false;
+  unfinished_message = 0;
   last_full_memory_conflict = -1;
   last_md = 0;
   replay_point = 0;
@@ -54,6 +55,44 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   *dryrun = false;
   *alt = 0;
   this->dryrun = false;
+  if(unfinished_message != 0 && !threads[unfinished_message].available){
+    /* When finished execution of partial message */
+    unfinished_message = 0;
+    replay = true;
+    if(prefix.size() > 1 &&
+       curev().iid.get_pid()
+       == event_at(prefix_idx-1).iid.get_pid() &&
+       !curev().may_conflict &&
+       curev().sleep.empty()){
+      assert(curev().wakeup.empty());
+      assert(curev().sym.empty()); /* Would need to be copied */
+      assert(curbranch().sym.empty()); /* Can't happen */
+      unsigned size = curbranch().size;
+      prefix.erase(prefix.begin()+prefix_idx);
+      --prefix_idx;
+      curbranch().size += size;
+      assert(int(threads[curev().iid.get_pid()].event_indices.back()) == prefix_idx + 1);
+      threads[curev().iid.get_pid()].event_indices.back() = prefix_idx;
+    } else {
+      /* Copy symbolic events to wakeup tree */
+      if (prefix.size() > 0) {
+	if (!curbranch().sym.empty()) {
+#ifndef NDEBUG
+	  sym_ty expected = curev().sym;
+	  if (conf.dpor_algorithm == Configuration::OBSERVERS)
+	    clear_observed(expected);
+	  assert(curbranch().sym == expected);
+#endif
+	} else {
+	  Branch &b = curbranch();
+	  b.sym = curev().sym;
+	  if (conf.dpor_algorithm == Configuration::OBSERVERS)
+	    clear_observed(b.sym);
+	  for (SymEv &e : b.sym) e.purge_data();
+	}
+      }
+    }
+  }
   if(replay){
     /* Are we done with the current Event? */
     if(0 <= prefix_idx && threads[curev().iid.get_pid()].last_event_index() <
@@ -80,6 +119,13 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
                               curev().iid.get_index()))
              || std::all_of(threads.cbegin(), threads.cend(),
                             [](const Thread &t) { return !t.sleeping; }));
+    }else if(0 <= prefix_idx &&
+	     threads[SPS.get_pid(curbranch().spid)].handler_id != -1 &&
+             curbranch().spid != branch_at(prefix_idx+1).spid &&
+	     threads[SPS.get_pid(curbranch().spid)].available){
+      /* There is an unfinished message or hole in the wakeup sequence */
+      unfinished_message = SPS.get_pid(curbranch().spid);
+      replay = false;
     }else{
       /* Go to the next event. */
       assert(prefix_idx < 0 || curev().sym.size() == sym_idx
@@ -103,9 +149,8 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   }
 
   assert(!replay);
-  /* Create a new Event */
-
   assert(prefix_idx+1 == prefix.size());
+  /* Create a new Event */
   /* Should we merge the last two events? */
   if(prefix.size() > 1 &&
      curev().iid.get_pid()
@@ -116,7 +161,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
     assert(curev().sym.empty()); /* Would need to be copied */
     assert(curbranch().sym.empty()); /* Can't happen */
     unsigned size = curbranch().size;
-    llvm::dbgs()<<prefix_idx<<"\n";//////////////////////////
     prefix.erase(prefix.begin()+prefix_idx);
     --prefix_idx;
     curbranch().size += size;
@@ -141,10 +185,23 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       }
     }
   }
-
   /* Create a new Event */
   sym_idx = 0;
-
+  if(unfinished_message != 0){
+    assert(threads[unfinished_message].available);
+    assert(!threads[unfinished_message].sleeping);
+    threads[unfinished_message].event_indices.push_back(++prefix_idx);
+    IID<IPid> iid(IPid(unfinished_message),
+		  threads[unfinished_message].last_event_index());
+    prefix.insert(prefix.begin()+prefix_idx,
+		  std::pair<Branch,Event>(Branch(threads[unfinished_message].spid,
+						 threads[unfinished_message].last_event_index()),
+					  Event(iid)));
+    *proc = unfinished_message/2;
+    *aux = -1;
+    return true;
+  }
+  
   /* Find an available thread (auxiliary or real).
    *
    * Prioritize auxiliary before real, and older before younger
@@ -321,7 +378,9 @@ bool EventTraceBuilder::reset(){
   auto node = WuT.parent_at(0);
   for(Branch br : sorted_seq){
     prefix.emplace_back(br,Event({-1,0}));
+    //llvm::dbgs()<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<"\n";//////////////////////////
   }
+  //llvm::dbgs()<<"\n";////////////////////////
 
   CPS = CPidSystem();
   threads.clear();
@@ -602,7 +661,7 @@ void EventTraceBuilder::debug_print() const {
     }
   }
   for(unsigned i = 0; i < WuTstr.size(); ++i){
-    llvm::dbgs() << WuTstr[i] << "\n";
+    if(!WuTstr[i].empty()) llvm::dbgs() << WuTstr[i] << "\n";
   }
 }
 
@@ -2141,7 +2200,7 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
   std::vector<IPid> last_msg(threads.size(), 0);
   for(int k = 2; k < threads.size(); k = k+2){
     if(threads[k].handler_id != -1){
-      if(k != snd_pid &&
+      if(k != snd_pid && k != fst_pid &&
 	 std::find(seq.begin(),seq.end(),
 		   threads[k].event_indices.back()) == seq.end()){
         partial_msg[k] = true;
@@ -2184,6 +2243,7 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
          threads[k].handler_id == threads[snd_pid].handler_id &&
          std::find(seq.begin(),seq.end(),threads[k].event_indices.back()) != seq.end()){
         trace[threads[snd_pid].spawn_event].push_back(threads[k].spawn_event);
+	trace[threads[snd_pid].event_indices.front()].push_back(threads[k].event_indices.back());
       }
     }
   }
@@ -2195,10 +2255,15 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
       trace[post_of_k].push_back(post_of_last);
     }
   }
-  std::vector<bool> visited(prefix.size(),false);
+  std::vector<bool> visited(prefix.size(),false), visiting(prefix.size(),false);
   std::vector<unsigned> sorted_seq;
   for(int i : seq){
-    if(!visited[i]) visit_event(i,trace,visited,sorted_seq);
+    if(!visited[i]){
+      if(visit_event(i,trace,visiting,visited,sorted_seq) == false){
+	llvm::dbgs() << "Linearize WS failsed: as cycle in the wakeup sequence.\n";
+        exit(1);
+      }
+    }
   }
   std::vector<Branch> linearized_ws;
   for(int i : sorted_seq){
@@ -2207,12 +2272,18 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
   return linearized_ws;
 }
 
-void EventTraceBuilder::
-visit_event(int i, std::vector<std::vector<unsigned>> &trace,
+bool EventTraceBuilder::
+visit_event(int i, std::vector<std::vector<unsigned>> &trace, std::vector<bool> &visiting,
 	    std::vector<bool> &visited, std::vector<unsigned> &sorted_seq){
+  //llvm::dbgs()<<"Visit "<<event_at(i).iid<<"\n";////////////////
+  if(visiting[i] == true) return false;
+  visiting[i] = true;
   for(unsigned j : trace[i]){
-    if(!visited[j]) visit_event(j,trace,visited,sorted_seq);
+    if(!visited[j]){
+      if(visit_event(j,trace,visiting,visited,sorted_seq) == false) return false;
+    }
   }
+  visiting[i] = false;
   visited[i] = true;
   int last_post = -1;
   if(event_at(i).is_post()){
@@ -2234,9 +2305,11 @@ visit_event(int i, std::vector<std::vector<unsigned>> &trace,
     }
   }
   sorted_seq.push_back(i);
+  return true;
 }
 
 void EventTraceBuilder::race_detect_optimal(const Race &race){
+  //llvm::dbgs()<<"Race "<<event_at(race.first_event).iid<<" "<<event_at(race.second_event).iid<<"\n";///////////////////////
   std::vector<unsigned> wakeup_index_seq;
   std::vector<Branch> v = wakeup_sequence(race,wakeup_index_seq);
   std::vector<Branch> sorted_seq = linearize_wakeup_sequence(race.first_event,
