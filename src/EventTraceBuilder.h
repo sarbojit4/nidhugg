@@ -49,7 +49,8 @@ public:
   virtual IID<CPid> get_iid() const override;
   virtual int get_spid(int pid) override;
 
-  virtual void debug_print() const override;
+  virtual void print_prefix() const;
+  virtual void print_WuT() const;
 
   virtual NODISCARD bool spawn() override;
   virtual void create() override;
