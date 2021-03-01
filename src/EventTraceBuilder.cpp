@@ -122,8 +122,11 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
     }else if(0 <= prefix_idx &&
 	     threads[SPS.get_pid(curbranch().spid)].handler_id != -1 &&
              curbranch().spid != branch_at(prefix_idx+1).spid &&
+	     threads[SPS.get_pid(curbranch().spid)].handler_id ==
+	     threads[SPS.get_pid(branch_at(prefix_idx+1).spid)].handler_id &&
 	     threads[SPS.get_pid(curbranch().spid)].available){
-      /* There is an unfinished message or hole in the wakeup sequence */
+      /* There is an unfinished message or hole in the wakeup sequence and 
+         next event is from other message from the same handler */
       unfinished_message = SPS.get_pid(curbranch().spid);
       replay = false;
     }else{
@@ -639,15 +642,15 @@ void EventTraceBuilder::print_WuT() const {
   std::vector<int> iid_map = iid_map_at(WuT.len());
   int done_offs = 0;
   if(WuT.len() == 0) return;
-  for(int i = 0; i <  WuT.len()-1; i++){
+  for(int i = 0; i <  WuT.len(); i++){
     std::string done = "{";
     for(auto ev : WuT[i]) done = done + std::to_string(ev.first) + ",";
     done.pop_back();
     if(!done.empty()) done += "}";
-    WuTstr.push_back(done);
+    WuTstr[i] += done;
     done_offs = std::max(done_offs,int(done.size()));
   }
-  for(int i = 0; i <  WuT.len()-1; i++){
+  for(int i = 0; i <  WuT.len(); i++){
     WuTstr[i] = rpad(WuTstr[i],done_offs);
   }
   for(int i = WuT.len()-1; 0 <= i; --i){
