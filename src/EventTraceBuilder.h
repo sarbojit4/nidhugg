@@ -527,6 +527,9 @@ protected:
      later part of some message is missing in the wakeup sequence. */
   IPid unfinished_message;
 
+  /* Index to the end of the current wakeup sequence which is being explored */
+  int end_of_ws;
+
   /* The number of events that were or are going to be replayed in the
    * current computation.
    */

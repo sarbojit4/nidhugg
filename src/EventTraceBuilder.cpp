@@ -44,6 +44,7 @@ EventTraceBuilder::EventTraceBuilder(const Configuration &conf) : TSOPSOTraceBui
   last_full_memory_conflict = -1;
   last_md = 0;
   replay_point = 0;
+  end_of_ws = -1;
 }
 
 EventTraceBuilder::~EventTraceBuilder(){
@@ -113,6 +114,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
                  == IID<CPid>(threads[SPS.get_pid(curbranch().spid)].cpid,
                               curev().iid.get_index())));
       replay = false;
+      end_of_ws = prefix_idx;
       assert(conf.dpor_algorithm == Configuration::SOURCE
              || (errors.size() && errors.back()->get_location()
                  == IID<CPid>(threads[curev().iid.get_pid()].cpid,
@@ -238,6 +240,10 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
     }
   }
 
+  if(end_of_ws != -1 && WuT.lastbranch() == branch_at(end_of_ws) &&
+     WuT.lastbranch().size != branch_at(end_of_ws).size){
+    WuT.set_last_branch(branch_at(end_of_ws));
+  }
   return false; // No available threads
 }
 
@@ -2254,6 +2260,13 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
     if(event_at(i).iid.get_index() > 1){
       unsigned last_event = event_indices[event_at(i).iid.get_index()-2];
       trace[i].push_back(last_event);
+    }
+    /* include races in the trace except the race we are reversing */
+    for(auto race:event_at(i).races){
+      if(i != snd || race.first_event != fst) trace[i].push_back(race.first_event);
+    }
+    if(i == snd){
+      for(auto race:event_at(fst).races) trace[i].push_back(race.first_event);
     }
   }
   if(threads[fst_pid].handler_id != -1 &&
