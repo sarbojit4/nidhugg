@@ -333,14 +333,12 @@ Trace *EventTraceBuilder::get_trace() const{
 bool EventTraceBuilder::reset(){
   compute_vclocks();
   compute_derived_happens_after();
-  
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === EventTraceBuilder reset ===\n";
     print_prefix();
   }
-
   do_race_detect();
-
+  
   if(conf.debug_print_on_reset){
     print_WuT();
     llvm::dbgs() << " =============================\n\n";
@@ -1009,6 +1007,7 @@ bool EventTraceBuilder::fence(){
 bool EventTraceBuilder::join(int tgt_proc){
   if (!record_symbolic(SymEv::Join(tgt_proc))) return false;
   if(dryrun) return true;
+  curev().may_conflict = true;
   assert(threads[tgt_proc*2].store_buffer.empty());
   add_happens_after_thread(prefix_idx, tgt_proc*2);
   add_happens_after_thread(prefix_idx, tgt_proc*2+1);
