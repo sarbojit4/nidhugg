@@ -642,7 +642,8 @@ void EventTraceBuilder::print_prefix() const {
 
 void EventTraceBuilder::print_WuT() const {
   llvm::dbgs() << "\n<> Wakeup Tree =========>\n";
-  std::vector<std::string> WuTstr(prefix.size(),"");
+  int WuTstrsize = std::max(prefix.size(),WuT.len());
+  std::vector<std::string> WuTstr(WuTstrsize,"");
   std::vector<int> iid_map = iid_map_at(WuT.len());
   int done_offs = 0;
   if(WuT.len() == 0) return;
@@ -654,7 +655,7 @@ void EventTraceBuilder::print_WuT() const {
     WuTstr[i] += done;
     done_offs = std::max(done_offs,int(done.size()));
   }
-  for(int i = 0; i <  WuT.len(); i++){
+  for(int i = 0; i < WuT.len(); i++){
     WuTstr[i] = rpad(WuTstr[i],done_offs);
   }
   for(int i = WuT.len()-1; 0 <= i; --i){
@@ -1840,6 +1841,7 @@ void EventTraceBuilder::compute_ppm(){
 	Thread th_p1 = threads[event_at(threads[i].spawn_event).iid.get_pid()];
 	Thread th_p2 = threads[event_at(threads[j].spawn_event).iid.get_pid()];
 	if(th_p1.handler_id == th_p2.handler_id && th_p1.handler_id != -1){
+  	  //Add eom if the posts are part of a message of the same handler
 	  add_eom(th_p2.event_indices.front(),th_p1.event_indices.back());
 	}
 	else{
@@ -1860,30 +1862,36 @@ reverse_ppms_recursively(int fst, int snd,
                          std::vector<std::vector<unsigned>> &trace){
   IPid fpid = event_at(fst).iid.get_pid();
   IPid spid = event_at(snd).iid.get_pid();
-  int fst_of_fst = threads[fpid].event_indices.front();
+  unsigned fst_of_fst = threads[fpid].event_indices.front();
   {/* delete edges from first message to second message */
-    int lst_of_fst = threads[fpid].event_indices.back();
-    int fst_of_snd = threads[spid].event_indices.front();
-    auto it = std::find(trace[fst_of_snd].begin(),trace[fst_of_snd].end(),lst_of_fst);
+    unsigned lst_of_fst = threads[fpid].event_indices.back();
+    unsigned fst_of_snd = threads[spid].event_indices.front();
+    // Assuming this race is the first in the message snd
+    // So we den't have to delete any edge between fst and snd
+    auto it = std::find(trace[fst_of_snd].begin(),
+			trace[fst_of_snd].end(),
+			lst_of_fst);    
+    // erase the eom
     if(it != trace[fst_of_snd].end()){
       trace[fst_of_snd].erase(it);
     }
+    // Assuming only one access to shared variable in the entire message
+    // TODO: For multiple access we should choose some of the appropriate edges
+    // //trace[fst_of_snd].insert(trace[fst_of_snd].end(),
+    // 			     trace[fst_of_fst].begin(),
+    // 			     trace[fst_of_fst].end());
   }
+  // For multiple access we should delete some of the edges
+  trace[fst_of_fst].clear();
+  // Add new edge in the reverse direction
   trace[fst_of_fst].push_back(snd);
-  int fpost = threads[fpid].spawn_event;
-  int spost = threads[spid].spawn_event;
+  unsigned fpost = threads[fpid].spawn_event;
+  unsigned spost = threads[spid].spawn_event;
   IPid fpost_id = event_at(fpost).iid.get_pid();
   IPid spost_id = event_at(spost).iid.get_pid();
-  
+  // If posts are part of messages of same handler then recurse 
   if(threads[fpost_id].handler_id != -1 &&
      threads[fpost_id].handler_id == threads[spost_id].handler_id){
-    int lev_of_fpost_id = threads[fpost_id].event_indices.back();
-    int fev_of_spost_id = threads[spost_id].event_indices.front();
-    auto it = std::find(trace[fev_of_spost_id].begin(),
-	                trace[fev_of_spost_id].end(),
-			lev_of_fpost_id);
-    if(it != trace[fev_of_spost_id].end())
-      trace[fev_of_spost_id].erase(it);
     reverse_ppms_recursively(fpost,spost,trace);
   }
   else{
@@ -1891,6 +1899,11 @@ reverse_ppms_recursively(int fst, int snd,
     if(it != trace[spost].end()){
       trace[spost].erase(it);
     }
+    // Assuming only one access to shared variable in the entire message
+    // TODO: For multiple access we should choose some of the appropriate edges
+    // trace[spost].insert(trace[spost].end(),
+    // 			trace[fpost].begin(),
+    // 			trace[fpost].end());
     trace[fpost].push_back(spost);
   }
 }
@@ -2217,20 +2230,20 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
         partial_msg[k] = true;
       }
       else if(k != snd_pid && k != fst_pid && threads[snd_pid].handler_id != -1 &&
-	      std::find(seq.begin(),seq.end(),
-		        threads[k].event_indices.back()) != seq.end() &&
-	      event_at(threads[snd_pid].event_indices.front()).
-	      clock.lt(event_at(threads[k].event_indices.back()).clock)){
-	/* complete messages that happens after some event of the second racing message */
-	partial_msg[k] = true;
+      	      std::find(seq.begin(),seq.end(),
+      		        threads[k].event_indices.back()) != seq.end() &&
+      	      event_at(threads[snd_pid].event_indices.front()).
+      	      clock.lt(event_at(threads[k].event_indices.back()).clock)){
+      	/* complete messages that happens after some event of the second racing message */
+      	partial_msg[k] = true;
       }
       else if(k != snd_pid && k != fst_pid && threads[fst_pid].handler_id != -1 &&
-	      std::find(seq.begin(),seq.end(),
-		        threads[k].event_indices.back()) != seq.end() &&
-	      event_at(threads[fst_pid].event_indices.front()).
-	      clock.lt(event_at(threads[k].event_indices.back()).clock)){
-	/* complete messages that happens after some event of the second racing message */
-	partial_msg[k] = true;
+      	      std::find(seq.begin(),seq.end(),
+      		        threads[k].event_indices.back()) != seq.end() &&
+      	      event_at(threads[fst_pid].event_indices.front()).
+      	      clock.lt(event_at(threads[k].event_indices.back()).clock)){
+      	/* complete messages that happens after some event of the second racing message */
+      	partial_msg[k] = true;
       }
       else last_msg[threads[k].handler_id] = k;
     }
