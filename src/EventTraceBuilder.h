@@ -51,6 +51,7 @@ public:
 
   virtual void print_prefix() const;
   virtual void print_WuT() const;
+  virtual void print_trace(const std::vector<std::vector<unsigned>> &trace) const;
 
   virtual NODISCARD bool spawn() override;
   virtual void create() override;

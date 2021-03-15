@@ -675,6 +675,18 @@ void EventTraceBuilder::print_WuT() const {
   }
 }
 
+void EventTraceBuilder::
+print_trace(const std::vector<std::vector<unsigned>> &trace) const{
+  llvm::dbgs()<<"=============Trace==============\n";
+  for(int i = 0; i < trace.size(); i++){
+    llvm::dbgs()<<i<<":<"<<threads[event_at(i).iid.get_pid()].cpid
+		<<event_at(i).iid.get_index()<<">[";
+    for(unsigned j:trace[i]) llvm::dbgs()<<j<<",";
+    llvm::dbgs()<<"]\n";
+  }
+  llvm::dbgs()<<"===================================================\n\n";
+}
+
 bool EventTraceBuilder::spawn(){
   IPid parent_ipid = curev().iid.get_pid();
   CPid child_cpid = CPS.spawn(threads[parent_ipid].cpid);
@@ -2219,6 +2231,7 @@ std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
 linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
   IPid fst_pid = event_at(fst).iid.get_pid();
   IPid snd_pid = event_at(snd).iid.get_pid();
+  IPid snd_handler = threads[snd_pid].handler_id;
   std::vector<bool> partial_msg(threads.size(), false);
   std::vector<IPid> last_msg(threads.size(), 0);
   for(int k = 2; k < threads.size(); k = k+2){
@@ -2227,22 +2240,28 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
 	 std::find(seq.begin(),seq.end(),
 		   threads[k].event_indices.back()) == seq.end()){
 	/* incomplete message in the wakeup sequence */
-        partial_msg[k] = true;
+	if(threads[k].handler_id != snd_handler &&
+	   last_msg[threads[k].handler_id] == 0)
+	  last_msg[threads[k].handler_id] = k;
+        else
+	  partial_msg[k] = true;
       }
-      else if(k != snd_pid && k != fst_pid && threads[snd_pid].handler_id != -1 &&
+      else if(k != snd_pid && k != fst_pid &&
+	      snd_handler != -1 &&
       	      std::find(seq.begin(),seq.end(),
       		        threads[k].event_indices.back()) != seq.end() &&
       	      event_at(threads[snd_pid].event_indices.front()).
       	      clock.lt(event_at(threads[k].event_indices.back()).clock)){
-      	/* complete messages that happens after some event of the second racing message */
+      	/* complete messages happens after some event of the second message */
       	partial_msg[k] = true;
       }
-      else if(k != snd_pid && k != fst_pid && threads[fst_pid].handler_id != -1 &&
+      else if(k != snd_pid && k != fst_pid &&
+	      threads[fst_pid].handler_id != -1 &&
       	      std::find(seq.begin(),seq.end(),
       		        threads[k].event_indices.back()) != seq.end() &&
       	      event_at(threads[fst_pid].event_indices.front()).
       	      clock.lt(event_at(threads[k].event_indices.back()).clock)){
-      	/* complete messages that happens after some event of the second racing message */
+      	/* complete messages happens after some event of the second message */
       	partial_msg[k] = true;
       }
       else last_msg[threads[k].handler_id] = k;
@@ -2255,6 +2274,7 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
       s_it--;
     }
   }
+  //last_msg[threads[snd_pid].handler_id] = snd_pid;
   /* Extract trace(happens before edges) from prefix */
   std::vector<std::vector<unsigned>> trace(prefix.size());
   for(int i : seq){
@@ -2280,14 +2300,15 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
     if(i == snd){
       for(auto race:event_at(fst).races) trace[i].push_back(race.first_event);
     }
+    // for m-eom->fst_msg put eom m-eom->snd
   }
   if(threads[fst_pid].handler_id != -1 &&
-     threads[fst_pid].handler_id == threads[snd_pid].handler_id){
+     threads[fst_pid].handler_id == snd_handler){
     reverse_ppms_recursively(fst,snd,trace);
-    /* all the messages should be before the race */
+    /* messages in the same handler as the race should be before the race */
     for(int k = 2; k < threads.size(); k = k+2){
       if(threads[k].handler_id != -1 && k != fst_pid && k != snd_pid &&
-         threads[k].handler_id == threads[snd_pid].handler_id &&
+         threads[k].handler_id == snd_handler &&
          std::find(seq.begin(),seq.end(),threads[k].event_indices.back()) !=
 	 seq.end()){
         trace[threads[snd_pid].spawn_event].push_back(threads[k].spawn_event);
@@ -2296,14 +2317,14 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
       }
     }
   }
-  /* move post events of removed messages later */
-  for(int k = 2; k < threads.size(); k = k+2){
-    if(partial_msg[k] && last_msg[threads[k].handler_id] != 0){
-      int post_of_last = threads[last_msg[threads[k].handler_id]].spawn_event;
-      int post_of_k = threads[k].spawn_event;
-      trace[post_of_k].push_back(post_of_last);
-    }
-  }
+  // /* move post events of removed messages later */
+  // for(int k = 2; k < threads.size(); k = k+2){
+  //   if(partial_msg[k] && last_msg[threads[k].handler_id] != 0){
+  //     int post_of_last = threads[last_msg[threads[k].handler_id]].spawn_event;
+  //     int post_of_k = threads[k].spawn_event;
+  //     trace[post_of_k].push_back(post_of_last);
+  //   }
+  // }
   /* Do topological sort on the wakeup_sequence */
   std::vector<bool> visited(prefix.size(),false), visiting(prefix.size(),false);
   std::vector<unsigned> sorted_seq;
