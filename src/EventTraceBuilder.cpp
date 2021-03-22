@@ -1821,7 +1821,7 @@ void EventTraceBuilder::compute_eop(int i, IPid ipid){
     }
   }
 }
-//eom is transitive
+//eom is not exactly transitive. We don't need the precise transitive ordering
 void EventTraceBuilder::compute_eom(){
   for(IPid i = 0; i<threads.size(); i=i+2){//eom order
     if(threads[i].handler_id == -1) continue;
@@ -1836,7 +1836,6 @@ void EventTraceBuilder::compute_eom(){
       if(event_at(fev_i).clock.lt(event_at(lev_j).clock) &&
   	 !event_at(post_i).clock.lt(event_at(post_j).clock)){
         add_eom(fev_j,lev_i);
-	for(unsigned ev : event_at(fev_i).eom_before)
       }
     }
   }
@@ -1857,9 +1856,7 @@ void EventTraceBuilder::compute_ppm(){
   	  //Add eom if the posts are part of a message of the same handler
 	  add_eom(th_p2.event_indices.front(),th_p1.event_indices.back());
 	}
-	//else{
 	add_ppm(threads[j].spawn_event,threads[i].spawn_event);
-	  //}
       }
     }
   }
@@ -1902,9 +1899,9 @@ reverse_ppms_recursively(int fst, int snd,
   unsigned spost = threads[spid].spawn_event;
   IPid fpost_id = event_at(fpost).iid.get_pid();
   IPid spost_id = event_at(spost).iid.get_pid();
-  auto it = std::find(trace[spost].begin(),trace[spost].end(),fpost);
-  if(it != trace[spost].end()){
-    trace[spost].erase(it);
+  auto p_it = std::find(trace[spost].begin(),trace[spost].end(),fpost);
+  if(p_it != trace[spost].end()){
+    trace[spost].erase(p_it);
   }
   // For p -ppm-> fpost we add edges from m to snd_msg
   // TODO: For multiple access we should choose some of the appropriate edges
