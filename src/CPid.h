@@ -26,7 +26,6 @@
 #include <map>
 #include <ostream>
 #include <vector>
-#include <llvm/Support/Debug.h>
 
 #include <llvm/Support/raw_ostream.h>
 
@@ -158,7 +157,6 @@ public:
     spid_to_ipid[cpid_to_spid.size()] = 0;
     cpid_to_spid[CPid()] = 0;
   }
-  //int get_spid(int ipid){ return ipid_to_spid.at(ipid); }
   int get_spid(CPid cpid) const{
     assert(cpid_to_spid.find(cpid) != cpid_to_spid.end());
     return cpid_to_spid.at(cpid);

@@ -132,6 +132,8 @@ public:
     return offset - other.offset;
   };
 
+  bool is_global() const { return block.is_global(); }
+
   std::string to_string(std::function<std::string(int)> pid_str
                         = (std::string(&)(int))std::to_string) const;
 };
@@ -167,6 +169,8 @@ public:
     return addr.block == sa.block && addr.offset <= sa.offset
       && (addr.offset + size) > sa.offset;
   }
+
+  bool is_global() const { return addr.is_global(); }
 
   bool operator==(const SymAddrSize &o) const { return addr == o.addr && size == o.size; };
   bool operator!=(const SymAddrSize &o) const { return !(*this == o); };

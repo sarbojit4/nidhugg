@@ -209,6 +209,10 @@ void PSOTraceBuilder::mark_unavailable(int proc, int aux){
   mark_unavailable_ipid(ipid(proc,aux));
 }
 
+bool PSOTraceBuilder::is_available(int proc, int aux){
+  return threads[proc*2].available;
+}
+
 bool PSOTraceBuilder::is_replaying() const {
   return replay && (prefix_idx + 1 < int(prefix.size()));
 }

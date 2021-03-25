@@ -38,7 +38,6 @@ struct SymEv {
     LOAD,
     STORE,
     FULLMEM, /* Observe & clobber everything */
-    POST,
 
     RMW,
     CMPXHG,
@@ -60,6 +59,7 @@ struct SymEv {
 
     SPAWN,
     JOIN,
+    POST,
 
     UNOBS_STORE,
   } kind;
@@ -134,6 +134,13 @@ struct SymEv {
 
   void purge_data();
   void set_observed(bool observed);
+  bool access_global() const{
+    if(has_addr()){
+      return arg.addr.is_global();
+    }
+    else if(kind == SPAWN || kind == JOIN || kind == POST) return true;
+    return false;
+  }
 
 private:
   SymEv(enum kind kind, union arg arg) : kind(kind), arg(arg) {};

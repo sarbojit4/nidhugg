@@ -2978,7 +2978,7 @@ void Interpreter::callMCalloc(Function *F,
     Result.PointerVal = Memory;
     AllocatedMemHeap.insert(Result.PointerVal);
     int spid = TB.get_spid(CurrentThread);
-    SymMBlock mb = SymMBlock::Heap(CurrentThread, HeapAllocCount[CurrentThread]++);
+    SymMBlock mb = SymMBlock::Heap(spid, HeapAllocCount[CurrentThread]++);
     AllocatedMem.emplace(Memory, SymMBlockSize(std::move(mb), Size));
     returnValueToCaller(F->getReturnType(),Result);
   }
@@ -3033,7 +3033,7 @@ void Interpreter::callAssertFail(Function *F,
   abort();
 }
  
-//...................Qt functions.......................//
+/*...................Qt functions.......................*/
 //TODO: reuse code of pthread_create to do qthread_create
 void Interpreter::callQThreadCreate(Function *F,
 				    const std::vector<GenericValue> &ArgVals) {
@@ -3112,7 +3112,6 @@ void Interpreter::callQThreadPostMsg(Function *F,
   if(Threads[tid].ready_to_receive){
     TB.mark_available(Threads.size()-1);
   }else{
-    //TB.mark_unavailable(Threads.size()-1);
     Threads[tid].posts.push(Threads.size()-1);
   }
   callFunction(F_msg,ArgVals_msg);
@@ -3210,20 +3209,17 @@ void Interpreter::callFunction(Function *F,
     return;
   }
   //Qt functions----
-  else if(F->getName().str() == "qthread_create" ||
-	  F->getName().str() == "_Z14qthread_createPiPFPvS0_ES0_"){
+  else if(F->getName().str() == "qthread_create"){
     callQThreadCreate(F, ArgVals);
     //dbgs()<<"Handling QThread_create function\n";
     return;
   }
-  else if(F->getName().str() == "qthread_start" ||
-	  F->getName().str() == "_Z13qthread_starti"){
+  else if(F->getName().str() == "qthread_start"){
     //dbgs()<<"Handling QThread_start function\n";
     callQThreadStart(F, ArgVals);
     return;
   }
-  else if(F->getName().str() == "qthread_wait" ||
-	  F->getName().str() == "_Z12qthread_waitiPv"){
+  else if(F->getName().str() == "qthread_wait"){
     //dbgs()<<"Handling QThread_wait function\n";
     //callQThreadWait(F, ArgVals);
     return;
@@ -3243,18 +3239,6 @@ void Interpreter::callFunction(Function *F,
     callQThreadQuit(F, ArgVals);
     return;
   }
-  else if(F->getName().str() == "pthread_once" ||
-	  F->getName().str() == "_ZN16QCoreApplicationC1ERiPPci") { //||
-          //F->getName().str() == "_ZN16QCoreApplicationD1Ev" ||
-          //F->getName().str() == "_ZN7QThreadC1EP7QObject" ||
-          //F->getName().str() == "_ZN7QThreadD1Ev" ||
-          //F->getName().str() == "_ZN7QThreadC1EP7QObject" |
-          //F->getName().str() == "_ZN7QObjectD2Ev" ||
-          //F->getName().str() == "_ZN7QObject12moveToThreadEP7QThread"){
-          //Ignore some functions for now
-    return;
-  }
-
   assert((ECStack()->empty() || ECStack()->back().Caller == nullptr ||
           ECStack()->back().Caller.arg_size() == ArgVals.size()) &&
          "Incorrect number of arguments passed into function call!");

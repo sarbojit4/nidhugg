@@ -117,6 +117,7 @@ public:
     uint64_t sleepset_blocked_trace_count;
     /* The number of explored assume-blocked traces */
     uint64_t assume_blocked_trace_count;
+    /* Maximum number of branches in the wakeup tree at some point of exploration */
     int max_branches;
 
     bool has_errors() const { return error_trace && error_trace->has_errors(); };

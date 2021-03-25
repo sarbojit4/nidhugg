@@ -69,9 +69,9 @@
 #include <llvm/Support/ErrorHandling.h>
 #include <llvm/Support/raw_ostream.h>
 
+#include <queue>
 #include <random>
 #include <stdexcept>
-#include <queue>
 
 namespace llvm {
 
@@ -118,14 +118,12 @@ protected:
                ready_to_receive(false){};
     /* The complex thread identifier of this thread. */
     CPid cpid;
-    ////Handler thread specific////
     /* Id of actual handler thread for messages. For normal threads, it is -1 */
     int handler_id;
     /* If the thread is waiting for next message, then true */
     bool ready_to_receive;
     /* contains post events posted message to this thread's queue */
     std::queue<int> posts;
-    ////
     /* The runtime stack of executing code. The top of the stack is the
      * current function record.
      */
@@ -160,7 +158,9 @@ protected:
     /* Thread local global values are stored here. */
     std::map<GlobalValue*,GenericValue> ThreadLocalValues;
     /*QThread extension*/
+    /* True if thread wants to quit event queue */
     bool quitQ;
+    /* function going to execute */
     Function *F_inner;
     std::vector<GenericValue> ArgVals_inner;
   };
