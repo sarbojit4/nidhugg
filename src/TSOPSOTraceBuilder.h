@@ -103,7 +103,7 @@ public:
    * because it is blocked waiting for something.
    */
   virtual void mark_unavailable(int proc, int aux = -1) = 0;
-  virtual bool is_available(int proc) = 0;
+  virtual bool is_available(int proc, int aux = -1) = 0;
   /* Do necessary operations after the thread, e.g., make it unavailable,
    * make handler available.
    */
