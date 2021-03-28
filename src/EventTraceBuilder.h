@@ -17,9 +17,10 @@
  * <http://www.gnu.org/licenses/>.
  */
 
+#include <queue>
 #include <config.h>
-#ifndef __TSO_TRACE_BUILDER_H__
-#define __TSO_TRACE_BUILDER_H__
+#ifndef __EVENT_TRACE_BUILDER_H__
+#define __EVENT_TRACE_BUILDER_H__
 
 #include "TSOPSOTraceBuilder.h"
 #include "VClock.h"
@@ -29,10 +30,10 @@
 
 typedef llvm::SmallVector<SymEv,1> sym_ty;
 
-class TSOTraceBuilder : public TSOPSOTraceBuilder{
+class EventTraceBuilder : public TSOPSOTraceBuilder{
 public:
-  TSOTraceBuilder(const Configuration &conf = Configuration::default_conf);
-  virtual ~TSOTraceBuilder() override;
+  EventTraceBuilder(const Configuration &conf = Configuration::default_conf);
+  virtual ~EventTraceBuilder() override;
   virtual bool schedule(int *proc, int *aux, int *alt, bool *dryrun) override;
   virtual void refuse_schedule() override;
   virtual void mark_available(int proc, int aux = -1) override;
@@ -51,6 +52,9 @@ public:
   virtual void debug_print() const override;
 
   virtual NODISCARD bool spawn() override;
+  virtual void create() override;
+  virtual NODISCARD bool start(int pid) override;
+  virtual NODISCARD bool post(const int tgt_proc) override;
   virtual NODISCARD bool store(const SymData &ml) override;
   virtual NODISCARD bool atomic_store(const SymData &ml) override;
   virtual NODISCARD bool compare_exchange
@@ -135,14 +139,18 @@ protected:
    */
   class Thread{
   public:
-    Thread(const CPid &cpid, int spawn_event)
-      : cpid(cpid), available(true), spawn_event(spawn_event), sleeping(false),
-        sleep_full_memory_conflict(false), sleep_sym(nullptr) {};
+    Thread(const CPid &cpid, int spawn_event, IPid handler_id = -1)
+      : cpid(cpid), available(true), spawn_event(spawn_event),
+	sleeping(false), sleep_full_memory_conflict(false),
+	sleep_sym(nullptr), last_post(-1), handler_id(handler_id) {};
     CPid cpid;
+    int spid;
     /* Is the thread available for scheduling? */
     bool available;
     /* The index of the spawn event that created this thread, or -1 if
-     * this is the main thread or one of its auxiliaries.
+     * this is the main thread or one of its auxiliaries. For a 
+     * message executing thread, this is the index of post event.
+     * Because post event spawns this thread.
      */
     int spawn_event;
     /* Indices in prefix of the events of this process.
@@ -170,6 +178,12 @@ protected:
      * Empty if !sleeping.
      */
     VecSet<SymAddr> sleep_accesses_w;
+    /* sleep_posts is the set of ids of threads that to which it posts 
+     * message.
+     *
+     * Empty if !sleeping.
+     */
+    VecSet<IPid> sleep_posts;
     /* sleep_full_memory_conflict is set when the next event to be
      * executed by this thread will be a full memory conflict (as
      * determined by dry running).
@@ -182,7 +196,14 @@ protected:
      * NULL if !sleeping.
      */
     sym_ty *sleep_sym;
-
+    /* contains last event that posted message to this thread */
+    int last_post;
+    /* Each time a handler thread receives a  meesage, it creates a new 
+     * thread to execute the message. If this thread is solely for 
+     * executing message, handler_id contains the id of the handler thread
+     * that creates this thread.
+     */
+    IPid handler_id;
     /* The iid-index of the last event of this thread, or 0 if it has not
      * executed any events yet.
      */
@@ -301,14 +322,16 @@ protected:
    */
   class Branch{
   public:
-    Branch (IPid pid, int alt = 0, sym_ty sym = {})
-      : sym(std::move(sym)), pid(pid), alt(alt), size(1) {}
+    Branch (IPid spid, int index, int alt = 0, sym_ty sym = {})
+      : sym(std::move(sym)), spid(spid), index(index), alt(alt), size(1) {}
     Branch (const Branch &base, sym_ty sym)
-      : sym(std::move(sym)), pid(base.pid), alt(base.alt), size(base.size) {}
+      : sym(std::move(sym)), spid(base.spid), index(base.index),
+	alt(base.alt), size(base.size) {}
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
-    IPid pid;
+    IPid spid;
+    int index;
     /* Some instructions may execute in several alternative ways
      * nondeterministically. (E.g. malloc may succeed or fail
      * nondeterministically if Configuration::malloy_may_fail is set.)
@@ -321,10 +344,10 @@ protected:
     /* The number of events in this sequence. */
     int size;
     bool operator<(const Branch &b) const{
-      return pid < b.pid || (pid == b.pid && alt < b.alt);
+      return spid < b.spid || (spid == b.spid && alt < b.alt);
     };
     bool operator==(const Branch &b) const{
-      return pid == b.pid && alt == b.alt;
+      return spid == b.spid && alt == b.alt;
     };
   };
 
@@ -407,8 +430,23 @@ protected:
      * after a full execution sequence has been explored.
      */
     VClock<IPid> clock;
-    /* Indices into prefix of events that happen before this one. */
+    /* Indices into prefix of events that happen before
+     * this one because of data dependency.
+     */
     std::vector<unsigned> happens_after;
+    /* Indices into prefix of events that happen before
+     * this one because of eop.
+     */
+    std::vector<unsigned> eop_before;
+    /* Indices into prefix of events that happen before
+     * this one because of eom.
+     */
+    std::vector<unsigned> eom_before;
+    /* Indices into prefix of events that happen before
+     * this one because of ppm.
+     */
+    std::vector<unsigned> ppm_before;
+    std::vector<unsigned> rsc_before;
     /* Possibly reversible races found in the current execution
      * involving this event as the main event.
      */
@@ -430,6 +468,8 @@ protected:
      * sleep and sleep_evs are of the same size and correspond pairwise.
      */
     std::vector<sym_ty> sleep_evs;
+    /* same as sleep but contains IIDs instead of thread ids */
+    std::vector<IID<IPid>> done_posts;
     /* The set of sleeping threads that wake up during or after this
      * event sequence.
      */
@@ -534,6 +574,8 @@ protected:
    */
   std::pair<bool,unsigned> try_find_process_event(IPid pid, int index) const;
   unsigned find_process_event(IPid pid, int index) const;
+  unsigned iid_to_event(IID<IPid> iid){ return find_process_event(iid.get_pid(),iid.get_index()); }
+
 
   /* Pretty-prints the iid of prefix[pos]. */
   std::string iid_string(std::size_t pos) const;
@@ -569,12 +611,15 @@ protected:
   void add_lock_fail_race(const Mutex &m, int event);
   /* Check if two events in the current prefix are in conflict. */
   bool do_events_conflict(int i, int j) const;
-  bool do_events_conflict(const Event &fst, const Event &snd) const;
+  bool do_events_conflict(const Event &fst, const Event &snd,
+			  bool is_ppm_ordered) const;
   /* Check if two symbolic events conflict. */
   bool do_events_conflict(IPid fst_pid, const sym_ty &fst,
-                          IPid snd_pid, const sym_ty &snd) const;
+                          IPid snd_pid, const sym_ty &snd,
+			  bool is_ppm_ordered) const;
   bool do_symevs_conflict(IPid fst_pid, const SymEv &fst,
-                          IPid snd_pid, const SymEv &snd) const;
+                          IPid snd_pid, const SymEv &snd,
+			  bool is_ppm_ordered) const;
   /* Check if events fst and snd are in an observed race with thd as an
    * observer.
    */
@@ -598,9 +643,11 @@ protected:
    */
   std::vector<int> iid_map_at(int event) const;
   /* Plays an iid_map forward by one event. */
-  void iid_map_step(std::vector<int> &iid_map, const Branch &event) const;
+  void iid_map_step(std::vector<int> &iid_map,
+		    const Branch &event) const;
   /* Reverses an iid_map by one event. */
-  void iid_map_step_rev(std::vector<int> &iid_map, const Branch &event) const;
+  void iid_map_step_rev(std::vector<int> &iid_map,
+			const Branch &event) const;
   /* Add clocks and branches.
    *
    * All elements e in seen should either be indices into prefix, or
@@ -616,14 +663,32 @@ protected:
    * second.
    */
   void add_happens_after(unsigned second, unsigned first);
+  void add_eop(unsigned second, unsigned first);
+  void add_eom(unsigned second, unsigned first);
+  void add_ppm(unsigned second, unsigned first);
+  bool is_ppm_ordered(unsigned second, unsigned first) const;
+  bool is_eom_ordered(unsigned second, unsigned first) const;
   /* Adds a non-reversible happens-before edge between the last event
    * executed by thread (if there is such an event), and second.
    */
   void add_happens_after_thread(unsigned second, IPid thread);
+  /* Compute eom */
+  void compute_eom();
+  /* Compute ppm */
+  void compute_ppm();
+  /* Compute eop, eom, and ppm happens after */
+  void compute_derived_happens_after();
+  void recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq, const int& fpid);
+  void clear_rsc_edges(std::map<int,Event> &wakeup_ev_seq);
+  /* Clear all vector clocks */
+  void clear_vclocks();
   /* Computes the vector clocks of all events in a complete execution
    * sequence from happens_after and race edges.
    */
-  void compute_vclocks();
+  void compute_vclocks_for_seq(std::map<int,Event> &seq, int &cut_point);
+  void vclocks_for_seq(std::map<int,Event> &seq, const std::vector<int> &indices,
+		       std::vector<Branch> &v);
+  void compute_vclocks(int pass=1);
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
   /* Perform planning of future executions. Requires the trace to be
@@ -700,15 +765,25 @@ protected:
    */
   void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
   void race_detect(const Race&, const struct obs_sleep&);
+  void linearize_wakeup_seq(const std::map<int,Event> &wakeup_ev_seq,
+			    std::vector<int> &event_indices) const;
+  bool redundant_wakeup_seq(std::map<int,Event> wakeup_ev_seq,
+			    int ins_point);
   void race_detect_optimal(const Race&, const struct obs_sleep&);
   /* Compute the wakeup sequence for reversing a race. */
-  std::vector<Branch> wakeup_sequence(const Race&) const;
+  std::vector<Branch> wakeup_sequence(const Race&,
+				      std::map<int,Event> &wakeup_ev_seq) const;
+  /* Compute the wakeup sequence for reversing a race. */
+  std::vector<Branch> ws_for_msg_msg_race(const Race&,
+				      std::map<int,Event> &wakeup_ev_seq) const;
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
                              const struct obs_sleep &sleep) const;
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);
+  /* Wake up all threads which are sleeping, waiting for a post. */
+  void wakeup_posts(const int tpid);
   /* Returns true iff the thread pid has a pending store to some
    * memory location including the byte ml.
    */
@@ -722,3 +797,4 @@ protected:
 };
 
 #endif
+
