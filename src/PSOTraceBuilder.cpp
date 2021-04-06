@@ -342,8 +342,8 @@ IID<CPid> PSOTraceBuilder::get_iid() const{
 }
 
 int PSOTraceBuilder::get_spid(int pid){
-  CPid cpid = threads[pid*2].cpid;
-  return (SPS.get_spid(cpid))/2;
+  //CPid cpid = threads[pid*2].cpid;
+  return pid;//(SPS.get_spid(cpid))/2;
 }
 
 static std::string rpad(std::string s, int n){
