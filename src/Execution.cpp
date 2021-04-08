@@ -3111,6 +3111,7 @@ void Interpreter::callQThreadPostMsg(Function *F,
   Threads[CurrentThread].handler_id = tid;
   if(Threads[tid].ready_to_receive){
     TB.mark_available(Threads.size()-1);
+    Threads[tid].ready_to_receive = false;
   }else{
     Threads[tid].posts.push(Threads.size()-1);
   }
@@ -3123,6 +3124,7 @@ void Interpreter::callQThreadQuit(Function *F,
   int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
   Threads[tid].quitQ=true;
   TB.mark_available(tid);
+  Threads[tid].ready_to_receive = false;
 }
 
 void Interpreter::callQThreadExec(Function *F,

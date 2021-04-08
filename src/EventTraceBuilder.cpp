@@ -141,6 +141,10 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       ++prefix_idx;
       /* The event is already in prefix */
       IPid pid = SPS.get_pid(curbranch().spid);
+      if(!threads[pid].available){
+	llvm::dbgs() << "Error: Thread " << threads[pid].cpid << "is not available for schedule.\n";
+	exit(-1);
+      }
       curev() = Event(IID<IPid>(pid,threads[pid].last_event_index() + 1),
                       curbranch().sym);
       *proc = pid/2;
