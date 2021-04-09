@@ -69,7 +69,7 @@
 #include <llvm/Support/ErrorHandling.h>
 #include <llvm/Support/raw_ostream.h>
 
-#include <queue>
+#include <list>
 #include <random>
 #include <stdexcept>
 
@@ -123,7 +123,7 @@ protected:
     /* If the thread is waiting for next message, then true */
     bool ready_to_receive;
     /* contains post events posted message to this thread's queue */
-    std::queue<int> posts;
+    std::list<int> msgs;
     /* The runtime stack of executing code. The top of the stack is the
      * current function record.
      */
