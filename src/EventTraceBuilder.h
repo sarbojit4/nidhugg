@@ -611,15 +611,12 @@ protected:
   void add_lock_fail_race(const Mutex &m, int event);
   /* Check if two events in the current prefix are in conflict. */
   bool do_events_conflict(int i, int j) const;
-  bool do_events_conflict(const Event &fst, const Event &snd,
-			  bool is_ppm_ordered) const;
+  bool do_events_conflict(const Event &fst, const Event &snd) const;
   /* Check if two symbolic events conflict. */
   bool do_events_conflict(IPid fst_pid, const sym_ty &fst,
-                          IPid snd_pid, const sym_ty &snd,
-			  bool is_ppm_ordered) const;
+                          IPid snd_pid, const sym_ty &snd) const;
   bool do_symevs_conflict(IPid fst_pid, const SymEv &fst,
-                          IPid snd_pid, const SymEv &snd,
-			  bool is_ppm_ordered) const;
+                          IPid snd_pid, const SymEv &snd) const;
   /* Check if events fst and snd are in an observed race with thd as an
    * observer.
    */
@@ -666,7 +663,6 @@ protected:
   void add_eop(unsigned second, unsigned first);
   void add_eom(unsigned second, unsigned first);
   void add_ppm(unsigned second, unsigned first);
-  bool is_ppm_ordered(unsigned second, unsigned first) const;
   bool is_eom_ordered(unsigned second, unsigned first) const;
   /* Adds a non-reversible happens-before edge between the last event
    * executed by thread (if there is such an event), and second.
@@ -730,11 +726,6 @@ protected:
   };
   /* Returns a string representation of a sleep set. */
   std::string oslp_string(const struct obs_sleep &slp) const;
-  /* Traverses prefix to compute the set of threads that were sleeping
-   * as the first event of prefix[i] started executing. Returns that
-   * set.
-   */
-  struct obs_sleep obs_sleep_at(int i) const;
   /* Performs the first half of a sleep set step, adding new sleepers
    * from e.
    */
@@ -764,7 +755,6 @@ protected:
    * executed, it will never block, and thus has no return value.
    */
   void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
-  void race_detect(const Race&, const struct obs_sleep&);
   void linearize_wakeup_seq(const std::map<int,Event> &wakeup_ev_seq,
 			    std::vector<int> &event_indices) const;
   bool redundant_wakeup_seq(std::map<int,Event> wakeup_ev_seq,
