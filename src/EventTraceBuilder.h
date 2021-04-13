@@ -435,17 +435,9 @@ protected:
      */
     std::vector<unsigned> happens_after;
     /* Indices into prefix of events that happen before
-     * this one because of eop.
-     */
-    std::vector<unsigned> eop_before;
-    /* Indices into prefix of events that happen before
      * this one because of eom.
      */
     std::vector<unsigned> eom_before;
-    /* Indices into prefix of events that happen before
-     * this one because of ppm.
-     */
-    std::vector<unsigned> ppm_before;
     std::vector<unsigned> rsc_before;
     /* Possibly reversible races found in the current execution
      * involving this event as the main event.
@@ -660,9 +652,7 @@ protected:
    * second.
    */
   void add_happens_after(unsigned second, unsigned first);
-  void add_eop(unsigned second, unsigned first);
   void add_eom(unsigned second, unsigned first);
-  void add_ppm(unsigned second, unsigned first);
   bool is_eom_ordered(unsigned second, unsigned first) const;
   /* Adds a non-reversible happens-before edge between the last event
    * executed by thread (if there is such an event), and second.
@@ -670,11 +660,6 @@ protected:
   void add_happens_after_thread(unsigned second, IPid thread);
   /* Compute eom */
   void compute_eom();
-  /* Compute ppm */
-  void compute_ppm();
-  /* Compute eop, eom, and ppm happens after */
-  void compute_derived_happens_after();
-  void recompute_ppm_for_seq(std::map<int,Event> &wakeup_ev_seq, const int& fpid);
   void clear_rsc_edges(std::map<int,Event> &wakeup_ev_seq);
   /* Clear all vector clocks */
   void clear_vclocks();
