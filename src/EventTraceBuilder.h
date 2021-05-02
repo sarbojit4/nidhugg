@@ -41,6 +41,7 @@ public:
   virtual bool is_available(int proc, int aux = -1) override;
   virtual void cancel_replay() override;
   virtual bool is_replaying() const override;
+  virtual bool is_following_WS() const override;
   virtual void metadata(const llvm::MDNode *md) override;
   virtual bool sleepset_is_empty() const override;
   virtual bool check_for_cycles() override;
@@ -432,17 +433,9 @@ protected:
     /* Indices into prefix of events that happen before this one. */
     std::vector<unsigned> happens_after;
     /* Indices into prefix of events that happen before
-     * this one because of eop.
-     */
-    std::vector<unsigned> eop_before;
-    /* Indices into prefix of events that happen before
      * this one because of eom.
      */
     std::vector<unsigned> eom_before;
-    /* Indices into prefix of events that happen before
-     * this one because of ppm.
-     */
-    std::vector<unsigned> ppm_before;
     /* Relation among post events */
     std::vector<unsigned> rsc_before;
     /* Possibly reversible races found in the current execution
@@ -689,25 +682,14 @@ protected:
    * second.
    */
   void add_happens_after(unsigned second, unsigned first);
-  void add_eop(unsigned second, unsigned first);
   void add_eom(unsigned second, unsigned first);
-  void add_ppm(unsigned second, unsigned first);
-  bool is_ppm_ordered(unsigned second, unsigned first) const;
   bool is_eom_ordered(unsigned second, unsigned first) const;
   /* Adds a non-reversible happens-before edge between the last event
    * executed by thread (if there is such an event), and second.
    */
   void add_happens_after_thread(unsigned second, IPid thread);
-  /* Compute eop */
-  void compute_eop(int i, IPid ipid);
   /* Compute eom */
   void compute_eom();
-  /* Compute ppm */
-  void compute_ppm();
-  /* Compute eom, and ppm happens after */
-  void compute_derived_happens_after();
-  void reverse_ppms_recursively(int fst, int snd,
-				std::vector<std::vector<unsigned>> &trace);
   void compute_vclocks();
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;

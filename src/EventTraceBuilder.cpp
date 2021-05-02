@@ -141,10 +141,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       ++prefix_idx;
       /* The event is already in prefix */
       IPid pid = SPS.get_pid(curbranch().spid);
-      if(!threads[pid].available){
-	llvm::dbgs() << "Error: Thread " << threads[pid].cpid << "is not available for schedule.\n";
-	exit(-1);
-      }
       curev() = Event(IID<IPid>(pid,threads[pid].last_event_index() + 1),
                       curbranch().sym);
       *proc = pid/2;
@@ -281,6 +277,10 @@ bool EventTraceBuilder::is_replaying() const {
   return prefix_idx < replay_point;
 }
 
+bool EventTraceBuilder::is_following_WS() const {
+  return (replay || (unfinished_message != 0));
+}
+
 void EventTraceBuilder::cancel_replay(){
   if(!replay) return;
   replay = false;
@@ -336,7 +336,7 @@ Trace *EventTraceBuilder::get_trace() const{
 
 bool EventTraceBuilder::reset(){
   compute_vclocks();
-  compute_derived_happens_after();
+  compute_eom();
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === EventTraceBuilder reset ===\n";
     print_prefix();
@@ -379,6 +379,7 @@ bool EventTraceBuilder::reset(){
     /* No more branching is possible. */
     return false;
   }
+  replay_point = i;
   while(WuT.lastnode().size() > 0){
     doneset_t done{};
     WuT.enter_first_child(done);
@@ -1730,19 +1731,6 @@ void EventTraceBuilder::add_happens_after_thread(unsigned second, IPid thread){
   add_happens_after(second, threads[thread].event_indices.back());
 }
 
-void EventTraceBuilder::add_eop(unsigned second, unsigned first){
-  assert(first != ~0u);
-  assert(second != ~0u);
-  assert(first != second);
-  assert(first < second);
-  assert((long long)second <= prefix_idx);
-
-  std::vector<unsigned> &vec = event_at(second).eop_before;
-  if (vec.size() && vec.back() == first) return;
-
-  vec.push_back(first);
-}
-
 void EventTraceBuilder::add_eom(unsigned second, unsigned first){
   assert(first != ~0u);
   assert(second != ~0u);
@@ -1751,19 +1739,6 @@ void EventTraceBuilder::add_eom(unsigned second, unsigned first){
   assert((long long)second <= prefix_idx);
 
   std::vector<unsigned> &vec = event_at(second).eom_before;
-  if (vec.size() && vec.back() == first) return;
-
-  vec.push_back(first);
-}
-
-void EventTraceBuilder::add_ppm(unsigned second, unsigned first){
-  assert(first != ~0u);
-  assert(second != ~0u);
-  assert(first != second);
-  assert(first < second);
-  assert((long long)second <= prefix_idx);
-
-  std::vector<unsigned> &vec = event_at(second).ppm_before;
   if (vec.size() && vec.back() == first) return;
 
   vec.push_back(first);
@@ -1802,29 +1777,6 @@ static It frontier_filter(It first, It last, LessFn less){
   return fill;
 }
 
-void EventTraceBuilder::compute_eop(int i, IPid ipid){
-  for(IPid th = ipid-2; th > 0; th=th-2){
-    if(threads[ipid].handler_id == threads[th].handler_id){
-      unsigned ipost = threads[ipid].spawn_event;
-      unsigned thpost = threads[th].spawn_event;
-      if(event_at(thpost).clock.lt(
-        event_at(ipost).clock)){
-        add_eop(i,threads[th].event_indices.back());
-      }
-      else if(threads[event_at(ipost).iid.get_pid()].handler_id != -1 &&
-      	      threads[event_at(ipost).iid.get_pid()].handler_id ==
-      	      threads[event_at(thpost).iid.get_pid()].handler_id){
-      	unsigned fev_ipost = threads[event_at(ipost).iid.get_pid()].event_indices.front();
-        unsigned lev_ipost = threads[event_at(ipost).iid.get_pid()].event_indices.back();
-        unsigned fev_thpost = threads[event_at(thpost).iid.get_pid()].event_indices.front();
-        unsigned lev_thpost = threads[event_at(thpost).iid.get_pid()].event_indices.back();
-        if(event_at(fev_thpost).clock.lt(event_at(lev_ipost).clock)){
-          add_eop(i,threads[th].event_indices.back());
-        }
-      }
-    }
-  }
-}
 //eom is not exactly transitive. We don't need the precise transitive ordering
 void EventTraceBuilder::compute_eom(){
   for(IPid i = 0; i<threads.size(); i=i+2){//eom order
@@ -1843,84 +1795,6 @@ void EventTraceBuilder::compute_eom(){
       }
     }
   }
-}
-
-void EventTraceBuilder::compute_ppm(){
-  for(IPid j = threads.size()-2; j>0; j=j-2){//eop order
-    if(threads[j].handler_id == -1) continue;
-    for(IPid i = j-2; i>0; i=i-2){
-      if(threads[i].handler_id != threads[j].handler_id) continue;
-      unsigned lev_i = threads[i].event_indices.back();
-      unsigned fev_j = threads[j].event_indices.front();
-      std::vector<unsigned> eoms = event_at(fev_j).eom_before;
-      if(std::find(eoms.begin(),eoms.end(),lev_i) != eoms.end()){
-	Thread th_p1 = threads[event_at(threads[i].spawn_event).iid.get_pid()];
-	Thread th_p2 = threads[event_at(threads[j].spawn_event).iid.get_pid()];
-	if(th_p1.handler_id == th_p2.handler_id && th_p1.handler_id != -1){
-  	  //Add eom if the posts are part of a message of the same handler
-	  add_eom(th_p2.event_indices.front(),th_p1.event_indices.back());
-	}
-	add_ppm(threads[j].spawn_event,threads[i].spawn_event);
-      }
-    }
-  }
-}
-
-void EventTraceBuilder::compute_derived_happens_after(){
-  compute_eom();
-  compute_ppm();
-}
-
-void EventTraceBuilder::
-reverse_ppms_recursively(int fst, int snd,
-                         std::vector<std::vector<unsigned>> &trace){
-  IPid fpid = event_at(fst).iid.get_pid();
-  IPid spid = event_at(snd).iid.get_pid();
-  unsigned fst_of_fst = threads[fpid].event_indices.front();
-  unsigned lst_of_fst = threads[fpid].event_indices.back();
-  unsigned fst_of_snd = threads[spid].event_indices.front();
-  // Assuming this race is the first in the message snd
-  // So we don't have to delete any edge between fst and snd
-  auto it = std::find(trace[fst_of_snd].begin(),
-		      trace[fst_of_snd].end(),
-		      lst_of_fst);    
-  /* erase the eom */
-  if(it != trace[fst_of_snd].end()){
-    trace[fst_of_snd].erase(it);
-  }
-  // Assuming only one access to shared variable in the entire message
-  // TODO: For multiple access we should choose some of the appropriate edges
-  // Maybe it doesn't matter because when there is no acatual m -eom-> snd_msg,
-  // they are independent. So it is possible to do m before snd_msg.
-  trace[fst_of_snd].insert(trace[fst_of_snd].end(),
-    			   event_at(fst_of_fst).eom_before.begin(),
-    			   event_at(fst_of_fst).eom_before.end());
-  // Maybe for multiple access we should delete some of the edges
-  trace[fst_of_fst].clear();
-  /* Add new edge in the reverse direction */
-  trace[fst_of_fst].push_back(snd);
-  unsigned fpost = threads[fpid].spawn_event;
-  unsigned spost = threads[spid].spawn_event;
-  IPid fpost_id = event_at(fpost).iid.get_pid();
-  IPid spost_id = event_at(spost).iid.get_pid();
-  auto p_it = std::find(trace[spost].begin(),trace[spost].end(),fpost);
-  if(p_it != trace[spost].end()){
-    trace[spost].erase(p_it);
-  }
-  // For p -ppm-> fpost we add edges from m to snd_msg
-  // TODO: For multiple access we should choose some of the appropriate edges
-  // Maybe it doesn't matter because when there is no acatual p -ppm-> spost,
-  // they are independent. So it is possible to do p before spost.
-  trace[spost].insert(trace[spost].end(),
-  		      event_at(fpost).ppm_before.begin(),
-    		      event_at(fpost).ppm_before.end());
-  trace[fpost].push_back(spost);
-  /* If posts are part of messages of same handler then recurse */
-  if(threads[fpost_id].handler_id != -1 &&
-     threads[fpost_id].handler_id == threads[spost_id].handler_id){
-    reverse_ppms_recursively(fpost,spost,trace);
-  }
-
 }
 
 void EventTraceBuilder::compute_vclocks(){
@@ -1968,15 +1842,6 @@ void EventTraceBuilder::compute_vclocks(){
       assert(j < i);
       event_at(i).clock += event_at(j).clock;
     }
-    /* adding eops */
-    if(threads[ipid].handler_id != -1 &&
-       threads[ipid].event_indices.front() == i){
-      compute_eop(i,ipid);
-      for (unsigned j : event_at(i).eop_before){
-        assert(j < i);
-        event_at(i).clock += event_at(j).clock;
-      }
-    }
 
     /* Now we want add the possibly reversible edges, but first we must
      * check for reversibility, since this information is lost (more
@@ -2009,30 +1874,7 @@ void EventTraceBuilder::compute_vclocks(){
         }
       }
     } while (changed);
-    if(threads[ipid].handler_id != -1){
-      /* remove races because of eop or race in upper level in case of multilevel messages*/
-      end = partition
-        (first_pair, end,
-         [this](const Race &r){
-    	   IPid fpid = event_at(r.first_event).iid.get_pid();
-    	   IPid spid = event_at(r.second_event).iid.get_pid();
-	   int fpost = threads[fpid].spawn_event;
-           int spost = threads[spid].spawn_event;
-	   if(threads[fpid].handler_id == threads[spid].handler_id){
-	     if(event_at(fpost).clock.lt(event_at(spost).clock)) return false;
-	     IPid fpostpid = event_at(fpost).iid.get_pid();
-	     IPid spostpid = event_at(spost).iid.get_pid();
-	     int lev_fpostpid = threads[fpostpid].event_indices.back();
-	     int fev_spostpid = threads[spostpid].event_indices.front();
-	     if(threads[fpostpid].handler_id != -1 &&
-	        threads[fpostpid].handler_id == threads[spostpid].handler_id &&
-		event_at(lev_fpostpid).clock.lt(event_at(fev_spostpid).clock)){
-	       return false;
-	     }
-	   }
-	   return true;
-         });
-    }
+
     /* Then filter out subsumed */
     auto fill = frontier_filter
       (first_pair, end,
@@ -2128,9 +1970,7 @@ bool EventTraceBuilder::do_symevs_conflict
  IPid snd_pid, const SymEv &snd) const {
   if (fst.kind == SymEv::NONDET || snd.kind == SymEv::NONDET) return false;
   if (fst.kind == SymEv::FULLMEM || snd.kind == SymEv::FULLMEM) return true;
-  if (fst.kind == SymEv::POST && snd.kind == SymEv::POST){
-    return false;
-  }
+  if (fst.kind == SymEv::POST && snd.kind == SymEv::POST) return false;
   if (symev_is_load(fst) && symev_is_load(snd)) return false;
   if (symev_is_unobs_store(fst) && symev_is_unobs_store(snd)
       && fst.addr() == snd.addr()) return false;
@@ -2324,20 +2164,13 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
       s_it--;
     }
   }
-
   /* Extract trace(happens before edges) from prefix */
   std::vector<std::vector<unsigned>> trace(prefix.size());
   for(int i : seq){
     trace[i] = event_at(i).happens_after;
     trace[i].insert(trace[i].end(),
-		     event_at(i).eop_before.begin(),
-		     event_at(i).eop_before.end());
-    trace[i].insert(trace[i].end(),
 		     event_at(i).eom_before.begin(),
 		     event_at(i).eom_before.end());
-    trace[i].insert(trace[i].end(),
-		     event_at(i).ppm_before.begin(),
-		     event_at(i).ppm_before.end());
     auto event_indices = threads[event_at(i).iid.get_pid()].event_indices;
     if(event_at(i).iid.get_index() > 1){
       unsigned last_event = event_indices[event_at(i).iid.get_index()-2];
@@ -2352,9 +2185,28 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
     }
     // for m-eom->fst_msg put eom m-eom->snd
   }
+
+  unsigned fst_of_fst = threads[fst_pid].event_indices.front();
+  unsigned lst_of_fst = threads[fst_pid].event_indices.back();
+  unsigned fst_of_snd = threads[snd_pid].event_indices.front();
+  auto it = std::find(trace[fst_of_snd].begin(),
+		      trace[fst_of_snd].end(),
+		      lst_of_fst);
+  /* erase the eom */
+  if(it != trace[fst_of_snd].end()){
+    trace[fst_of_snd].erase(it);
+  }
+  trace[fst_of_fst].push_back(snd);
+  // Assuming only one access to shared variable in the entire message
+  // TODO: For multiple access we should choose some of the appropriate edges
+  // Maybe it doesn't matter because when there is no acatual m -eom-> snd_msg,
+  // they are independent. So it is possible to do m before snd_msg.
+  // trace[fst_of_snd].insert(trace[fst_of_snd].end(),
+  //   			   event_at(fst_of_fst).eom_before.begin(),
+  //   			   event_at(fst_of_fst).eom_before.end());
+  
   if(threads[fst_pid].handler_id != -1 &&
      threads[fst_pid].handler_id == snd_handler){
-    reverse_ppms_recursively(fst,snd,trace);
     /* messages in the same handler as the race should be before the race */
     move_notdep_msgs_before(fst,snd,partial_msg,trace);
   }
@@ -2364,11 +2216,11 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
   for(int i : seq){
     if(!visited[i]){
       if(visit_event(i,trace,visiting,visited,sorted_seq) == false){
-	llvm::dbgs() << "Linearize WS failsed: as cycle in the wakeup sequence.\n";
         exit(1);
       }
     }
   }
+  
   std::vector<Branch> linearized_ws;
   for(int i : sorted_seq){
     linearized_ws.push_back(branch_with_symbolic_data(i));
@@ -2379,7 +2231,10 @@ linearize_wakeup_sequence(int fst, int snd, std::vector<unsigned> &seq) {
 bool EventTraceBuilder::
 visit_event(int i, std::vector<std::vector<unsigned>> &trace, std::vector<bool> &visiting,
 	    std::vector<bool> &visited, std::vector<unsigned> &sorted_seq){
-  if(visiting[i] == true) return false;
+  if(visiting[i] == true){
+    llvm::dbgs() << event_at(i).iid<< "Linearize WS failsed: as cycle in the wakeup sequence.\n";
+    return false;
+  }
   visiting[i] = true;
   for(unsigned j : trace[i]){
     if(!visited[j]){
@@ -2389,34 +2244,19 @@ visit_event(int i, std::vector<std::vector<unsigned>> &trace, std::vector<bool> 
   visiting[i] = false;
   visited[i] = true;
   int last_post = -1;
-  if(event_at(i).is_post()){
-    std::vector<unsigned> happbf = trace[i];
-    for(int k : sorted_seq){
-      if(event_at(k).is_post() && event_at(i).sym == event_at(k).sym){
-	last_post = k;
-      }
-    }
-    if(last_post != -1 &&
-       std::find(trace[i].begin(),trace[i].end(),last_post) == trace[i].end()){
-      IPid last_msg = event_at(last_post).msg_id;
-      IPid cur_msg = event_at(i).msg_id;
-      assert(last_msg != 0);
-      assert(cur_msg != 0);
-      unsigned last_of_last = threads[last_msg].event_indices.back();
-      unsigned first_of_cur = threads[cur_msg].event_indices.front();
-      trace[first_of_cur].push_back(last_of_last);
-    }
-  }
   sorted_seq.push_back(i);
   return true;
 }
 
 void EventTraceBuilder::race_detect_optimal(const Race &race){
   std::vector<unsigned> wakeup_index_seq;
+  //llvm::dbgs()<<"Race ("<<event_at(race.first_event).iid<<":"<<event_at(race.second_event).iid<<")\n";/////////////
   std::vector<Branch> v = wakeup_sequence(race,wakeup_index_seq);
   std::vector<Branch> sorted_seq = linearize_wakeup_sequence(race.first_event,
 							     race.second_event,
 							     wakeup_index_seq);
+  //for(Branch br:v) llvm::dbgs()<<"<"<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<",";
+  //llvm::dbgs()<<"\n";
   /* Do insertion into the wakeup tree */
   int i = 0;
   WakeupTreeRef<Branch> node = WuT.parent_at(i);
@@ -2519,6 +2359,13 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
           skip = NEXT;
 	  leftmostbranch = false;
         }
+	// else {
+	//   llvm::dbgs()<<"("<<SPS.get_pid(ve.spid)<<ve.index
+	// 	      << ") and ("
+	// 	      << SPS.get_pid(child_it.branch().spid)
+	// 	      <<child_it.branch().index<<") are compatible\n";////////////////
+	// }
+	// llvm::dbgs()<<skip<<"("<<SPS.get_pid(ve.spid)<<ve.index<<")\n";/////////////
       }
       if (skip == NEXT) { skip = NO; continue; }
 
@@ -2535,8 +2382,10 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
       assert(false && "UNREACHABLE");
       abort();
     }
+    //llvm::dbgs()<<skip<<"hello\n";/////////////
     if (skip == RECURSE) continue;
 
+    //llvm::dbgs()<<skip<<"hello1\n";/////////////
     if (!sequence_clears_sleep(v, sleepset)) return;
 
     /* No existing child was compatible with v. Insert v as a new sequence. */

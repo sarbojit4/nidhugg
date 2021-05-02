@@ -40,6 +40,7 @@ public:
   virtual bool is_available(int proc, int aux = -1) override;
   virtual void cancel_replay() override;
   virtual bool is_replaying() const override;
+  virtual bool is_following_WS() const override;
   virtual void metadata(const llvm::MDNode *md) override;
   virtual bool sleepset_is_empty() const override;
   virtual bool check_for_cycles() override;

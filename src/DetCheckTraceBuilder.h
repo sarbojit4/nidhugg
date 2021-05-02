@@ -43,6 +43,7 @@ public:
    * previous computation.
    */
   virtual bool is_replaying() const = 0;
+  virtual bool is_following_WS() const = 0;
 protected:
   /* Call before starting a new computation to restart the branch
    * logging.

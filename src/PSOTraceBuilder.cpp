@@ -217,6 +217,10 @@ bool PSOTraceBuilder::is_replaying() const {
   return replay && (prefix_idx + 1 < int(prefix.size()));
 }
 
+bool PSOTraceBuilder::is_following_WS() const {
+  return replay;
+}
+
 void PSOTraceBuilder::cancel_replay(){
   if(!replay) return;
   replay = false;

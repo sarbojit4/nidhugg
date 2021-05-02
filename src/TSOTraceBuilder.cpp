@@ -241,6 +241,10 @@ bool TSOTraceBuilder::is_replaying() const {
   return prefix_idx < replay_point;
 }
 
+bool TSOTraceBuilder::is_following_WS() const {
+  return replay;
+}
+
 void TSOTraceBuilder::cancel_replay(){
   if(!replay) return;
   replay = false;
