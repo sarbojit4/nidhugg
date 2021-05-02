@@ -3109,11 +3109,13 @@ void Interpreter::callQThreadPostMsg(Function *F,
   int caller_thread = CurrentThread;
   CurrentThread = newThread(CPS.spawn(Threads[CurrentThread].cpid));
   Threads[CurrentThread].handler_id = tid;
-  if(Threads[tid].ready_to_receive){
+  if(!TB.is_following_WS() &&
+     Threads[tid].ready_to_receive &&
+     Threads[tid].msgs.empty()){
     TB.mark_available(Threads.size()-1);
     Threads[tid].ready_to_receive = false;
   }else{
-    Threads[tid].posts.push(Threads.size()-1);
+    Threads[tid].msgs.push_back(Threads.size()-1);
   }
   callFunction(F_msg,ArgVals_msg);
   CurrentThread=caller_thread;
@@ -3131,13 +3133,13 @@ void Interpreter::callQThreadExec(Function *F,
 				  const std::vector<GenericValue> &ArgVals) {
   inactive_handlers.push_back(CurrentThread);
   TB.mark_unavailable(CurrentThread);
-  if(Threads[CurrentThread].posts.empty()){
+  if(Threads[CurrentThread].msgs.empty() || TB.is_following_WS()){
     Threads[CurrentThread].ready_to_receive = true;
     return;
   }
-  int first_message = Threads[CurrentThread].posts.front();
+  int first_message = Threads[CurrentThread].msgs.front();
   TB.mark_available(first_message);
-  Threads[CurrentThread].posts.pop();
+  Threads[CurrentThread].msgs.pop_front();
 }
 
 
@@ -3433,14 +3435,17 @@ bool Interpreter::checkRefuse(Instruction &I){
 }
 
 void Interpreter::terminate(Type *RetTy, GenericValue Result){
+  llvm::dbgs()<<"terminate\n";///////
   if(CurrentThread != 0){
     assert(RetTy == Type::getInt8PtrTy(RetTy->getContext()));
     Threads[CurrentThread].RetVal = Result;
     if(0 <= Threads[CurrentThread].handler_id){
-      if(!Threads[Threads[CurrentThread].handler_id].posts.empty()){//consume next message
-        int next_msg = Threads[Threads[CurrentThread].handler_id].posts.front();
-        Threads[Threads[CurrentThread].handler_id].posts.pop();
-        TB.mark_available(next_msg);
+      if(!Threads[Threads[CurrentThread].handler_id].msgs.empty()){//consume next message
+	if(!TB.is_following_WS()){
+          int next_msg = Threads[Threads[CurrentThread].handler_id].msgs.front();
+          Threads[Threads[CurrentThread].handler_id].msgs.pop_front();
+          TB.mark_available(next_msg);
+        } else Threads[Threads[CurrentThread].handler_id].ready_to_receive = true;
         return;
       }
       for(int i = 0; i<Threads.size();i++){
@@ -3500,6 +3505,32 @@ void Interpreter::run() {
   bool rerun = false;
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
+    llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";///////////////////
+    /* Check if scheduled thread is possible to execute */
+    if(!TB.is_available(CurrentThread)){
+      int handler_id = Threads[CurrentThread].handler_id;
+      if(handler_id != -1 && Threads[handler_id].ready_to_receive){
+	Threads[handler_id].ready_to_receive = false;
+	TB.mark_available(CurrentThread);
+	auto it = std::find(Threads[handler_id].msgs.begin(),
+			    Threads[handler_id].msgs.end(),
+			    CurrentThread);
+	if(it != Threads[handler_id].msgs.end())
+	  Threads[handler_id].msgs.erase(it);
+	else{
+	  llvm::dbgs()<<"Error: Trying to execute message"
+		    << CurrentThread
+		    << " which is not posted.\n";
+	  abort();
+        }
+      } else{
+	llvm::dbgs()<<"Error: Trying to execute thread"
+		    << CurrentThread
+		    << " which is unavailable.\n";
+	abort();
+      }
+    }
+    
     rerun = false;
     if(0 <= aux){ // Run some auxiliary thread
       runAux(CurrentThread,aux);
@@ -3564,6 +3595,7 @@ void Interpreter::run() {
     }
 
     if(ECStack()->empty()){ // The thread has terminated
+      llvm::dbgs()<<"Stack empty\n";////////////////////
       if(CurrentThread == 0 && AtExitHandlers.size()){
         callFunction(AtExitHandlers.back(),{});
         AtExitHandlers.pop_back();
