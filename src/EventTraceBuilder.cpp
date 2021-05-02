@@ -317,7 +317,6 @@ bool EventTraceBuilder::reset(){
   compute_eom();
   clear_vclocks();
   compute_vclocks(2);
-
   do_race_detect();
   
   if(conf.debug_print_on_reset){
@@ -1874,7 +1873,8 @@ void EventTraceBuilder::compute_vclocks(int pass){
       }
       if(t.handler_id != -1 && t.event_indices.size() > 0){
         add_happens_after(t.event_indices[0],
-        		  threads[t.handler_id].event_indices.back());//TODO: add happensafter to qthread exec event
+        		  threads[t.handler_id].event_indices.back());
+	//TODO: add happensafter to qthread exec event
       }
     }
 
@@ -1916,6 +1916,8 @@ void EventTraceBuilder::compute_vclocks(int pass){
     /* First move all races that are not pairs (and thus cannot be
      * subsumed by other events) to the front.
      */
+    // TODO: only keep the first race between two messages. Remove other races.
+    // Also remove races if messages are not reversible
     auto first_pair = partition(races.begin(), races.end(),
                                 [](const Race &r){
                                   return r.kind == Race::NONDET;
@@ -2188,17 +2190,15 @@ void EventTraceBuilder::race_detect_optimal
 
   /* sequence of events in wakeup sequence */
   std::map<int,Event> wakeup_ev_seq;
-  if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
-    if(threads[fpid].handler_id == threads[spid].handler_id &&
-       threads[fpid].handler_id != -1){
-      /* if race is between two messages */
-      i = threads[fpid].event_indices.front();
-    }
-    /* getting prefix */
-    for(int j = 0; j < i; j++)
-    {
-      wakeup_ev_seq.insert(std::pair<int,Event>(j, prefix[j]));
-    }
+  if(threads[fpid].handler_id == threads[spid].handler_id &&
+     threads[fpid].handler_id != -1){
+    /* if race is between two messages */
+    i = threads[fpid].event_indices.front();
+  }
+  /* getting prefix */
+  for(int j = 0; j < i; j++)
+  {
+    wakeup_ev_seq.insert(std::pair<int,Event>(j, prefix[j]));
   }
   std::vector<Branch> v = wakeup_sequence(race, wakeup_ev_seq);
 
@@ -2355,10 +2355,10 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
 
   IPid fpid = prefix[i].iid.get_pid();
   IPid spid = prefix[j].iid.get_pid();
-  if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
-     threads[fpid].handler_id == threads[spid].handler_id &&
+  if(threads[fpid].handler_id == threads[spid].handler_id &&
      threads[fpid].handler_id != -1){
-    return ws_for_msg_msg_race(race, wakeup_ev_seq);
+    i = threads[fpid].event_indices.front();
+    j = threads[spid].event_indices.front();
   }
   const Event &first = prefix[i];
   Event second({-1,0});
@@ -2394,20 +2394,14 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
   std::vector<Branch> v;
   std::vector<const Event*> observers;
   std::vector<Branch> notobs;
-  bool blocked_handlers[threads.size()];
+  bool partial_msg[threads.size()];
+  bool in_WS[prefix.len()];
   
-  for(int k = 0; k < threads.size(); k++) blocked_handlers[k] = false;
+  for(int k = 0; k < threads.size(); ++k) partial_msg[k] = false;
+  for (int k = 0; k < i+1; ++k) in_WS[k] = true;
   for (int k = i + 1; k < int(prefix.len()); ++k){
     if (!first.clock.leq(prefix[k].clock)) {
-      if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
-	 IPid ipid = prefix[k].iid.get_pid();
-	 IPid handler = threads[ipid].handler_id;
-	 if(handler != 1 && blocked_handlers[handler] == true){
-	   continue;
-	 }
-      }
-      wakeup_ev_seq.insert(std::pair<int,Event>(k,prefix[k]));
-      v.emplace_back(branch_with_symbolic_data(k));
+      in_WS[k] = true;
     } else if (race.kind == Race::OBSERVED && k != j) {
       if (!std::any_of(observers.begin(), observers.end(),
                        [this,k](const Event* o){
@@ -2420,9 +2414,71 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
         }
       }
     } else {
+      in_WS[k] = false;
       IPid ipid = prefix[k].iid.get_pid();
-      IPid handler = threads[ipid].handler_id;
-      if(handler != 1) blocked_handlers[handler] = true;
+      if(threads[ipid].handler_id != -1 && partial_msg[ipid] == false)
+	partial_msg[ipid] = true;
+    }
+  }
+
+  for(int k = i+1; k < prefix.len(); ++k){
+    IPid ipid = prefix[k].iid.get_pid();
+    if(partial_msg[ipid] == true){
+      in_WS[k] = false;
+      continue;
+    }
+    for (unsigned h : prefix[k].happens_after){
+      if(in_WS[h] == false){ 
+        in_WS[k] = false;
+        break;
+      }
+    }
+    if(in_WS[k] == false) continue;
+    for (auto race : prefix[k].races){
+      unsigned h = race.first_event; 
+      if(in_WS[h] == false){
+        in_WS[k] = false;
+        break;
+      }
+    }
+    if(in_WS[k] == false) continue;
+    for (unsigned h : prefix[k].eom_before){
+     if(in_WS[h] == false){
+        in_WS[k] = false;
+        break;
+      }
+    }
+  }
+  for (int k = i + 1; k < int(prefix.len()); ++k){
+    if(in_WS[k] == true) v.emplace_back(branch_with_symbolic_data(k));
+  }
+
+  if(threads[fpid].handler_id == threads[spid].handler_id &&
+     threads[fpid].handler_id != -1){
+    /* Include second message of the race */
+    for(int k = 0; k < threads[spid].event_indices.size();){
+      int ev = threads[spid].event_indices[k];
+      Branch second_br = branch_with_symbolic_data(ev);
+      recompute_cmpxhg_success(second_br.sym, v, i);
+      Event e = prefix[ev];
+      /* remove races between messages */
+      for(auto r_it = e.races.begin(); r_it != e.races.end(); r_it++){
+	if(prefix[r_it->first_event].iid.get_pid() == fpid){
+	  r_it = e.races.erase(r_it);
+	  r_it--;
+	}
+      }
+      if(k == 0){
+	std::vector<unsigned> &eoms = e.eom_before;
+	for(auto it = eoms.begin(); it!=eoms.end(); it++){
+	  if(*it==threads[fpid].event_indices.back()){
+	    eoms.erase(it);
+	    break;
+	  }
+	}
+      }
+      wakeup_ev_seq.insert(std::pair<int,Event>(ev, e));
+      k += second_br.size;
     }
   }
 
@@ -2431,6 +2487,11 @@ wakeup_sequence(const Race &race, std::map<int,Event> &wakeup_ev_seq) const{
   }
   wakeup_ev_seq.insert(std::pair<int,Event>(j,prefix[j]));
   v.push_back(std::move(second_br));
+
+  if(threads[fpid].handler_id == threads[spid].handler_id &&
+     threads[fpid].handler_id != -1){
+    /* TODO: Include part of first message of the race */
+  }
 
   if (race.kind == Race::OBSERVED) {
     int k = race.witness_event;
