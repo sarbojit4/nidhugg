@@ -3435,7 +3435,6 @@ bool Interpreter::checkRefuse(Instruction &I){
 }
 
 void Interpreter::terminate(Type *RetTy, GenericValue Result){
-  llvm::dbgs()<<"terminate\n";///////
   if(CurrentThread != 0){
     assert(RetTy == Type::getInt8PtrTy(RetTy->getContext()));
     Threads[CurrentThread].RetVal = Result;
@@ -3505,7 +3504,7 @@ void Interpreter::run() {
   bool rerun = false;
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
-    llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";///////////////////
+    //llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";///////////////////
     /* Check if scheduled thread is possible to execute */
     if(!TB.is_available(CurrentThread)){
       int handler_id = Threads[CurrentThread].handler_id;
@@ -3518,15 +3517,15 @@ void Interpreter::run() {
 	if(it != Threads[handler_id].msgs.end())
 	  Threads[handler_id].msgs.erase(it);
 	else{
-	  llvm::dbgs()<<"Error: Trying to execute message"
-		    << CurrentThread
-		    << " which is not posted.\n";
+	  llvm::dbgs() << "Error: Trying to execute message"
+		       << CurrentThread
+		       << " which is not posted.\n";
 	  abort();
         }
       } else{
-	llvm::dbgs()<<"Error: Trying to execute thread"
-		    << CurrentThread
-		    << " which is unavailable.\n";
+	llvm::dbgs() << "Error: Trying to execute thread"
+		     << CurrentThread
+		     << " which is unavailable.\n";
 	abort();
       }
     }
@@ -3595,7 +3594,6 @@ void Interpreter::run() {
     }
 
     if(ECStack()->empty()){ // The thread has terminated
-      llvm::dbgs()<<"Stack empty\n";////////////////////
       if(CurrentThread == 0 && AtExitHandlers.size()){
         callFunction(AtExitHandlers.back(),{});
         AtExitHandlers.pop_back();

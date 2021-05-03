@@ -206,7 +206,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
     *aux = -1;
     return true;
   }
-  
+
   /* Find an available thread (auxiliary or real).
    *
    * Prioritize auxiliary before real, and older before younger
@@ -228,6 +228,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   }
 
   for(p = 0; p < sz; p += 2){ // Loop through real threads
+    //llvm::dbgs()<<p<<":"<<threads[p].available<<"\n";
     if(threads[p].available && !threads[p].sleeping &&
        (conf.max_search_depth < 0 || threads[p].last_event_index() < conf.max_search_depth)){
       threads[p].event_indices.push_back(++prefix_idx);
@@ -239,6 +240,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       return true;
     }
   }
+  //llvm::dbgs()<<unfinished_message<<"Schedule\n";
 
   if(end_of_ws != -1 && WuT.lastbranch() == branch_at(end_of_ws) &&
      WuT.lastbranch().size != branch_at(end_of_ws).size){
@@ -278,7 +280,7 @@ bool EventTraceBuilder::is_replaying() const {
 }
 
 bool EventTraceBuilder::is_following_WS() const {
-  return (replay || (unfinished_message != 0));
+  return (prefix_idx+1 < int(prefix.size()));
 }
 
 void EventTraceBuilder::cancel_replay(){
@@ -335,8 +337,10 @@ Trace *EventTraceBuilder::get_trace() const{
 }
 
 bool EventTraceBuilder::reset(){
-  compute_vclocks();
+  compute_vclocks(1);
   compute_eom();
+  compute_vclocks(2);
+  
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === EventTraceBuilder reset ===\n";
     print_prefix();
@@ -1797,35 +1801,37 @@ void EventTraceBuilder::compute_eom(){
   }
 }
 
-void EventTraceBuilder::compute_vclocks(){
+void EventTraceBuilder::compute_vclocks(int pass){
   /* Be idempotent */
   if (has_vclocks) return;
 
   /* The first event of a thread happens after the spawn event that
    * created it.
    */
-  for (const Thread &t : threads) {
-    if (t.spawn_event >= 0 && t.event_indices.size() > 0){
-      add_happens_after(t.event_indices[0], t.spawn_event);
+  if(pass == 1){
+    for (const Thread &t : threads) {
+      if (t.spawn_event >= 0 && t.event_indices.size() > 0){
+        add_happens_after(t.event_indices[0], t.spawn_event);
+      }
+      if(t.handler_id != -1 && t.event_indices.size() > 0){
+        //TODO: add happensafter to qthread exec event
+        add_happens_after(t.event_indices[0],
+			  threads[t.handler_id].event_indices.back());
+      }
     }
-    if(t.handler_id != -1 && t.event_indices.size() > 0){
-      //TODO: add happensafter to qthread exec event
-      add_happens_after(t.event_indices[0],
-			threads[t.handler_id].event_indices.back());
-    }
-  }
 
-  /* Move LockFail races into the right event */
-  std::vector<Race> final_lock_fail_races;
-  for (Race &r : lock_fail_races){
-    if (r.second_event < int(prefix.size())) {
-      event_at(r.second_event).races.emplace_back(std::move(r));
-    } else {
-      assert(r.second_event == int(prefix.size()));
-      final_lock_fail_races.emplace_back(std::move(r));
+    /* Move LockFail races into the right event */
+    std::vector<Race> final_lock_fail_races;
+    for (Race &r : lock_fail_races){
+      if (r.second_event < int(prefix.size())) {
+        event_at(r.second_event).races.emplace_back(std::move(r));
+      } else {
+        assert(r.second_event == int(prefix.size()));
+        final_lock_fail_races.emplace_back(std::move(r));
+      }
     }
+    lock_fail_races = std::move(final_lock_fail_races);
   }
-  lock_fail_races = std::move(final_lock_fail_races);
 
   for (unsigned i = 0; i < prefix.size(); i++){
     IPid ipid = event_at(i).iid.get_pid();
@@ -1862,11 +1868,13 @@ void EventTraceBuilder::compute_vclocks(){
     do {
       auto oldend = end;
       changed = false;
-      end = partition
-        (first_pair, end,
-         [this,i](const Race &r){
-	   return !event_at(r.first_event).clock.leq(event_at(i).clock);
-         });
+      if(pass == 1){
+        end = partition
+          (first_pair, end,
+           [this,i](const Race &r){
+	     return !event_at(r.first_event).clock.leq(event_at(i).clock);
+           });
+      }
       for (auto it = end; it != oldend; ++it){
         if (it->kind == Race::LOCK_SUC){
           event_at(i).clock += event_at(it->unlock_event).clock;
@@ -1876,24 +1884,27 @@ void EventTraceBuilder::compute_vclocks(){
     } while (changed);
 
     /* Then filter out subsumed */
-    auto fill = frontier_filter
-      (first_pair, end,
-       [this](const Race &f, const Race &s){
-        /* A virtual event does not contribute to the vclock and cannot
-         * subsume races. */
-        if (s.kind == Race::LOCK_FAIL) return false;
-        /* Also filter out observed races with nonfirst witness */
-        if (f.kind == Race::OBSERVED && s.kind == Race::OBSERVED
-            && f.first_event == s.first_event
-            && f.second_event == s.second_event){
-          /* N.B. We want the _first_ observer as the witness; thus
-           * the reversal of f and s.
-           */
-          return s.witness_event <= f.witness_event;
-        }
-        int se = s.kind == Race::LOCK_SUC ? s.unlock_event : s.first_event;
-        return event_at(f.first_event).clock.leq(event_at(se).clock);
-       });
+    auto fill = end;
+    if(pass == 1){
+      fill = frontier_filter
+        (first_pair, end,
+         [this](const Race &f, const Race &s){
+	   /* A virtual event does not contribute to the vclock and cannot
+	    * subsume races. */
+	   if (s.kind == Race::LOCK_FAIL) return false;
+	   /* Also filter out observed races with nonfirst witness */
+	   if (f.kind == Race::OBSERVED && s.kind == Race::OBSERVED
+	       && f.first_event == s.first_event
+	       && f.second_event == s.second_event){
+	     /* N.B. We want the _first_ observer as the witness; thus
+	      * the reversal of f and s.
+	      */
+	     return s.witness_event <= f.witness_event;
+	   }
+	   int se = s.kind == Race::LOCK_SUC ? s.unlock_event : s.first_event;
+	   return event_at(f.first_event).clock.leq(event_at(se).clock);
+         });
+    }
     /* Add clocks of remaining (reversible) races */
     for (auto it = first_pair; it != fill; ++it){
       if (it->kind == Race::LOCK_SUC){
@@ -1908,6 +1919,12 @@ void EventTraceBuilder::compute_vclocks(){
     /* Now delete the subsumed races. We delayed doing this to avoid
      * iterator invalidation. */
     races.resize(fill - races.begin(), races[0]);
+    if(pass == 2){
+      for (unsigned j : event_at(i).eom_before){
+        assert(j < i);
+        event_at(i).clock += event_at(j).clock;
+      }
+    }
   }
 
   has_vclocks = true;
@@ -2382,10 +2399,8 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
       assert(false && "UNREACHABLE");
       abort();
     }
-    //llvm::dbgs()<<skip<<"hello\n";/////////////
     if (skip == RECURSE) continue;
 
-    //llvm::dbgs()<<skip<<"hello1\n";/////////////
     if (!sequence_clears_sleep(v, sleepset)) return;
 
     /* No existing child was compatible with v. Insert v as a new sequence. */
