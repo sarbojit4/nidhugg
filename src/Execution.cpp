@@ -3502,9 +3502,10 @@ Option<SymAddr> Interpreter::GetSymAddr(void *Ptr) {
 void Interpreter::run() {
   int aux;
   bool rerun = false;
+  bool was_following_WS = TB.is_following_WS();
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
-    //llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";///////////////////
+    //if(!DryRun) llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";///////////////////
     /* Check if scheduled thread is possible to execute */
     if(!TB.is_available(CurrentThread)){
       int handler_id = Threads[CurrentThread].handler_id;
@@ -3517,16 +3518,18 @@ void Interpreter::run() {
 	if(it != Threads[handler_id].msgs.end())
 	  Threads[handler_id].msgs.erase(it);
 	else{
-	  llvm::dbgs() << "Error: Trying to execute message"
+	  llvm::dbgs() << "Error: Trying to execute message "
 		       << CurrentThread
 		       << " which is not posted.\n";
 	  abort();
+	  continue;
         }
       } else{
 	llvm::dbgs() << "Error: Trying to execute thread"
 		     << CurrentThread
 		     << " which is unavailable.\n";
 	abort();
+	continue;
       }
     }
     
@@ -3602,6 +3605,20 @@ void Interpreter::run() {
       }
     }
 
+    if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
+       was_following_WS && !TB.is_following_WS()){
+      for(int i = 0; i < Threads.size(); ++i){
+	if(Threads[i].msgs.size() > 0 &&
+	   Threads[i].ready_to_receive == true){
+	  int next_msg = Threads[i].msgs.front();
+          Threads[i].msgs.pop_front();
+          TB.mark_available(next_msg);
+	  Threads[i].ready_to_receive = false;
+	}
+      }
+    }
+    was_following_WS = TB.is_following_WS();
+    
     if(DryRun && !rerun){ // Did dry run. Now back up.
       --ECStack()->back().CurInst;
       DryRunMem.clear();
