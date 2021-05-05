@@ -1783,7 +1783,7 @@ static It frontier_filter(It first, It last, LessFn less){
 
 //eom is not exactly transitive. We don't need the precise transitive ordering
 void EventTraceBuilder::compute_eom(){
-  for(IPid i = 0; i<threads.size(); i=i+2){//eom order
+  for(IPid i = 2; i<threads.size(); i=i+2){//eom order
     if(threads[i].handler_id == -1) continue;
     for(IPid j = i+2; j<threads.size(); j=j+2){
       if(threads[i].handler_id != threads[j].handler_id) continue;
@@ -2272,7 +2272,8 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
   std::vector<Branch> sorted_seq = linearize_wakeup_sequence(race.first_event,
 							     race.second_event,
 							     wakeup_index_seq);
-  //for(Branch br:v) llvm::dbgs()<<"<"<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<",";
+  //for(Branch br:sorted_seq)
+  //llvm::dbgs()<<"<"<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<">,";
   //llvm::dbgs()<<"\n";
   /* Do insertion into the wakeup tree */
   int i = 0;
@@ -2376,13 +2377,6 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
           skip = NEXT;
 	  leftmostbranch = false;
         }
-	// else {
-	//   llvm::dbgs()<<"("<<SPS.get_pid(ve.spid)<<ve.index
-	// 	      << ") and ("
-	// 	      << SPS.get_pid(child_it.branch().spid)
-	// 	      <<child_it.branch().index<<") are compatible\n";////////////////
-	// }
-	// llvm::dbgs()<<skip<<"("<<SPS.get_pid(ve.spid)<<ve.index<<")\n";/////////////
       }
       if (skip == NEXT) { skip = NO; continue; }
 
@@ -2452,6 +2446,10 @@ std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
 wakeup_sequence(const Race &race, std::vector<unsigned> &wakeup_index_seq) const{
   const int i = race.first_event;
   const int j = race.second_event;
+  const bool is_msg_msg_race =
+    (threads[event_at(i).iid.get_pid()].handler_id != -1) &&
+    (threads[event_at(i).iid.get_pid()].handler_id ==
+     threads[event_at(j).iid.get_pid()].handler_id);
 
   const Event &first = event_at(i);
   Event second({-1,0});
@@ -2485,17 +2483,21 @@ wakeup_sequence(const Race &race, std::vector<unsigned> &wakeup_index_seq) const
   std::vector<Branch> v;
   std::vector<const Event*> observers;
   std::vector<Branch> notobs;
-
-  /* Including the events occurs before event_at(i) in the execution */
-  for(int k = 0; i > k; k++) {
+  bool partial_msg[threads.size()];
+  bool in_WS[prefix.size()];
+  
+  for(int k = 0; k < int(threads.size()); ++k) partial_msg[k] = false;
+  for (int k = 0; k < i; ++k){
     v.emplace_back(branch_with_symbolic_data(k));
     wakeup_index_seq.push_back(k);
+    in_WS[k] = true;
   }
-  /* Including notdep */
+  Event fst_of_fst = event_at(threads[first.iid.get_pid()].event_indices.front());
   for (int k = i + 1; k < int(prefix.size()); ++k){
-    if (!first.clock.leq(event_at(k).clock)) {
-      v.emplace_back(branch_with_symbolic_data(k));
-      wakeup_index_seq.push_back(k);
+    if(is_msg_msg_race && !fst_of_fst.clock.leq(event_at(k).clock)){
+      in_WS[k] = true;
+    } else if (!first.clock.leq(event_at(k).clock)) {
+      in_WS[k] = true;
     } else if (race.kind == Race::OBSERVED && k != j) {
       if (!std::any_of(observers.begin(), observers.end(),
                        [this,k](const Event* o){
@@ -2507,14 +2509,61 @@ wakeup_sequence(const Race &race, std::vector<unsigned> &wakeup_index_seq) const
           notobs.emplace_back(branch_with_symbolic_data(k));
         }
       }
+    } else {
+      in_WS[k] = false;
+      IPid ipid = event_at(k).iid.get_pid();
+      if(threads[ipid].handler_id != -1 && partial_msg[ipid] == false)
+	partial_msg[ipid] = true;
+    }
+  }
+
+  for(int k = i+1; k < int(prefix.size()); ++k){
+    IPid ipid = event_at(k).iid.get_pid();
+    if(partial_msg[ipid] == true){
+      in_WS[k] = false;
+      continue;
+    }
+    for (unsigned h : event_at(k).happens_after){
+      if(in_WS[h] == false){ 
+        in_WS[k] = false;
+        break;
+      }
+    }
+    if(in_WS[k] == false) continue;
+    for (auto race : event_at(k).races){
+      unsigned h = race.first_event; 
+      if(in_WS[h] == false){
+        in_WS[k] = false;
+        break;
+      }
+    }
+    if(in_WS[k] == false) continue;
+    for (unsigned h : event_at(k).eom_before){
+     if(in_WS[h] == false){
+        in_WS[k] = false;
+        break;
+      }
+    }
+  }
+  for (int k = i + 1; k < int(prefix.size()); ++k){
+    if(in_WS[k] == true){
+      v.emplace_back(branch_with_symbolic_data(k));
+      wakeup_index_seq.push_back(k);
     }
   }
 
   if (race.kind == Race::NONBLOCK) {
     recompute_cmpxhg_success(second_br.sym, v, i);
   }
+  for(int k = i+1; k < j; k++){
+    if(in_WS[k] == false && event_at(k).iid.get_pid() != event_at(i).iid.get_pid() &&
+       event_at(k).clock.lt(event_at(j).clock)){
+      v.push_back(branch_with_symbolic_data(k));
+      wakeup_index_seq.push_back(k);
+    }
+  }
   v.push_back(std::move(second_br));
-  wakeup_index_seq.push_back(race.second_event);
+  wakeup_index_seq.push_back(j);
 
   if (race.kind == Race::OBSERVED) {
     int k = race.witness_event;
