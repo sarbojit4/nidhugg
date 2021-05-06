@@ -769,17 +769,6 @@ protected:
    */
   void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
   void race_detect(const Race&, const struct obs_sleep&);
-  void delete_messages_after_race(int fst, int snd, std::vector<unsigned> &seq);
-  void move_notdep_msgs_before(int fst, int snd,
-			       const std::vector<bool> &partial_msg,
-			       std::vector<std::vector<unsigned>> &trace);
-  /* Do topological sort to linearize wakeup squence */
-  std::vector<Branch> linearize_wakeup_sequence(int fst, int snd,
-						  std::vector<unsigned> &seq);
-  bool visit_event(int i, std::vector<std::vector<unsigned>> &trace,
-		   std::vector<bool> &visiting,
-		   std::vector<bool> &visited,
-		   std::vector<unsigned> &sorted_seq);
   void race_detect_optimal(const Race&);
   void insert_new_seq(std::vector<Branch> &v, WakeupTreeRef<Branch> &node,
 		      int first, bool leftmostbranch,
@@ -787,7 +776,7 @@ protected:
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch>
   wakeup_sequence(const Race& race,
-		  std::vector<unsigned> &wakeup_index_seq) const;
+		  std::vector<Branch> &sorted_seq) const;
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
                              const doneset_t &sleep) const;
