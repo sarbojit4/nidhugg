@@ -691,6 +691,7 @@ protected:
   /* Compute eom */
   void compute_eom();
   void compute_vclocks(int pass = 1);
+  void clear_vclocks();
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
   /* Perform planning of future executions. Requires the trace to be

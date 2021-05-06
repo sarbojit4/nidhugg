@@ -228,7 +228,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   }
 
   for(p = 0; p < sz; p += 2){ // Loop through real threads
-    //llvm::dbgs()<<p<<":"<<threads[p].available<<"\n";
     if(threads[p].available && !threads[p].sleeping &&
        (conf.max_search_depth < 0 || threads[p].last_event_index() < conf.max_search_depth)){
       threads[p].event_indices.push_back(++prefix_idx);
@@ -338,6 +337,7 @@ Trace *EventTraceBuilder::get_trace() const{
 bool EventTraceBuilder::reset(){
   compute_vclocks(1);
   compute_eom();
+  clear_vclocks();
   compute_vclocks(2);
   
   if(conf.debug_print_on_reset){
@@ -1929,6 +1929,12 @@ void EventTraceBuilder::compute_vclocks(int pass){
   has_vclocks = true;
 }
 
+void EventTraceBuilder::clear_vclocks(){
+  for(int i=0;i<prefix.size();i++)
+    event_at(i).clock = VClock<int>();
+  has_vclocks = false;
+}
+
 bool EventTraceBuilder::record_symbolic(SymEv event){
   if(dryrun) {
     assert(prefix_idx+1 < int(prefix.size()));
@@ -2090,10 +2096,7 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
   //llvm::dbgs()<<"Race ("<<event_at(race.first_event).iid<<":"<<event_at(race.second_event).iid<<")\n";/////////////
   std::vector<Branch> sorted_seq;
   std::vector<Branch> v = wakeup_sequence(race,sorted_seq);
-  // std::vector<Branch> sorted_seq = linearize_wakeup_sequence(race.first_event,
-  // 							     race.second_event,
-  // 							     wakeup_index_seq);
-  // for(Branch br:sorted_seq)////////////
+  // for(Branch br:v)////////////
   //   llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<"),";///////////
   // llvm::dbgs()<<"\n";//////////////
   /* Do insertion into the wakeup tree */
@@ -2317,7 +2320,7 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
   for (unsigned k = i + 1; k < int(prefix.size()); ++k){
     if(is_msg_msg_race && !event_at(fst_of_fst).clock.leq(event_at(k).clock)){
       in_WS[k] = true;
-    } else if (!first.clock.leq(event_at(k).clock)) {
+    } else if (!is_msg_msg_race && !first.clock.leq(event_at(k).clock)) {
       in_WS[k] = true;
     } else if (race.kind == Race::OBSERVED && k != j) {
       if (!std::any_of(observers.begin(), observers.end(),
@@ -2403,9 +2406,6 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
     for(unsigned k = i; k < v.size(); k++){
       sorted_seq.push_back(v[k]);
     }
-    // for(Branch br:sorted_seq)
-    //   llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<"),";
-    // llvm::dbgs()<<"-----\n";
     sorted_seq.insert(sorted_seq.end(),first_msg.begin(),first_msg.end());
   }
   else sorted_seq = v;
