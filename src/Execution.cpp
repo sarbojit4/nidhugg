@@ -3522,14 +3522,14 @@ void Interpreter::run() {
 		       << CurrentThread
 		       << " which is not posted.\n";
 	  abort();
-	  continue;
+	  return;
         }
       } else{
 	llvm::dbgs() << "Error: Trying to execute thread"
 		     << CurrentThread
 		     << " which is unavailable.\n";
 	abort();
-	continue;
+	return;
       }
     }
     
