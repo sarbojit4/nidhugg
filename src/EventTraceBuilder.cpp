@@ -2381,7 +2381,8 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
   }
   if(is_msg_msg_race){
     /* Include part of second message */
-    for(int k = i+1; k < j; k++){
+    for(int k = threads[event_at(j).iid.get_pid()].event_indices.front();
+	k < j; k++){
       if(in_WS[k] == false &&
 	 event_at(k).iid.get_pid() != event_at(i).iid.get_pid() &&
          event_at(k).clock.lt(event_at(j).clock)){
