@@ -436,8 +436,6 @@ protected:
      * this one because of eom.
      */
     std::vector<unsigned> eom_before;
-    /* Relation among post events */
-    std::vector<unsigned> rsc_before;
     /* Possibly reversible races found in the current execution
      * involving this event as the main event.
      */
@@ -690,6 +688,8 @@ protected:
   void add_happens_after_thread(unsigned second, IPid thread);
   /* Compute eom */
   void compute_eom();
+  /* Remove remaining nonreversible races after compute_vclocks() */
+  void remove_nonreversible_races();
   void compute_vclocks(int pass = 1);
   void clear_vclocks();
   /* Keep track of whether compute_vclocks has been called yet. */

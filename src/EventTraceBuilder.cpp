@@ -338,6 +338,7 @@ Trace *EventTraceBuilder::get_trace() const{
 bool EventTraceBuilder::reset(){
   compute_vclocks(1);
   compute_eom();
+  remove_nonreversible_races();
   clear_vclocks();
   compute_vclocks(2);
   
@@ -1801,6 +1802,38 @@ void EventTraceBuilder::compute_eom(){
   }
 }
 
+void EventTraceBuilder::remove_nonreversible_races(){
+  for(IPid i = 2; i<threads.size(); i=i+2){
+    if(threads[i].handler_id == -1) continue;
+    for(IPid j = 2; j<threads.size(); j=j+2){
+      if(threads[i].handler_id != threads[j].handler_id) continue;
+      if(i == j) continue;
+      if(threads[i].event_indices.front() > threads[j].event_indices.front()) continue;
+      bool direct_race = false;
+      bool indirect_dep = false;
+      unsigned last = 0;
+      for(unsigned k : threads[j].event_indices){
+	if(last == k) continue;
+	else last = k;
+	std::vector<Race> &races = event_at(k).races;
+	auto end = partition
+	  (races.begin(), races.end(),
+	   [this, &direct_race, &indirect_dep, i](const Race &r){
+	     if(event_at(r.first_event).iid.get_pid() == i){
+	       if(!direct_race){
+	         direct_race = true;
+		 return true;
+	       } else return false;
+	     } else{
+	       return true;
+	     }
+	   });
+	races.resize(end - races.begin(),races[0]);
+      }
+    }	  
+  } 
+}
+
 void EventTraceBuilder::compute_vclocks(int pass){
   /* Be idempotent */
   if (has_vclocks) return;
@@ -1863,6 +1896,7 @@ void EventTraceBuilder::compute_vclocks(int pass){
                                   return r.kind == Race::NONDET;
                                 });
 
+    /* Remove non-reversible races */
     auto end = races.end();
     bool changed;
     do {
@@ -2274,9 +2308,9 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
   const IPid fpid = event_at(i).iid.get_pid();
   const IPid spid = event_at(j).iid.get_pid();
   const bool is_msg_msg_race =
-    (threads[fpid].handler_id != -1) &&
-    (threads[fpid].handler_id ==
-     threads[spid].handler_id);
+    ((threads[fpid].handler_id != -1) &&
+     (threads[fpid].handler_id ==
+      threads[spid].handler_id));
 
   const Event &first = event_at(i);
   Event second({-1,0});
