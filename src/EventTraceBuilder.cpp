@@ -2353,15 +2353,17 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
     partial_msg[k] = false;
     a[k] = false;
   }
-  partial_msg[fpid] = true;
-  partial_msg[spid] = true;
-  a[fpid] = true;
+  if(is_msg_msg_race){
+    partial_msg[fpid] = true;
+    partial_msg[spid] = true;
+    a[fpid] = true;
+  }
   for (unsigned k = 0; k < i; ++k){
     v.emplace_back(branch_with_symbolic_data(k));
     in_v[k] = true;
   }
-  /* in_v[k] is true if event_at(k) "happen after" event_at(i) (their 
-   * vector clocks are not strictly greater than event_at(i).clock).
+  /* in_v[k] is true if event_at(k) does not "happen after" event_at(i)
+   * (their vector clocks are not strictly greater than event_at(i).clock).
    */
   for (unsigned k = i + 1; k < int(prefix.size()); ++k){
     if(is_msg_msg_race && !event_at(fst_of_fst).clock.leq(event_at(k).clock)){
@@ -2382,13 +2384,15 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
     } else {
       in_v[k] = false;
       IPid ipid = event_at(k).iid.get_pid();
-      if(threads[ipid].handler_id != -1 && partial_msg[ipid] == false)
+      if(threads[ipid].handler_id != -1 && partial_msg[ipid] == false){
 	partial_msg[ipid] = true;
+      }
     }
     in_w[k]=false;
   }
-  /* remove partial messages and the events that are 
-   * causally dependent on partial messages from in_v 
+
+  /* remove partial messages and the events from in_v 
+   * that are happens after some partial message
    * in_w contains events of first partial message of */
   for(unsigned k = i+1; k < int(prefix.size()); ++k){
     IPid ipid = event_at(k).iid.get_pid();
@@ -2407,7 +2411,7 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
       continue;
     }
     // not a partial msg
-    if(threads[ipid].handler_id == -1 &&
+    if(threads[ipid].handler_id != -1 &&
        a[threads[ipid].handler_id] == true){
       in_w[k] = false;
       continue;
@@ -2446,9 +2450,6 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
     }
   }
 
-  if (race.kind == Race::NONBLOCK) {
-    recompute_cmpxhg_success(second_br.sym, v, i);
-  }
   if(is_msg_msg_race){
     /* Include part of second message */
     for(int k = threads[spid].event_indices.front();
@@ -2460,6 +2461,9 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
 	in_v[k] = true;
       }
     }
+  }
+  if (race.kind == Race::NONBLOCK) {
+    recompute_cmpxhg_success(second_br.sym, v, i);
   }
   v.push_back(std::move(second_br));
   in_v[j] = true;
