@@ -338,9 +338,9 @@ Trace *EventTraceBuilder::get_trace() const{
 bool EventTraceBuilder::reset(){
   compute_vclocks(1);
   compute_eom();
-  remove_nonreversible_races();
   clear_vclocks();
   compute_vclocks(2);
+  remove_nonreversible_races();
   
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === EventTraceBuilder reset ===\n";
@@ -1816,11 +1816,36 @@ void EventTraceBuilder::remove_nonreversible_races(){
 	if(last == k) continue;
 	else last = k;
 	std::vector<Race> &races = event_at(k).races;
+	for(Race r : races){
+	  if(r.first_event > threads[i].event_indices.front() &&
+	     event_at(r.first_event).iid.get_pid() != i &&
+	     event_at(r.first_event).iid.get_pid() != j &&
+	     event_at(threads[i].event_indices.front()).clock.lt
+	     (event_at(r.first_event).clock)){
+	    indirect_dep = true;
+	  }
+	}
+	for(unsigned ei : event_at(k).happens_after){
+	  if(ei > threads[i].event_indices.front() &&
+	     event_at(ei).iid.get_pid() != i &&
+	     event_at(ei).iid.get_pid() != j &&
+	     event_at(threads[i].event_indices.front()).clock.lt
+	     (event_at(ei).clock)){
+	    indirect_dep = true;
+	  }
+	}
+      }
+      last = 0;
+      /* keep only the first race between two messeges */
+      for(unsigned k : threads[j].event_indices){
+	if(last == k) continue;
+	else last = k;
+	std::vector<Race> &races = event_at(k).races;
 	auto end = partition
 	  (races.begin(), races.end(),
-	   [this, &direct_race, &indirect_dep, i](const Race &r){
+	   [this, &direct_race, indirect_dep, i](const Race &r){
 	     if(event_at(r.first_event).iid.get_pid() == i){
-	       if(!direct_race){
+	       if(!indirect_dep && !direct_race){
 	         direct_race = true;
 		 return true;
 	       } else return false;
@@ -2131,7 +2156,7 @@ void EventTraceBuilder::race_detect_optimal(const Race &race){
   //llvm::dbgs()<<"Race ("<<event_at(race.first_event).iid<<":"<<event_at(race.second_event).iid<<")\n";/////////////
   std::vector<Branch> sorted_seq;
   std::vector<Branch> v = wakeup_sequence(race,sorted_seq);
-  // for(Branch br:v)////////////
+  // for(Branch br:sorted_seq)////////////
   //   llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<"),";///////////
   // llvm::dbgs()<<"\n";//////////////
   /* Do insertion into the wakeup tree */
@@ -2356,7 +2381,7 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
   if(is_msg_msg_race){
     partial_msg[fpid] = true;
     partial_msg[spid] = true;
-    a[fpid] = true;
+    a[threads[fpid].handler_id] = true;
   }
   for (unsigned k = 0; k < i; ++k){
     v.emplace_back(branch_with_symbolic_data(k));
@@ -2384,7 +2409,7 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
     } else {
       in_v[k] = false;
       IPid ipid = event_at(k).iid.get_pid();
-      if(threads[ipid].handler_id != -1 && partial_msg[ipid] == false){
+      if(threads[ipid].handler_id != -1){
 	partial_msg[ipid] = true;
       }
     }
@@ -2405,7 +2430,7 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
     // v[k] is true
     if(partial_msg[ipid] == true){
       if(a[threads[ipid].handler_id] == true){
-	in_w[k] = false;
+  	in_w[k] = false;
       }
       in_v[k] = false;
       continue;
@@ -2428,7 +2453,7 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
     for (auto race : event_at(k).races){
       unsigned h = race.first_event; 
       if(in_v[h] == false){
-	if(in_w[h] == false) in_w[k] = false;
+  	if(in_w[h] == false) in_w[k] = false;
         in_v[k] = false;
         break;
       }
