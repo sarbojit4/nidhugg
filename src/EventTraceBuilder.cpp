@@ -1786,16 +1786,14 @@ static It frontier_filter(It first, It last, LessFn less){
 void EventTraceBuilder::compute_eom(){
   for(IPid i = 2; i<threads.size(); i=i+2){//eom order
     if(threads[i].handler_id == -1) continue;
-    for(IPid j = i+2; j<threads.size(); j=j+2){
+    for(IPid j = 2; j<threads.size(); j=j+2){
       if(threads[i].handler_id != threads[j].handler_id) continue;
       unsigned fev_i = threads[i].event_indices.front();
       unsigned lev_i = threads[i].event_indices.back();
       unsigned fev_j = threads[j].event_indices.front();
       unsigned lev_j = threads[j].event_indices.back();
-      unsigned post_i = threads[i].spawn_event;
-      unsigned post_j = threads[j].spawn_event;
-      if(event_at(fev_i).clock.lt(event_at(lev_j).clock) &&
-  	 !event_at(post_i).clock.lt(event_at(post_j).clock)){
+      if(fev_j<fev_i) continue;
+      if(event_at(fev_i).clock.lt(event_at(lev_j).clock)){
         add_eom(fev_j,lev_i);
       }
     }
@@ -2419,54 +2417,54 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
   /* remove partial messages and the events from in_v 
    * that are happens after some partial message
    * in_w contains events of first partial message of */
-  for(unsigned k = i+1; k < int(prefix.size()); ++k){
-    IPid ipid = event_at(k).iid.get_pid();
-    in_w[k] = true;
-    if(in_v[k] == false){
-      if(threads[ipid].handler_id != -1) a[threads[ipid].handler_id] = true;
-      in_w[k] = false;
-      continue;
-    }
-    // v[k] is true
-    if(partial_msg[ipid] == true){
-      if(a[threads[ipid].handler_id] == true){
-  	in_w[k] = false;
-      }
-      in_v[k] = false;
-      continue;
-    }
-    // not a partial msg
-    if(threads[ipid].handler_id != -1 &&
-       a[threads[ipid].handler_id] == true){
-      in_w[k] = false;
-      continue;
-    }
-    //no partial msg before in the handler
-    for (unsigned h : event_at(k).happens_after){
-      if(in_v[h] == false){
-        if(in_w[h] == false) in_w[k] = false;
-        in_v[k] = false;
-        break;
-      }
-    }
-    if(in_v[k] == false && in_w[k] == false) continue;
-    for (auto race : event_at(k).races){
-      unsigned h = race.first_event; 
-      if(in_v[h] == false){
-  	if(in_w[h] == false) in_w[k] = false;
-        in_v[k] = false;
-        break;
-      }
-    }
-    if(in_v[k] == false && in_w[k] == false) continue;
-    for (unsigned h : event_at(k).eom_before){
-      if(in_v[h] == false){
-        if(in_w[h] == false) in_w[k] = false;
-        in_v[k] = false;
-        break;
-      }
-    }
-  }
+  // for(unsigned k = i+1; k < int(prefix.size()); ++k){
+  //   IPid ipid = event_at(k).iid.get_pid();
+  //   in_w[k] = true;
+  //   if(in_v[k] == false){
+  //     if(threads[ipid].handler_id != -1) a[threads[ipid].handler_id] = true;
+  //     in_w[k] = false;
+  //     continue;
+  //   }
+  //   // v[k] is true
+  //   if(partial_msg[ipid] == true){
+  //     if(a[threads[ipid].handler_id] == true){
+  // 	in_w[k] = false;
+  //     }
+  //     in_v[k] = false;
+  //     continue;
+  //   }
+  //   // not a partial msg
+  //   if(threads[ipid].handler_id != -1 &&
+  //      a[threads[ipid].handler_id] == true){
+  //     in_w[k] = false;
+  //     continue;
+  //   }
+  //   //no partial msg before in the handler
+  //   for (unsigned h : event_at(k).happens_after){
+  //     if(in_v[h] == false){
+  //       if(in_w[h] == false) in_w[k] = false;
+  //       in_v[k] = false;
+  //       break;
+  //     }
+  //   }
+  //   if(in_v[k] == false && in_w[k] == false) continue;
+  //   for (auto race : event_at(k).races){
+  //     unsigned h = race.first_event; 
+  //     if(in_v[h] == false){
+  // 	if(in_w[h] == false) in_w[k] = false;
+  //       in_v[k] = false;
+  //       break;
+  //     }
+  //   }
+  //   if(in_v[k] == false && in_w[k] == false) continue;
+  //   for (unsigned h : event_at(k).eom_before){
+  //     if(in_v[h] == false){
+  //       if(in_w[h] == false) in_w[k] = false;
+  //       in_v[k] = false;
+  //       break;
+  //     }
+  //   }
+  // }
 
   /* inserting notdep in v */
   for (unsigned k = i + 1; k < int(prefix.size()); ++k){
