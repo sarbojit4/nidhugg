@@ -2151,12 +2151,12 @@ void EventTraceBuilder::do_race_detect() {
 }
 
 void EventTraceBuilder::race_detect_optimal(const Race &race){
-  //llvm::dbgs()<<"Race ("<<event_at(race.first_event).iid<<":"<<event_at(race.second_event).iid<<")\n";/////////////
+  llvm::dbgs()<<"Race ("<<event_at(race.first_event).iid<<":"<<event_at(race.second_event).iid<<")\n";/////////////
   std::vector<Branch> sorted_seq;
   std::vector<Branch> v = wakeup_sequence(race,sorted_seq);
-  // for(Branch br:sorted_seq)////////////
-  //   llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<"),";///////////
-  // llvm::dbgs()<<"\n";//////////////
+  for(Branch br:sorted_seq)////////////
+    llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<"),";///////////
+  llvm::dbgs()<<"\n";//////////////
   /* Do insertion into the wakeup tree */
   int i = 0;
   WakeupTreeRef<Branch> node = WuT.parent_at(i);
@@ -2377,9 +2377,9 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
     a[k] = false;
   }
   if(is_msg_msg_race){
-    partial_msg[fpid] = true;
-    partial_msg[spid] = true;
-    a[threads[fpid].handler_id] = true;
+    //partial_msg[fpid] = true;
+    //partial_msg[spid] = true;
+    //a[threads[fpid].handler_id] = true;
   }
   for (unsigned k = 0; k < i; ++k){
     v.emplace_back(branch_with_symbolic_data(k));
@@ -2417,54 +2417,54 @@ wakeup_sequence(const Race &race, std::vector<Branch> &sorted_seq) const{
   /* remove partial messages and the events from in_v 
    * that are happens after some partial message
    * in_w contains events of first partial message of */
-  // for(unsigned k = i+1; k < int(prefix.size()); ++k){
-  //   IPid ipid = event_at(k).iid.get_pid();
-  //   in_w[k] = true;
-  //   if(in_v[k] == false){
-  //     if(threads[ipid].handler_id != -1) a[threads[ipid].handler_id] = true;
-  //     in_w[k] = false;
-  //     continue;
-  //   }
-  //   // v[k] is true
-  //   if(partial_msg[ipid] == true){
-  //     if(a[threads[ipid].handler_id] == true){
-  // 	in_w[k] = false;
-  //     }
-  //     in_v[k] = false;
-  //     continue;
-  //   }
-  //   // not a partial msg
-  //   if(threads[ipid].handler_id != -1 &&
-  //      a[threads[ipid].handler_id] == true){
-  //     in_w[k] = false;
-  //     continue;
-  //   }
-  //   //no partial msg before in the handler
-  //   for (unsigned h : event_at(k).happens_after){
-  //     if(in_v[h] == false){
-  //       if(in_w[h] == false) in_w[k] = false;
-  //       in_v[k] = false;
-  //       break;
-  //     }
-  //   }
-  //   if(in_v[k] == false && in_w[k] == false) continue;
-  //   for (auto race : event_at(k).races){
-  //     unsigned h = race.first_event; 
-  //     if(in_v[h] == false){
-  // 	if(in_w[h] == false) in_w[k] = false;
-  //       in_v[k] = false;
-  //       break;
-  //     }
-  //   }
-  //   if(in_v[k] == false && in_w[k] == false) continue;
-  //   for (unsigned h : event_at(k).eom_before){
-  //     if(in_v[h] == false){
-  //       if(in_w[h] == false) in_w[k] = false;
-  //       in_v[k] = false;
-  //       break;
-  //     }
-  //   }
-  // }
+  for(unsigned k = i+1; k < int(prefix.size()); ++k){
+    IPid ipid = event_at(k).iid.get_pid();
+    in_w[k] = true;
+    if(in_v[k] == false){
+      if(threads[ipid].handler_id != -1) a[threads[ipid].handler_id] = true;
+      in_w[k] = false;
+      continue;
+    }
+    // v[k] is true
+    if(partial_msg[ipid] == true && ipid != spid){
+      if(a[threads[ipid].handler_id] == true){
+  	in_w[k] = false;
+      }
+      in_v[k] = false;
+      continue;
+    }
+    // // not a partial msg
+    // if(threads[ipid].handler_id != -1 &&
+    //    a[threads[ipid].handler_id] == true){
+    //   in_w[k] = false;
+    //   continue;
+    // }
+    // //no partial msg before in the handler
+    // for (unsigned h : event_at(k).happens_after){
+    //   if(in_v[h] == false){
+    //     if(in_w[h] == false) in_w[k] = false;
+    //     in_v[k] = false;
+    //     break;
+    //   }
+    // }
+    // if(in_v[k] == false && in_w[k] == false) continue;
+    // for (auto race : event_at(k).races){
+    //   unsigned h = race.first_event; 
+    //   if(in_v[h] == false){
+    // 	if(in_w[h] == false) in_w[k] = false;
+    //     in_v[k] = false;
+    //     break;
+    //   }
+    // }
+    // if(in_v[k] == false && in_w[k] == false) continue;
+    // for (unsigned h : event_at(k).eom_before){
+    //   if(in_v[h] == false){
+    //     if(in_w[h] == false) in_w[k] = false;
+    //     in_v[k] = false;
+    //     break;
+    //   }
+    // }
+  }
 
   /* inserting notdep in v */
   for (unsigned k = i + 1; k < int(prefix.size()); ++k){
