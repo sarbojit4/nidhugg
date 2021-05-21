@@ -39,6 +39,7 @@ public:
   virtual void mark_available(int proc, int aux = -1) override;
   virtual void mark_unavailable(int proc, int aux = -1) override;
   virtual bool is_available(int proc, int aux = -1) override;
+  virtual bool is_following_WS() const override;
   virtual void cancel_replay() override;
   virtual bool is_replaying() const override;
   virtual void metadata(const llvm::MDNode *md) override;

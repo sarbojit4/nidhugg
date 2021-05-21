@@ -181,6 +181,10 @@ bool RFSCTraceBuilder::is_replaying() const {
   return prefix_idx < replay_point;
 }
 
+bool RFSCTraceBuilder::is_following_WS() const {
+  return prefix_idx < replay_point;
+}
+
 void RFSCTraceBuilder::cancel_replay(){
   assert(replay == is_replaying());
   cancelled = true;

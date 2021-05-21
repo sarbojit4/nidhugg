@@ -3032,7 +3032,7 @@ void Interpreter::callAssertFail(Function *F,
   TB.assertion_error(err);
   abort();
 }
- 
+
 /*...................Qt functions.......................*/
 //TODO: reuse code of pthread_create to do qthread_create
 void Interpreter::callQThreadCreate(Function *F,
@@ -3427,13 +3427,14 @@ bool Interpreter::checkRefuse(Instruction &I){
   }
   return false;
 }
+
 void Interpreter::terminate(Type *RetTy, GenericValue Result){
   if(CurrentThread != 0){
     assert(RetTy == Type::getInt8PtrTy(RetTy->getContext()));
     Threads[CurrentThread].RetVal = Result;
     if(0 <= Threads[CurrentThread].handler_id){
       if(!Threads[Threads[CurrentThread].handler_id].msgs.empty()){//consume next message
-	if(!TB.is_replaying()){
+	if(!TB.is_following_WS()){
           int next_msg = Threads[Threads[CurrentThread].handler_id].msgs.front();
           Threads[Threads[CurrentThread].handler_id].msgs.pop_front();
           TB.mark_available(next_msg);
@@ -3496,9 +3497,11 @@ Option<SymAddr> Interpreter::GetSymAddr(void *Ptr) {
 void Interpreter::run() {
   int aux;
   bool rerun = false;
+  bool was_following_WS = TB.is_following_WS();
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
-    llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";////////////
+    if(!DryRun)llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";////////////
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
+    /* Check if scheduled thread is possible to execute */
     if(!TB.is_available(CurrentThread)){
       int handler_id = Threads[CurrentThread].handler_id;
       if(handler_id != -1 && Threads[handler_id].ready_to_receive){
@@ -3510,15 +3513,15 @@ void Interpreter::run() {
 	if(it != Threads[handler_id].msgs.end())
 	  Threads[handler_id].msgs.erase(it);
 	else{
-	  llvm::dbgs()<<"Error: Trying to execute message"
-		    << CurrentThread
-		    << " which is not posted.\n";
+	  llvm::dbgs() << "Error: Trying to execute message "
+		       << CurrentThread
+		       << " which is not posted.\n";
 	  abort();
         }
       } else{
-	llvm::dbgs()<<"Error: Trying to execute thread"
-		    << CurrentThread
-		    << " which is unavailable.\n";
+	llvm::dbgs() << "Error: Trying to execute thread "
+		     << CurrentThread
+		     << " which is unavailable.\n";
 	abort();
       }
     }
@@ -3594,6 +3597,19 @@ void Interpreter::run() {
       }
     }
 
+    if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
+       was_following_WS && !TB.is_following_WS()){
+      for(int i = 0; i < Threads.size(); ++i){
+	if(Threads[i].msgs.size() > 0 &&
+	   Threads[i].ready_to_receive == true){
+	  int next_msg = Threads[i].msgs.front();
+          Threads[i].msgs.pop_front();
+          TB.mark_available(next_msg);
+	  Threads[i].ready_to_receive = false;
+	}
+      }
+    }
+    was_following_WS = TB.is_following_WS();
     if(DryRun && !rerun){ // Did dry run. Now back up.
       --ECStack()->back().CurInst;
       DryRunMem.clear();
