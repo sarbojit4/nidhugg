@@ -145,7 +145,7 @@ protected:
 	sleeping(false), sleep_full_memory_conflict(false),
 	sleep_sym(nullptr), last_post(-1), handler_id(handler_id) {};
     CPid cpid;
-    int spid;
+    IPid spid;
     /* Is the thread available for scheduling? */
     bool available;
     /* The index of the spawn event that created this thread, or -1 if
@@ -508,6 +508,14 @@ protected:
    */
   bool replay;
 
+  /* If there is a hole or gap in the wakeup sequence that means 
+   * later part of some message is missing in the wakeup sequence. 
+   */
+  IPid unfinished_message;
+
+  /* Index to the end of the current wakeup sequence which is being explored */
+  int end_of_ws;
+
   /* The number of events that were or are going to be replayed in the
    * current computation.
    */
@@ -661,6 +669,7 @@ protected:
   void add_happens_after_thread(unsigned second, IPid thread);
   /* Compute eom */
   void compute_eom();
+  void remove_nonreversible_races();
   void clear_rsc_edges(std::map<int,Event> &wakeup_ev_seq);
   /* Clear all vector clocks */
   void clear_vclocks();

@@ -1,4 +1,4 @@
-/* Copyright (C) 2014-2017 Carl Leonardsson
+/* Copyright (C) 2019-2023 Sarbojit Das
  *
  * This file is part of Nidhugg.
  *
@@ -40,9 +40,11 @@ EventTraceBuilder::EventTraceBuilder(const Configuration &conf) : TSOPSOTraceBui
   prefix_idx = -1;
   dryrun = false;
   replay = false;
+  unfinished_message = 0;
   last_full_memory_conflict = -1;
   last_md = 0;
   replay_point = 0;
+  end_of_ws = -1;
 }
 
 EventTraceBuilder::~EventTraceBuilder(){
@@ -75,6 +77,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
                  == IID<CPid>(threads[SPS.get_pid(curbranch().spid)].cpid,
                               curev().iid.get_index())));
       replay = false;
+      end_of_ws = prefix_idx;
       assert(conf.dpor_algorithm == Configuration::SOURCE
              || (errors.size() && errors.back()->get_location()
                  == IID<CPid>(threads[curev().iid.get_pid()].cpid,
@@ -136,12 +139,8 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   }
 
   assert(!replay);
-  /* Create a new Event */
-
-  // TEMP: Until we have a SymEv for store()
-  // assert(prefix_idx < 0 || !!curev().sym.size() == curev().may_conflict);
-
-  /* Should we merge the last two events? */
+  /* Create a new Event
+   * Should we merge the last two events? */
   if(prefix.len() > 1 &&
      prefix[prefix.len()-1].iid.get_pid()
      == prefix[prefix.len()-2].iid.get_pid() &&
@@ -276,9 +275,7 @@ void EventTraceBuilder::metadata(const llvm::MDNode *md){
 
 bool EventTraceBuilder::sleepset_is_empty() const{
   for(unsigned i = 0; i < threads.size(); ++i){
-    if(threads[i].sleeping) {
-      return false;
-    }
+    if(threads[i].sleeping) return false;
   }
   return true;
 }
@@ -305,7 +302,8 @@ Trace *EventTraceBuilder::get_trace() const{
   SrcLocVectorBuilder cmp_md;
   std::vector<Error*> errs;
   for(unsigned i = 0; i < prefix.len(); ++i){
-    cmp.push_back(IID<CPid>(threads[prefix[i].iid.get_pid()].cpid,prefix[i].iid.get_index()));
+    cmp.push_back(IID<CPid>(threads[prefix[i].iid.get_pid()].cpid,
+			    prefix[i].iid.get_index()));
     cmp_md.push_from(prefix[i].md);
   };
   for(unsigned i = 0; i < errors.size(); ++i){
@@ -321,6 +319,7 @@ bool EventTraceBuilder::reset(){
   compute_eom();
   clear_vclocks();
   compute_vclocks(2);
+  remove_nonreversible_races();
   do_race_detect();
   
   if(conf.debug_print_on_reset){
@@ -1774,6 +1773,63 @@ void EventTraceBuilder::compute_eom(){
 	//llvm::dbgs()<<"Adding eom "<<fev_j<<" "<<lev_i<<"\n";
       }
     }
+  }
+}
+
+void EventTraceBuilder::remove_nonreversible_races(){
+  for(IPid i = 2; i<threads.size(); i=i+2){
+    if(threads[i].handler_id == -1) continue;
+    for(IPid j = 2; j<threads.size(); j=j+2){
+      if(threads[i].handler_id != threads[j].handler_id) continue;
+      if(i == j) continue;
+      if(threads[i].event_indices.front() > threads[j].event_indices.front()) continue;
+      bool direct_race = false;
+      bool indirect_dep = false;
+      unsigned last = 0;
+      for(unsigned k : threads[j].event_indices){
+	if(last == k) continue;
+	else last = k;
+	std::vector<Race> &races = prefix[k].races;
+	for(Race r : races){
+	  if(r.first_event > threads[i].event_indices.front() &&
+	     prefix[r.first_event].iid.get_pid() != i &&
+	     prefix[r.first_event].iid.get_pid() != j &&
+	     prefix[threads[i].event_indices.front()].clock.lt
+	     (prefix[r.first_event].clock)){
+	    indirect_dep = true;
+	  }
+	}
+	for(unsigned ei : prefix[k].happens_after){
+	  if(ei > threads[i].event_indices.front() &&
+	     prefix[ei].iid.get_pid() != i &&
+	     prefix[ei].iid.get_pid() != j &&
+	     prefix[threads[i].event_indices.front()].clock.lt
+	     (prefix[ei].clock)){
+	    indirect_dep = true;
+	  }
+	}
+      }
+      last = 0;
+      /* keep only the first race between two messeges */
+      for(unsigned k : threads[j].event_indices){
+	if(last == k) continue;
+	else last = k;
+	std::vector<Race> &races = prefix[k].races;
+	auto end = partition
+	  (races.begin(), races.end(),
+	   [this, &direct_race, indirect_dep, i](const Race &r){
+	     if(prefix[r.first_event].iid.get_pid() == i){
+	       if(!indirect_dep && !direct_race){
+		 direct_race = true;
+		 return true;
+	       } else return false;
+	     } else{
+	       return true;
+	     }
+	   });
+	races.resize(end - races.begin(),races[0]);
+      }
+    }	  
   }
 }
 
