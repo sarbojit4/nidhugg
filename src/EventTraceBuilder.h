@@ -661,12 +661,12 @@ protected:
    * second.
    */
   void add_happens_after(unsigned second, unsigned first);
-  void add_eom(unsigned second, unsigned first);
-  bool is_eom_ordered(unsigned second, unsigned first) const;
   /* Adds a non-reversible happens-before edge between the last event
    * executed by thread (if there is such an event), and second.
    */
   void add_happens_after_thread(unsigned second, IPid thread);
+  void add_eom(unsigned second, unsigned first);
+  bool is_eom_ordered(unsigned second, unsigned first) const;
   /* Compute eom */
   void compute_eom();
   void remove_nonreversible_races();
@@ -676,9 +676,6 @@ protected:
   /* Computes the vector clocks of all events in a complete execution
    * sequence from happens_after and race edges.
    */
-  void compute_vclocks_for_seq(std::map<int,Event> &seq, int &cut_point);
-  void vclocks_for_seq(std::map<int,Event> &seq, const std::vector<int> &indices,
-		       std::vector<Branch> &v);
   void compute_vclocks(int pass=1);
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
