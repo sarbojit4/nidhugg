@@ -756,11 +756,7 @@ protected:
 			    int ins_point);
   void race_detect_optimal(const Race&, const struct obs_sleep&);
   /* Compute the wakeup sequence for reversing a race. */
-  std::vector<Branch> wakeup_sequence(const Race&,
-				      std::map<int,Event> &wakeup_ev_seq) const;
-  /* Compute the wakeup sequence for reversing a race. */
-  std::vector<Branch> ws_for_msg_msg_race(const Race&,
-				      std::map<int,Event> &wakeup_ev_seq) const;
+  std::vector<Branch> wakeup_sequence(const Race&) const;
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
                              const struct obs_sleep &sleep) const;
