@@ -667,7 +667,7 @@ bool EventTraceBuilder::spawn(){
   threads.push_back(Thread(CPS.new_aux(child_cpid),prefix_idx));
   threads.back().spid = SPS.get_spid(child_cpid);
   threads.back().available = false; // Empty store buffer
-  return record_symbolic(SymEv::Spawn(threads.size() / 2 - 1));
+  return record_symbolic(SymEv::Spawn(SPS.get_spid(child_cpid)));
 }
 //TODO: Reuse code of spawn to do create()
 void EventTraceBuilder::create(){
@@ -696,7 +696,7 @@ bool EventTraceBuilder::start(int pid){
   threads[pid*2].spawn_event = prefix_idx;
   threads[pid*2+1].spawn_event = prefix_idx;
   threads[pid*2].available = true; // Empty store buffer
-  return record_symbolic(SymEv::Spawn(pid));
+  return record_symbolic(SymEv::Spawn(SPS.get_spid(threads[pid*2].cpid)));
 }
 
 bool EventTraceBuilder::post(const int tgt_th) {
@@ -706,24 +706,13 @@ bool EventTraceBuilder::post(const int tgt_th) {
 		 << "because it doesn't exist\n";
     return false;
   }
-  if(!record_symbolic(SymEv::Post(tpid))) return false;
-  if(dryrun) {
-    assert(prefix_idx+1 < int(prefix.len()));
-    assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
-    VecSet<IPid> &A = threads[pid].sleep_posts;
-    A.insert(tpid);
-    return true;
-  }
 
   IPid ipid = curev().iid.get_pid();
   assert(0 <= tpid && tpid<threads.size());
   create();
   threads[threads.size()-2].handler_id = tpid;
   threads[threads.size()-1].handler_id = tpid;
-  int &last_post = threads[tpid].last_post;
-  last_post = prefix_idx;
-  return true;
+  return record_symbolic(SymEv::Post(SPS.get_spid(threads[threads.size()-2].cpid)));
 }
 
 bool EventTraceBuilder::store(const SymData &sd){
@@ -995,7 +984,8 @@ bool EventTraceBuilder::fence(){
 }
 
 bool EventTraceBuilder::join(int tgt_proc){
-  if (!record_symbolic(SymEv::Join(tgt_proc))) return false;
+  if (!record_symbolic(SymEv::Join(SPS.get_spid(threads[tgt_proc].cpid))))
+    return false;
   if(dryrun) return true;
   assert(threads[tgt_proc*2].store_buffer.empty());
   add_happens_after_thread(prefix_idx, tgt_proc*2);
@@ -1991,8 +1981,6 @@ bool EventTraceBuilder::record_symbolic(SymEv event){
 bool EventTraceBuilder::do_events_conflict(int i, int j) const{
   IPid fst = prefix[i].iid.get_pid();
   IPid snd = prefix[j].iid.get_pid();
-  if(threads[fst].handler_id != -1 && threads[fst].spawn_event == j) return true;
-  if(threads[snd].handler_id != -1 && threads[snd].spawn_event == i) return true;
   if(threads[fst].handler_id != -1 && threads[snd].handler_id != -1 &&
      threads[snd].handler_id == threads[snd].handler_id &&
      (is_eom_ordered(i,j) || is_eom_ordered(j,i))) return true;
@@ -2043,15 +2031,13 @@ bool EventTraceBuilder::do_symevs_conflict
 bool EventTraceBuilder::do_events_conflict
 (IPid fst_pid, const sym_ty &fst,
  IPid snd_pid, const sym_ty &snd) const{
+  IPid f_ipid = SPS.get_pid(fst_pid);
+  IPid s_ipid = SPS.get_pid(snd_pid);
   if (fst_pid == snd_pid) return true;
-  if (threads[fst_pid].handler_id == snd_pid) return true;
-  if (threads[snd_pid].handler_id == fst_pid) return true;
-  if (threads[fst_pid].handler_id == threads[snd_pid].handler_id &&
-      threads[fst_pid].handler_id != -1) {
-    if (conf.dpor_algorithm != Configuration::EVENT_DRIVEN) return false;
-  }
+  if (threads[f_ipid].handler_id == s_ipid) return true;
+  if (threads[f_ipid].handler_id == s_ipid) return true;
   for (const SymEv &fe : fst) {
-    if (symev_has_pid(fe) && fe.num() == (snd_pid / 2)) return true;
+    if (symev_has_pid(fe) && fe.num() == snd_pid) return true;
     for (const SymEv &se : snd) {
       if (do_symevs_conflict(fst_pid, fe, snd_pid, se)) {
         return true;
@@ -2059,7 +2045,7 @@ bool EventTraceBuilder::do_events_conflict
     }
   }
   for (const SymEv &se : snd) {
-    if (symev_has_pid(se) && se.num() == (fst_pid / 2)) return true;
+    if (symev_has_pid(se) && se.num() == fst_pid) return true;
   }
   return false;
 }
@@ -2131,12 +2117,13 @@ void EventTraceBuilder::do_race_detect() {
 
 void EventTraceBuilder::race_detect_optimal
 (const Race &race, const struct obs_sleep &isleep){
-  // llvm::dbgs()<<"Race "<<prefix[i].iid<<" "<<prefix[race.second_event].iid<<"\n";/////////////
+  //llvm::dbgs()<<"Race "<<prefix[race.first_event].iid<<" "<<prefix[race.second_event].iid<<"\n";/////////////
 
-  std::vector<Branch> v = wakeup_sequence(race);
+  std::map<IPid, std::vector<unsigned>> eoms;
+  std::vector<Branch> v = wakeup_sequence(race, eoms);
 
-  // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
-  // llvm::dbgs()<<"\n";///////////
+  //for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
+  //llvm::dbgs()<<"\n";///////////
 
   /* Check if we have previously explored everything startable with v */
   if (!sequence_clears_sleep(v, isleep)) return;
@@ -2254,7 +2241,7 @@ void EventTraceBuilder::race_detect_optimal
 }
 
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
-wakeup_sequence(const Race &race) const{
+wakeup_sequence(const Race &race, std::map<IPid, std::vector<unsigned>> &eoms) const{
   int i = race.first_event;
   int j = race.second_event;
   const Event &first = prefix[i];
@@ -2413,6 +2400,7 @@ wakeup_sequence(const Race &race) const{
 	 prefix[k].iid.get_pid() != fpid &&
          prefix[k].clock.lt(prefix[j].clock)){
         v.emplace_back(branch_with_symbolic_data(k));
+	in_v[k] = true;
       }
     }
   }
@@ -2421,6 +2409,8 @@ wakeup_sequence(const Race &race) const{
     recompute_cmpxhg_success(second_br.sym, v, br_point);
   }
   v.push_back(std::move(second_br));
+  //TODO: Works only for NONBLOCK race. Find actual j and make in_v[j] true
+  in_v[j] = true;
 
   /* Part of the first message of the race */
   if(is_msg_msg_race){
@@ -2446,6 +2436,13 @@ wakeup_sequence(const Race &race) const{
     notobs.clear(); /* Since their states are undefined after std::move */
     v.emplace_back(std::move(witness_br));
     v.back().spid = threads[prefix[k].iid.get_pid()].spid;
+  }
+
+  for(IPid k = 2; k < threads.size(); k=k+2){
+    unsigned last_ev = threads[k].event_indices.back();
+    if(in_v[last_ev] == true){
+      eoms[k] = prefix[threads[k].event_indices.front()].eom_before;
+    }
   }
 
   if (conf.dpor_algorithm == Configuration::OBSERVERS) {
