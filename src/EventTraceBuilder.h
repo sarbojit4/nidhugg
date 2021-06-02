@@ -461,8 +461,8 @@ protected:
      * sleep and sleep_evs are of the same size and correspond pairwise.
      */
     std::vector<sym_ty> sleep_evs;
-    /* same as sleep but contains IIDs instead of thread ids */
-    std::vector<IID<IPid>> done_posts;
+    /* Done set of pids of messages */
+    std::vector<IPid> done_msgs;
     /* The set of sleeping threads that wake up during or after this
      * event sequence.
      */
@@ -706,15 +706,13 @@ protected:
   void recompute_observed(std::vector<Branch> &v) const;
   struct obs_sleep {
     struct sleeper {
-      IPid pid;
+      IPid spid;
       const sym_ty *sym;
       Option<SymAddrSize> not_if_read;
     };
     std::vector<struct sleeper> sleep;
     /* Addresses that must be read */
     std::vector<SymAddrSize> must_read;
-    /* Check for pid in sleep */
-    bool count(IPid pid) const;
   };
   /* Returns a string representation of a sleep set. */
   std::string oslp_string(const struct obs_sleep &slp) const;
@@ -752,6 +750,8 @@ protected:
   std::vector<Branch>
   wakeup_sequence(const Race&,
 		  std::map<IPid, std::vector<unsigned>> &eoms) const;
+  /* recompute branch for second event involved in a race */ 
+  void recompute_second(const Race&, Branch &second_br, Event &second) const;
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
                              const struct obs_sleep &sleep) const;
