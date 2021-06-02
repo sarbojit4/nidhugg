@@ -170,7 +170,7 @@ public:
       spid_to_ipid[cpid_to_spid.size()*2] = ipid;
       cpid_to_spid[cpid] = cpid_to_spid.size()*2;
     }
-    spid_to_ipid[cpid_to_spid[cpid]] = ipid;
+    else spid_to_ipid[cpid_to_spid[cpid]] = ipid;
   }
 private:
   std::map<CPid,int> cpid_to_spid;
