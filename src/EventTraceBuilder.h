@@ -17,6 +17,7 @@
  * <http://www.gnu.org/licenses/>.
  */
 
+#include <list>
 #include <queue>
 #include <config.h>
 #ifndef __EVENT_TRACE_BUILDER_H__
@@ -521,6 +522,15 @@ protected:
    */
   int replay_point;
 
+  // class Msg{
+  // public:
+  //   std::list<std::vector<SymEv>> branches;
+  //   void wakeup_branches(const Event &e){
+  //     for(auto it = branches.begin(); it != branches.end(); it++){
+  //     	if(
+  //     }
+  //   }
+  // };
   /* The latest value passed to this->metadata(). */
   const llvm::MDNode *last_md;
 
@@ -618,6 +628,8 @@ protected:
                           IPid snd_pid, const sym_ty &snd) const;
   bool do_symevs_conflict(IPid fst_pid, const SymEv &fst,
                           IPid snd_pid, const SymEv &snd) const;
+  bool do_msgs_conflict(IPid fst_spid, IPid snd_spid,
+			const std::map<IPid, std::vector<IPid>> &eoms) const;
   /* Check if events fst and snd are in an observed race with thd as an
    * observer.
    */
@@ -666,11 +678,9 @@ protected:
    */
   void add_happens_after_thread(unsigned second, IPid thread);
   void add_eom(unsigned second, unsigned first);
-  bool is_eom_ordered(unsigned second, unsigned first) const;
   /* Compute eom */
   void compute_eom();
   void remove_nonreversible_races();
-  void clear_rsc_edges(std::map<int,Event> &wakeup_ev_seq);
   /* Clear all vector clocks */
   void clear_vclocks();
   /* Computes the vector clocks of all events in a complete execution
@@ -748,8 +758,7 @@ protected:
   void race_detect_optimal(const Race&, const struct obs_sleep&);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch>
-  wakeup_sequence(const Race&,
-		  std::map<IPid, std::vector<unsigned>> &eoms) const;
+  wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms) const;
   /* recompute branch for second event involved in a race */ 
   void recompute_second(const Race&, Branch &second_br, Event &second) const;
   /* Checks if a sequence of events will clear a sleep set. */

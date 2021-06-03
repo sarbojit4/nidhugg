@@ -373,10 +373,11 @@ bool EventTraceBuilder::reset(){
 
     evt.sym = br.sym; /* For replay sanity assertions only */
     evt.sleep = prev_evt.sleep;
+    evt.done_msgs = prev_evt.done_msgs;
     if(br.spid != threads[prev_evt.iid.get_pid()].spid){
       if(threads[prev_evt.iid.get_pid()].handler_id != -1 &&
          prefix[i-1].iid.get_pid() != prev_evt.iid.get_pid()){
-	//add into sleep tree
+	evt.done_msgs.push_back(threads[prev_evt.iid.get_pid()].spid);
       }
       else evt.sleep.insert(threads[prev_evt.iid.get_pid()].spid);
     }
@@ -1676,21 +1677,6 @@ void EventTraceBuilder::add_eom(unsigned second, unsigned first){
   vec.push_back(first);
 }
 
-bool EventTraceBuilder::is_eom_ordered(unsigned second, unsigned first) const{
-  assert(first != ~0u);
-  assert(second != ~0u);
-  assert(first != second);
-  if(first >= second) return false;
-  assert((long long)second <= prefix.len());
-  assert((long long)first <= prefix.len());
-  IPid fst = prefix[first].iid.get_pid();
-  IPid snd = prefix[second].iid.get_pid();
-  int lst_fst = threads[fst].event_indices.back();
-  int fst_snd = threads[snd].event_indices.front();
-  std::vector<unsigned> eoms = prefix[fst_snd].eom_before;
-  return (std::find(eoms.begin(), eoms.end(), lst_fst) != eoms.end());
-}
-
 /* Filter the sequence first..last from all elements that are less than
  * any other item. The sequence is modified in place and an iterator to
  * the position beyond the last included element is returned.
@@ -1725,6 +1711,9 @@ static It frontier_filter(It first, It last, LessFn less){
 }
 
 //eom is not exactly transitive. We don't need the precise transitive ordering
+//           |--------|
+//[aaaaaaa][bbbbbb][ccccccc]   eom is not transitive in this case
+//   |__________|
 void EventTraceBuilder::compute_eom(){
   for(IPid i = 2; i<threads.size(); i=i+2){//eom order
     if(threads[i].handler_id == -1) continue;
@@ -1966,12 +1955,6 @@ bool EventTraceBuilder::record_symbolic(SymEv event){
 }
 
 bool EventTraceBuilder::do_events_conflict(int i, int j) const{
-  IPid fst = prefix[i].iid.get_pid();
-  IPid snd = prefix[j].iid.get_pid();
-  if(threads[fst].handler_id != -1 && threads[snd].handler_id != -1 &&
-     threads[snd].handler_id == threads[snd].handler_id &&
-     (is_eom_ordered(i,j) || is_eom_ordered(j,i))) return true;
-     
   return do_events_conflict(prefix[i], prefix[j]);
 }
 
@@ -2034,6 +2017,21 @@ bool EventTraceBuilder::do_events_conflict
   for (const SymEv &se : snd) {
     if (symev_has_pid(se) && se.num() == fst_pid) return true;
   }
+  return false;
+}
+
+bool EventTraceBuilder::do_msgs_conflict
+(IPid fst_spid, IPid snd_spid,
+ const std::map<IPid, std::vector<IPid>> &eoms) const{
+  if(fst_spid == snd_spid) return true;
+  IPid fst = SPS.get_pid(fst_spid);
+  IPid snd = SPS.get_pid(fst_spid);
+  if(eoms.find(snd) != eoms.end() &&
+     std::find(eoms.at(snd).begin(), eoms.at(snd).end(), fst) !=
+     eoms.at(snd).end()) return true;
+  if(eoms.find(fst) != eoms.end() &&
+     std::find(eoms.at(fst).begin(), eoms.at(fst).end(), snd) !=
+     eoms.at(fst).end()) return true;
   return false;
 }
 
@@ -2106,8 +2104,16 @@ void EventTraceBuilder::race_detect_optimal
 (const Race &race, const struct obs_sleep &isleep){
   //llvm::dbgs()<<"Race "<<prefix[race.first_event].iid<<" "<<prefix[race.second_event].iid<<"\n";/////////////
 
-  std::map<IPid, std::vector<unsigned>> eoms;
+  std::map<IPid, std::vector<IPid>> eoms;
   std::vector<Branch> v = wakeup_sequence(race, eoms);
+  IPid fpid = prefix[race.first_event].iid.get_pid();
+  IPid spid = prefix[race.second_event].iid.get_pid();
+  unsigned fst_of_fst = threads[fpid].event_indices.front();
+  const bool is_msg_msg_race =
+    ((threads[fpid].handler_id != -1) &&
+     (threads[fpid].handler_id ==
+      threads[spid].handler_id));
+  int i = is_msg_msg_race? fst_of_fst : race.first_event;
 
   //for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
   //llvm::dbgs()<<"\n";///////////
@@ -2115,7 +2121,7 @@ void EventTraceBuilder::race_detect_optimal
   /* Check if we have previously explored everything startable with v */
   if (!sequence_clears_sleep(v, isleep)) return;
   /* Do insertion into the wakeup tree */
-  WakeupTreeRef<Branch> node = prefix.parent_at(0);
+  WakeupTreeRef<Branch> node = prefix.parent_at(i);
   while(1) {
     if (!node.size()) {
       /* node is a leaf. That means that an execution that will explore the
@@ -2196,6 +2202,13 @@ void EventTraceBuilder::race_detect_optimal
           }
           break;
         }
+	else if (threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
+		 threads[SPS.get_pid(ve.spid)].handler_id ==
+		 threads[SPS.get_pid(child_it.branch().spid)].handler_id &&
+		 do_msgs_conflict(ve.spid,child_it.branch().spid,eoms)){
+	  /* This branch is incompatible, try the next */
+	  skip = NEXT;
+	}
         else if (do_events_conflict(ve.spid, ve.sym,
 				    child_it.branch().spid,
 				    child_sym)) {
@@ -2228,7 +2241,7 @@ void EventTraceBuilder::race_detect_optimal
 }
 
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
-wakeup_sequence(const Race &race, std::map<IPid, std::vector<unsigned>> &eoms) const{
+wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const{
   int i = race.first_event;
   int j = race.second_event;
   const Event &first = prefix[i];
@@ -2252,6 +2265,9 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<unsigned>> &eoms) c
   std::vector<const Event*> observers;
   std::vector<Branch> notobs;
   bool in_v[prefix.len()];
+  /* w is sequence of partial messages and events */
+  bool in_w[prefix.len()];
+  unsigned last_msg[threads.size()];
   unsigned fst_of_fst = threads[fpid].event_indices.front();
   unsigned br_point;
   if(is_msg_msg_race) br_point = fst_of_fst;
@@ -2263,21 +2279,20 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<unsigned>> &eoms) c
     bool partial_msg[threads.size()];
     /* last partial message is considered for a handler */
     bool a[threads.size()];
-    /* w is sequence of partial messages and events */
-    bool in_w[prefix.len()];
 
     for(int k = 0; k < int(threads.size()); ++k){
       partial_msg[k] = false;
       a[k] = false;
+      last_msg[k] = 0;
     }
 
-    /* from start to br_point the wakeup sequence
-     * is same as the current execution
-     */
-    for (unsigned k = 0; k < br_point; ++k){
-      v.emplace_back(branch_with_symbolic_data(k));
-      in_v[k] = true;
-    }
+    // /* from start to br_point the wakeup sequence
+    //  * is same as the current execution
+    //  */
+    // for (unsigned k = 0; k < br_point; ++k){
+    //   v.emplace_back(branch_with_symbolic_data(k));
+    //   in_v[k] = true;
+    // }
 
     /* in_v[k] is true if prefix[k] does not "happen after" prefix[i]
      * (their vector clocks are not strictly greater than prefix[i].clock).
@@ -2362,9 +2377,11 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<unsigned>> &eoms) c
     for (unsigned k = br_point; k < prefix.len(); ++k){
       if(in_v[k] == true) v.emplace_back(branch_with_symbolic_data(k));
     }
+    for (unsigned k = br_point; k < int(prefix.len()); ++k){
+      if(in_w[k] == true) v.emplace_back(branch_with_symbolic_data(k));
+    }
   }
   if(is_msg_msg_race){
-    //TODO: Include in_w
     /* Include part of second message */
     for(unsigned k = threads[spid].event_indices.front();
 	k < j; k++){
@@ -2411,13 +2428,26 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<unsigned>> &eoms) c
   }
 
   /* collect eoms within WS*/
+  for(unsigned k = prefix.len()-1; k >= br_point; k--){
+    IPid handler = threads[prefix[k].iid.get_pid()].handler_id;
+    if((in_v[k] == true || in_w[k] == true)
+       && handler != -1 && last_msg[handler] == 0)
+      last_msg[handler] = prefix[k].iid.get_pid();
+  }
   for(IPid k = 2; k < threads.size(); k=k+2){
     if(threads[k].handler_id == -1) continue;
     unsigned last_ev = threads[k].event_indices.back();
     if(in_v[last_ev] == true){
-      eoms[k] = prefix[threads[k].event_indices.front()].eom_before;
+      for(unsigned ei : prefix[threads[k].event_indices.front()].eom_before){
+	eoms[k].push_back(prefix[ei].iid.get_pid());
+      }
+    }
+    //TODO: Properly compute conflict relation between messages
+    else{
+      eoms[k].push_back(last_msg[threads[k].handler_id]);
     }
   }
+  eoms[fpid].push_back(spid);
 
   if (conf.dpor_algorithm == Configuration::OBSERVERS) {
     /* Recompute observed states on events in v */
