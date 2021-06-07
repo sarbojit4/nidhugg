@@ -729,7 +729,9 @@ protected:
   /* Performs the first half of a sleep set step, adding new sleepers
    * from e.
    */
-  void obs_sleep_add(struct obs_sleep &sleep, const Event &e) const;
+  void obs_sleep_add(struct obs_sleep &sleep,
+		     std::vector<IPid> &sleeping_msgs,
+		     const Event &e) const;
   enum class obs_wake_res {
     CLEAR,
     CONTINUE,
@@ -741,8 +743,10 @@ protected:
    * If obs_wake_res::BLOCK is returned, then this execution has
    * blocked.
    */
-  obs_wake_res obs_sleep_wake(struct obs_sleep &osleep, IPid p,
-                              const sym_ty &sym) const;
+  obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
+			      std::vector<IPid> &sleeping_msgs,
+                              IPid p, const sym_ty &sym,
+			      const std::map<IPid, std::vector<IPid>> &eoms) const;
   /* Performs the second half of a sleep set step, removing sleepers that
    * were identified as waking after event e.
    *
@@ -754,8 +758,11 @@ protected:
    * As this overload is only used on events that have already been
    * executed, it will never block, and thus has no return value.
    */
-  void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
-  void race_detect_optimal(const Race&, const struct obs_sleep&);
+  void obs_sleep_wake(struct obs_sleep &sleep,
+		      std::vector<IPid> &sleeping_msgs,
+		      const Event &e,
+		      const std::map<IPid, std::vector<IPid>> &eoms) const;
+  void race_detect_optimal(const Race&, const struct obs_sleep&,const std::vector<IPid>&);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch>
   wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms) const;
@@ -763,7 +770,9 @@ protected:
   void recompute_second(const Race&, Branch &second_br, Event &second) const;
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
-                             const struct obs_sleep &sleep) const;
+                             const struct obs_sleep &sleep,
+			     const std::vector<IPid> &sleeping_msgs,
+			     const std::map<IPid, std::vector<IPid>> &eoms) const;
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);
