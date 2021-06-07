@@ -3108,7 +3108,9 @@ void Interpreter::callQThreadPostMsg(Function *F,
   int caller_thread = CurrentThread;
   CurrentThread = newThread(CPS.spawn(Threads[CurrentThread].cpid));
   Threads[CurrentThread].handler_id = tid;
-  if(Threads[tid].ready_to_receive && Threads[tid].msgs.empty()){
+  if(!TB.is_following_WS() &&
+     Threads[tid].ready_to_receive &&
+     Threads[tid].msgs.empty()){
     TB.mark_available(Threads.size()-1);
     Threads[tid].ready_to_receive = false;
   }else{
@@ -3498,7 +3500,7 @@ void Interpreter::run() {
   bool rerun = false;
   bool was_following_WS = TB.is_following_WS();
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
-    if(!DryRun) llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";////////////
+    //if(!DryRun) llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";////////////
     assert(0 <= CurrentThread && CurrentThread < long(Threads.size()));
     /* Check if scheduled thread is possible to execute */
     if(!TB.is_available(CurrentThread)){
