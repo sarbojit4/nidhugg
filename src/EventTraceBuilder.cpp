@@ -253,7 +253,9 @@ bool EventTraceBuilder::is_replaying() const {
 }
 
 bool EventTraceBuilder::is_following_WS() const {
-  return (prefix_idx+1 < int(prefix.len()));
+  return ((prefix.len() <= 0) ||
+	  (prefix_idx + 1 < int(prefix.len())) ||
+	  (prefix.lastnode().size() != 0));
 }
 
 void EventTraceBuilder::cancel_replay(){
@@ -2420,9 +2422,9 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
     for (unsigned k = br_point; k < prefix.len(); ++k){
       if(in_v[k] == true) v.emplace_back(branch_with_symbolic_data(k));
     }
-    for (unsigned k = br_point; k < int(prefix.len()); ++k){
-      if(in_w[k] == true) v.emplace_back(branch_with_symbolic_data(k));
-    }
+    // for (unsigned k = br_point; k < int(prefix.len()); ++k){
+    //   if(in_w[k] == true) v.emplace_back(branch_with_symbolic_data(k));
+    // }
   }
   if(is_msg_msg_race){
     /* Include part of second message */

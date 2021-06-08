@@ -129,7 +129,7 @@ public:
   Event &last() { return prefix.back().event; }
   const Branch &lastbranch() { return parent_at(len()-1)->children.front().first; }
   void set_last_branch(Branch b);
-  WakeupTreeRef<Branch> lastnode() { return prefix.back().node; }
+  WakeupTreeRef<Branch> lastnode() const { return prefix.back().node; }
   void delete_last();
   const Branch &first_child() {
     assert(parent_at(len()).size());

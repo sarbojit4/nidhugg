@@ -3505,20 +3505,27 @@ void Interpreter::run() {
     /* Check if scheduled thread is possible to execute */
     if(!TB.is_available(CurrentThread)){
       int handler_id = Threads[CurrentThread].handler_id;
-      if(handler_id != -1 && Threads[handler_id].ready_to_receive){
-	Threads[handler_id].ready_to_receive = false;
-	TB.mark_available(CurrentThread);
-	auto it = std::find(Threads[handler_id].msgs.begin(),
-			    Threads[handler_id].msgs.end(),
-			    CurrentThread);
-	if(it != Threads[handler_id].msgs.end())
-	  Threads[handler_id].msgs.erase(it);
-	else{
-	  llvm::dbgs() << "Error: Trying to execute message "
-		       << CurrentThread
-		       << " which is not posted.\n";
-	  abort();
+      //llvm::dbgs()<<Threads[handler_id].ready_to_receive<<"--\n";////////////////
+      if(handler_id != -1){
+	if(Threads[handler_id].ready_to_receive){
+	  Threads[handler_id].ready_to_receive = false;
+	  TB.mark_available(CurrentThread);
+	  auto it = std::find(Threads[handler_id].msgs.begin(),
+			      Threads[handler_id].msgs.end(),
+			      CurrentThread);
+	  if(it != Threads[handler_id].msgs.end())
+	    Threads[handler_id].msgs.erase(it);
+	  else{
+	    llvm::dbgs() << "Error: Trying to execute message "
+		         << CurrentThread
+		         << " which is not posted.\n";
+	    abort();
+	  }
         }
+	else{
+	  llvm::dbgs() << "Error: Cannot execute message, handler is busy.\n";
+	  abort();
+	}
       } else{
 	llvm::dbgs() << "Error: Trying to execute thread "
 		     << CurrentThread
