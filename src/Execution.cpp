@@ -3132,7 +3132,7 @@ void Interpreter::callQThreadExec(Function *F,
 				  const std::vector<GenericValue> &ArgVals) {
   inactive_handlers.push_back(CurrentThread);
   TB.mark_unavailable(CurrentThread);
-  if(Threads[CurrentThread].msgs.empty()){
+  if(Threads[CurrentThread].msgs.empty() || TB.is_following_WS()){
     Threads[CurrentThread].ready_to_receive = true;
     return;
   }
