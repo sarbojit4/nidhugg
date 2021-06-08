@@ -214,7 +214,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       *aux = -1;
       return true;
     }
-    //else   llvm::dbgs()<<p<<" unavailable\n";///////////////////////
   }
 
 
@@ -2311,7 +2310,7 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
   std::vector<Branch> notobs;
   bool in_v[prefix.len()];
   /* w is sequence of partial messages and events */
-  bool in_w[prefix.len()];
+  //bool in_w[prefix.len()];
   unsigned last_msg[threads.size()];
   unsigned fst_of_fst = threads[fpid].event_indices.front();
   unsigned br_point;
@@ -2363,7 +2362,7 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
 	  partial_msg[ipid] = true;
 	}
       }
-      in_w[k]=false;
+      //in_w[k]=false;
     }
 
     /* remove partial messages and the events from in_v 
@@ -2371,20 +2370,20 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
      * in_w contains events of first partial message of */
     for(unsigned k = br_point; k < int(prefix.len()); ++k){
       IPid ipid = prefix[k].iid.get_pid();
-      in_w[k] = true;
-      if(in_v[k] == false){
-	if(threads[ipid].handler_id != -1) a[threads[ipid].handler_id] = true;
-	in_w[k] = false;
-	continue;
-      }
-      // v[k] is true
-      if(partial_msg[ipid] == true && ipid != spid){
-	if(a[threads[ipid].handler_id] == true){
-	  in_w[k] = false;
-	}
-	in_v[k] = false;
-	continue;
-      }
+      // in_w[k] = true;
+      // if(in_v[k] == false){
+      // 	if(threads[ipid].handler_id != -1) a[threads[ipid].handler_id] = true;
+      // 	in_w[k] = false;
+      // 	continue;
+      // }
+      // // v[k] is true
+      // if(partial_msg[ipid] == true && ipid != spid){
+      // 	if(a[threads[ipid].handler_id] == true){
+      // 	  in_w[k] = false;
+      // 	}
+      // 	in_v[k] = false;
+      // 	continue;
+      // }
       // // not a partial msg
       // if(threads[ipid].handler_id != -1 &&
       //    a[threads[ipid].handler_id] == true){
@@ -2473,18 +2472,18 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
   }
 
   /* collect eoms within WS*/
-  for(unsigned k = prefix.len()-1; k >= br_point; k--){
-    IPid handler = threads[prefix[k].iid.get_pid()].handler_id;
-    if((in_v[k] == true || in_w[k] == true)
-       && handler != -1 && last_msg[handler] == 0)
-      last_msg[handler] = prefix[k].iid.get_pid();
+  for(int k = v.size()-1; k >= 0; k--){
+    Branch br = v[k];
+    IPid handler = threads[SPS.get_pid(br.spid)].handler_id;
+    if(handler != -1 && last_msg[handler] == 0)
+      last_msg[handler] = SPS.get_pid(br.spid);
   }
   for(IPid k = 2; k < threads.size(); k=k+2){
     if(threads[k].handler_id == -1 || k == fpid || k == spid) continue;
     unsigned last_ev = threads[k].event_indices.back();
     if(in_v[last_ev] == true){
       for(unsigned ei : prefix[threads[k].event_indices.front()].eom_before){
-	eoms[k].push_back(prefix[ei].iid.get_pid());
+      eoms[k].push_back(prefix[ei].iid.get_pid());
       }
     }
     //TODO: Properly compute conflict relation between messages
