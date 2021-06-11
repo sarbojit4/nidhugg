@@ -340,18 +340,42 @@ bool EventTraceBuilder::reset(){
   }
 #endif
 
-  int i;
-  for(i = int(prefix.len())-1; 0 <= i; --i){
+  unsigned i;
+  for(i = unsigned(prefix.len())-1; 0 <= i; --i){
     if(prefix.children_after(i)){
       break;
     }
+    else if(i == 0){
+      /* No more branching is possible. */
+      return false;
+    }
   }
 
-  if(i < 0){
-    /* No more branching is possible. */
-    return false;
-  }
   replay_point = i;
+
+  /* Store explored branches of diffrerent messages */
+  for(unsigned k = prefix.len()-1; k >= i ; k--){
+    IPid ipid = prefix[k].iid.get_pid();
+    sleep_trees_t &explored_tails = prefix[k].explored_tails;
+    /* add prefix[k] into sleep tree of same message */
+    if(threads[ipid].handler_id != -1 &&
+       threads[ipid].event_indices.front() <= i){
+      // TODO: Else if prefix[k] is conflicting with last event of
+      // some message in explored_tails, then do same
+      // TODO: collect other branches
+      if((prefix[k+1].explored_tails[threads[ipid].spid].empty() ||
+	  k == prefix.len()-1) && prefix.branch(k).access_global()){
+  	explored_tails[threads[ipid].spid].emplace_back(1,prefix.branch(k));
+  	continue;
+      }
+      explored_tails = std::move(prefix[k+1].explored_tails);
+      if(!prefix.branch(k).access_global()) continue;
+      for(auto &tail : explored_tails[threads[ipid].spid]){
+  	//TODO: add p in front of tails
+	tail.push_front(prefix.branch(k));
+      }
+    }
+  }
 
   /* Setup the new Event at prefix[i] */
   {
@@ -383,6 +407,15 @@ bool EventTraceBuilder::reset(){
       else evt.sleep.insert(threads[prev_evt.iid.get_pid()].spid);
     }
     evt.sleep_branch_trace_count = sleep_branch_trace_count;
+    /* Copying explored_tails and sleep_trees to the new event */
+    evt.sleep_trees = std::move(prev_evt.sleep_trees);
+    if(threads[prev_evt.iid.get_pid()].event_indices.front() == i){
+      IPid ispid = threads[prev_evt.iid.get_pid()].spid;
+      evt.sleep_trees[ispid] =
+    	std::move(prev_evt.explored_tails[ispid]);
+      prev_evt.explored_tails.erase(ispid);
+    }
+    evt.explored_tails = std::move(prev_evt.explored_tails);
 
     prefix.enter_first_child(std::move(evt));
   }
@@ -639,6 +672,25 @@ void EventTraceBuilder::debug_print() const {
       wut_string_add_node(lines, iid_map, i, it.branch(), it.node());
     }
   }
+  /* print sleep tree */
+  // for(unsigned i = 0; i < prefix.len(); ++i){
+  //   lines[i] += " [";
+  //   sleep_trees_t explored_tails = prefix[i].sleep_trees;
+  //   for(auto it = explored_tails.begin(); it != explored_tails.end(); it++){
+  //     lines[i] += std::to_string(it->first) + " -> {";
+  //     const std::vector<std::list<Branch>> tails = it->second;
+  //     for(auto seq_it = tails.begin(); seq_it != tails.end(); seq_it++){
+  // 	lines[i] += "<";
+  // 	std::list<Branch> seq = *seq_it;
+  // 	for(auto br : seq){
+  // 	  lines[i] += events_to_string(br.sym) + ",";
+  // 	}
+  // 	lines[i] += ">";
+  //     }
+  //     lines[i] += "}, "; 
+  //   }
+  //   lines[i] += "]";
+  // }
 
   for(unsigned i = 0; i < prefix.len(); ++i){
     IPid ipid = prefix[i].iid.get_pid();

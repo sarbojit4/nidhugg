@@ -351,6 +351,11 @@ protected:
     bool operator==(const Branch &b) const{
       return spid == b.spid && alt == b.alt;
     };
+    bool access_global() const{
+      for(const SymEv &symev : sym)
+	if(symev.access_global()) return true;
+      return false;
+    }
   };
 
   struct Race {
@@ -408,6 +413,7 @@ protected:
    * lock. All are of kind LOCK_FAIL.
    */
   std::vector<Race> lock_fail_races;
+  typedef std::map<IPid,std::vector<std::list<Branch>>> sleep_trees_t;
 
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts
@@ -464,6 +470,11 @@ protected:
     std::vector<sym_ty> sleep_evs;
     /* Done set of pids of messages */
     std::vector<IPid> done_msgs;
+    /* sleep_tree_t := std::map<IPid,std::vector<std::vector<Branch>>> */
+    /* Contains subtree of explored continuation of the current message */
+    sleep_trees_t explored_tails;
+    /* Contains information about sleeping messages at this point */
+    sleep_trees_t sleep_trees;
     /* The set of sleeping threads that wake up during or after this
      * event sequence.
      */
