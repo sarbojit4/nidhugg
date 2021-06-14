@@ -1526,11 +1526,11 @@ EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
       s_it = sleeping_msgs.erase(s_it);
     } else s_it++;
   }
-  for(auto &slp_tree : sleep_trees){
-    if(slp_tree.first == p && !slp_tree.second.empty()){
+  for(auto slp_tree_it = sleep_trees.begin(); slp_tree_it != sleep_trees.end();){
+    if(slp_tree_it->first == p && !slp_tree_it->second.empty()){
       return obs_wake_res::BLOCK;
     }
-    for(auto seq_it = slp_tree.second.begin(); seq_it != slp_tree.second.end();){
+    for(auto seq_it = slp_tree_it->second.begin(); seq_it != slp_tree_it->second.end();){
       bool conflict = false;
       for(Branch br : (*seq_it)){
 	if(do_events_conflict(p, sym, br.spid, br.sym)){
@@ -1538,9 +1538,11 @@ EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
 	  break;
 	}
       }
-      if(conflict) seq_it = slp_tree.second.erase(seq_it);
+      if(conflict) seq_it = slp_tree_it->second.erase(seq_it);
       else seq_it++;
     }
+    if(slp_tree_it->second.empty()) slp_tree_it = sleep_trees.erase(slp_tree_it);
+    else slp_tree_it++;
   }
 
   /* Check if the sleep set became empty */
