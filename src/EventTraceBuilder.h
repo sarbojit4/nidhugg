@@ -533,15 +533,6 @@ protected:
    */
   int replay_point;
 
-  // class Msg{
-  // public:
-  //   std::list<std::vector<SymEv>> branches;
-  //   void wakeup_branches(const Event &e){
-  //     for(auto it = branches.begin(); it != branches.end(); it++){
-  //     	if(
-  //     }
-  //   }
-  // };
   /* The latest value passed to this->metadata(). */
   const llvm::MDNode *last_md;
 
@@ -742,6 +733,7 @@ protected:
    */
   void obs_sleep_add(struct obs_sleep &sleep,
 		     std::vector<IPid> &sleeping_msgs,
+		     sleep_trees_t &sleep_trees,
 		     const Event &e) const;
   enum class obs_wake_res {
     CLEAR,
@@ -756,6 +748,7 @@ protected:
    */
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
 			      std::vector<IPid> &sleeping_msgs,
+			      sleep_trees_t &sleep_trees,
                               IPid p, const sym_ty &sym,
 			      const std::map<IPid, std::vector<IPid>> &eoms) const;
   /* Performs the second half of a sleep set step, removing sleepers that
@@ -771,9 +764,13 @@ protected:
    */
   void obs_sleep_wake(struct obs_sleep &sleep,
 		      std::vector<IPid> &sleeping_msgs,
+		      sleep_trees_t &sleep_trees,
 		      const Event &e,
 		      const std::map<IPid, std::vector<IPid>> &eoms) const;
-  void race_detect_optimal(const Race&, const struct obs_sleep&,const std::vector<IPid>&);
+  void race_detect_optimal(const Race&,
+			   const struct obs_sleep&,
+			   const std::vector<IPid>&,
+			   const sleep_trees_t &);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch>
   wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms) const;
@@ -783,6 +780,7 @@ protected:
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
                              const struct obs_sleep &sleep,
 			     const std::vector<IPid> &sleeping_msgs,
+			     const sleep_trees_t &sleep_tree,
 			     const std::map<IPid, std::vector<IPid>> &eoms) const;
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */

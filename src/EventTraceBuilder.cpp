@@ -649,6 +649,7 @@ void EventTraceBuilder::debug_print() const {
   std::vector<std::string> lines;
   struct obs_sleep sleep_set;
   std::vector<IPid> sleeping_msgs;
+  sleep_trees_t sleep_trees;
   std::map<IPid, std::vector<IPid>> eoms;
 
   for(unsigned i = 0; i < prefix.len(); ++i){
@@ -656,9 +657,9 @@ void EventTraceBuilder::debug_print() const {
     iid_offs = std::max(iid_offs,2*ipid+int(iid_string(i).size()));
     symev_offs = std::max(symev_offs,
                           int(events_to_string(prefix[i].sym).size()));
-    obs_sleep_add(sleep_set, sleeping_msgs, prefix[i]);
+    obs_sleep_add(sleep_set, sleeping_msgs, sleep_trees, prefix[i]);
     lines.push_back(" SLP:" + oslp_string(sleep_set));
-    obs_sleep_wake(sleep_set, sleeping_msgs, threads[ipid].spid, prefix[i].sym, eoms);
+    obs_sleep_wake(sleep_set, sleeping_msgs, sleep_trees, threads[ipid].spid, prefix[i].sym, eoms);
   }
 
   /* Add wakeup tree */
@@ -672,7 +673,7 @@ void EventTraceBuilder::debug_print() const {
       wut_string_add_node(lines, iid_map, i, it.branch(), it.node());
     }
   }
-  /* print sleep tree */
+  // /* print sleep tree */
   // for(unsigned i = 0; i < prefix.len(); ++i){
   //   lines[i] += " [";
   //   sleep_trees_t explored_tails = prefix[i].sleep_trees;
@@ -1392,12 +1393,16 @@ bool EventTraceBuilder::register_alternatives(int alt_count){
 
 void EventTraceBuilder::obs_sleep_add(struct obs_sleep &sleep,
 				      std::vector<IPid> &sleeping_msgs,
+				      sleep_trees_t &sleep_trees,
                                       const Event &e) const{
   for (int k = 0; k < e.sleep.size(); ++k){
     sleep.sleep.push_back({e.sleep[k], &e.sleep_evs[k], nullptr});
   }
   for(IPid spid : e.done_msgs){
     sleeping_msgs.push_back(spid);
+  }
+  for(auto p : e.sleep_trees){
+    sleep_trees.emplace(p);
   }
 }
 
@@ -1413,6 +1418,7 @@ void unordered_vector_delete(std::vector<T> &vec, std::size_t pos) {
 void
 EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
 				  std::vector<IPid> &sleeping_msgs,
+				  sleep_trees_t &sleep_trees,
 				  const Event &e,
 				  const std::map<IPid, std::vector<IPid>> &eoms) const{
   if (conf.dpor_algorithm != Configuration::OBSERVERS) {
@@ -1428,7 +1434,7 @@ EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
 #ifndef NDEBUG
     obs_wake_res res =
 #endif
-      obs_sleep_wake(sleep, sleeping_msgs, threads[e.iid.get_pid()].spid, e.sym, eoms);
+      obs_sleep_wake(sleep, sleeping_msgs, sleep_trees, threads[e.iid.get_pid()].spid, e.sym, eoms);
     assert(res != obs_wake_res::BLOCK);
   } else {
     sym_ty sym = e.sym;
@@ -1438,7 +1444,7 @@ EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
 #ifndef NDEBUG
     obs_wake_res res =
 #endif
-      obs_sleep_wake(sleep, sleeping_msgs, threads[e.iid.get_pid()].spid, sym, eoms);
+      obs_sleep_wake(sleep, sleeping_msgs, sleep_trees, threads[e.iid.get_pid()].spid, sym, eoms);
     assert(res != obs_wake_res::BLOCK);
   }
 }
@@ -1451,6 +1457,7 @@ static bool symev_does_load(const SymEv &e) {
 EventTraceBuilder::obs_wake_res
 EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
 				  std::vector<IPid> &sleeping_msgs,
+				  sleep_trees_t &sleep_trees,
                                   IPid p, const sym_ty &sym,
 				  const std::map<IPid, std::vector<IPid>> &eoms) const{
 
@@ -1519,7 +1526,22 @@ EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
       s_it = sleeping_msgs.erase(s_it);
     } else s_it++;
   }
-      
+  for(auto &slp_tree : sleep_trees){
+    if(slp_tree.first == p && !slp_tree.second.empty()){
+      return obs_wake_res::BLOCK;
+    }
+    for(auto seq_it = slp_tree.second.begin(); seq_it != slp_tree.second.end();){
+      bool conflict = false;
+      for(Branch br : (*seq_it)){
+	if(do_events_conflict(p, sym, br.spid, br.sym)){
+	  conflict = true;
+	  break;
+	}
+      }
+      if(conflict) seq_it = slp_tree.second.erase(seq_it);
+      else seq_it++;
+    }
+  }
 
   /* Check if the sleep set became empty */
   if (sleep.sleep.empty() && sleep.must_read.empty() && sleeping_msgs.empty()) {
@@ -1545,14 +1567,16 @@ bool EventTraceBuilder::
 sequence_clears_sleep(const std::vector<Branch> &seq,
                       const struct obs_sleep &sleep_const,
 		      const std::vector<IPid> &sleeping_msgs,
+		      const sleep_trees_t &sleep_trees,
 		      const std::map<IPid, std::vector<IPid>> &eoms) const{
   /* We need a writable copy */
   struct obs_sleep isleep = sleep_const;
   std::vector<IPid> slp_msgs = sleeping_msgs;
+  sleep_trees_t slp_trees = sleep_trees;
   obs_wake_res state = obs_wake_res::CONTINUE;
   for (auto it = seq.cbegin(); state == obs_wake_res::CONTINUE
          && it != seq.cend(); ++it) {
-    state = obs_sleep_wake(isleep, slp_msgs, it->spid, it->sym, eoms);
+    state = obs_sleep_wake(isleep, slp_msgs, slp_trees, it->spid, it->sym, eoms);
   }
   /* Redundant */
   return (state == obs_wake_res::CLEAR);
@@ -2182,13 +2206,14 @@ void EventTraceBuilder::do_race_detect() {
   /* Do race detection */
   struct obs_sleep sleep;
   std::vector<IPid> sleeping_msgs;
+  sleep_trees_t sleep_trees;
   for (unsigned i = 0; i < races.size(); ++i){
-    obs_sleep_add(sleep, sleeping_msgs, prefix[i]);
+    obs_sleep_add(sleep, sleeping_msgs, sleep_trees, prefix[i]);
     for (const Race *race : races[i]) {
       assert(race->first_event == int(i));
-      race_detect_optimal(*race, (const struct obs_sleep&)sleep, sleeping_msgs);
+      race_detect_optimal(*race, (const struct obs_sleep&)sleep, sleeping_msgs, sleep_trees);
     }
-    obs_sleep_wake(sleep, sleeping_msgs, prefix[i], eoms);
+    obs_sleep_wake(sleep, sleeping_msgs, sleep_trees, prefix[i], eoms);
   }
 
   for (unsigned i = 0; i < prefix.len(); ++i) prefix[i].races.clear();
@@ -2197,7 +2222,8 @@ void EventTraceBuilder::do_race_detect() {
 
 void EventTraceBuilder::race_detect_optimal
 (const Race &race, const struct obs_sleep &isleep,
- const std::vector<IPid> &sleeping_msgs){
+ const std::vector<IPid> &sleeping_msgs,
+ const sleep_trees_t &sleep_trees){
   //llvm::dbgs()<<"Race "<<prefix[race.first_event].iid<<" "<<prefix[race.second_event].iid<<"\n";/////////////
 
   std::map<IPid, std::vector<IPid>> eoms;
@@ -2213,9 +2239,26 @@ void EventTraceBuilder::race_detect_optimal
 
   //for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
   //llvm::dbgs()<<"\n";///////////
+  // std::string line;
+  // line += " [";
+  // for(auto it = sleep_trees.begin(); it != sleep_trees.end(); it++){
+  //   line += std::to_string(it->first) + " -> {";
+  //   const std::vector<std::list<Branch>> tails = it->second;
+  //   for(auto seq_it = tails.begin(); seq_it != tails.end(); seq_it++){
+  //     line += "<";
+  //     std::list<Branch> seq = *seq_it;
+  //     for(auto br : seq){
+  //   	line += events_to_string(br.sym) + ",";
+  //     }
+  //     line += ">";
+  //   }
+  //   line += "}, "; 
+  // }
+  // line += "]\n";
+  // llvm::dbgs()<<line;//////////////
 
   /* Check if we have previously explored everything startable with v */
-  if (!sequence_clears_sleep(v, isleep, sleeping_msgs,eoms)) return;
+  if (!sequence_clears_sleep(v, isleep, sleeping_msgs, sleep_trees, eoms)) return;
   /* Do insertion into the wakeup tree */
   WakeupTreeRef<Branch> node = prefix.parent_at(i);
   while(1) {
