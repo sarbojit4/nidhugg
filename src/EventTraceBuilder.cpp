@@ -1516,16 +1516,17 @@ EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
     }
   }
 
-  for(auto s_it = sleeping_msgs.begin(); s_it < sleeping_msgs.end();){
-    if(*s_it == p){
-      return obs_wake_res::BLOCK;
-    }
-    unsigned fst_of_sleep = threads[SPS.get_pid(*s_it)].event_indices.front();
-    if(do_msgs_conflict(*s_it, p, eoms) ||
-      do_events_conflict(p, sym, *s_it, prefix[fst_of_sleep].sym)){
-      s_it = sleeping_msgs.erase(s_it);
-    } else s_it++;
-  }
+  // for(auto s_it = sleeping_msgs.begin(); s_it < sleeping_msgs.end();){
+  //   if(*s_it == p){
+  //     return obs_wake_res::BLOCK;
+  //   }
+  //   unsigned fst_of_sleep = threads[SPS.get_pid(*s_it)].event_indices.front();
+  //   if(do_msgs_conflict(*s_it, p, eoms) ||
+  //     do_events_conflict(p, sym, *s_it, prefix[fst_of_sleep].sym)){
+  //     s_it = sleeping_msgs.erase(s_it);
+  //   } else s_it++;
+  // }
+
   for(auto slp_tree_it = sleep_trees.begin(); slp_tree_it != sleep_trees.end();){
     if(slp_tree_it->first == p && !slp_tree_it->second.empty()){
       return obs_wake_res::BLOCK;
@@ -1546,7 +1547,9 @@ EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
   }
 
   /* Check if the sleep set became empty */
-  if (sleep.sleep.empty() && sleep.must_read.empty() && sleeping_msgs.empty()) {
+  if (sleep.sleep.empty() && sleep.must_read.empty() &&
+      sleep_trees.empty()) {//sleeping_msgs.empty()
+    // TODO: Change the condition for obs_wake_res::CLEAR
     return obs_wake_res::CLEAR;
   } else {
     return obs_wake_res::CONTINUE;
@@ -2192,9 +2195,9 @@ void EventTraceBuilder::do_race_detect() {
   std::map<IPid, std::vector<IPid>> eoms;
   for (const Race &r : lock_fail_races) races[r.first_event].push_back(&r);
   for (unsigned i = 0; i < prefix.len(); ++i){
-    for(unsigned ei : prefix[i].eom_before){
-      eoms[prefix[i].iid.get_pid()].push_back(prefix[ei].iid.get_pid());
-    }
+    // for(unsigned ei : prefix[i].eom_before){
+    //   eoms[prefix[i].iid.get_pid()].push_back(prefix[ei].iid.get_pid());
+    // }
     for (const Race &r : prefix[i].races){
       IPid fpid = prefix[r.first_event].iid.get_pid();
       IPid spid = prefix[r.second_event].iid.get_pid();

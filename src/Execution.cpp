@@ -3505,7 +3505,6 @@ void Interpreter::run() {
     /* Check if scheduled thread is possible to execute */
     if(!TB.is_available(CurrentThread)){
       int handler_id = Threads[CurrentThread].handler_id;
-      //llvm::dbgs()<<Threads[handler_id].ready_to_receive<<"--\n";////////////////
       if(handler_id != -1){
 	if(Threads[handler_id].ready_to_receive){
 	  Threads[handler_id].ready_to_receive = false;
