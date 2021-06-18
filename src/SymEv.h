@@ -60,6 +60,7 @@ struct SymEv {
     SPAWN,
     JOIN,
     POST,
+    RET,
 
     UNOBS_STORE,
   } kind;
@@ -107,6 +108,7 @@ struct SymEv {
 
   static SymEv Spawn(int proc) { return {SPAWN, proc}; }
   static SymEv Join(int proc) { return {JOIN, proc}; }
+  static SymEv Ret() { return {RET, {}}; }
 
   static SymEv UnobsStore(SymData addr) {
     return {UNOBS_STORE, std::move(addr)};

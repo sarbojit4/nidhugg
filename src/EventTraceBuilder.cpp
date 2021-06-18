@@ -371,7 +371,6 @@ bool EventTraceBuilder::reset(){
       explored_tails = std::move(prefix[k+1].explored_tails);
       if(!prefix.branch(k).access_global()) continue;
       for(auto &tail : explored_tails[threads[ipid].spid]){
-  	//TODO: add p in front of tails
 	tail.push_front(prefix.branch(k));
       }
     }
@@ -737,6 +736,10 @@ void EventTraceBuilder::create(){
   threads.push_back(Thread(CPS.new_aux(child_cpid),prefix_idx));
   threads.back().spid = SPS.get_spid(child_cpid);
   threads.back().available = false; // Empty store buffer
+}
+
+bool EventTraceBuilder::returnev(){
+  return record_symbolic(SymEv::Ret());
 }
 
 bool EventTraceBuilder::start(int pid){
@@ -2134,17 +2137,23 @@ bool EventTraceBuilder::do_events_conflict
 }
 
 bool EventTraceBuilder::do_msgs_conflict
-(IPid fst_spid, IPid snd_spid,
- const std::map<IPid, std::vector<IPid>> &eoms) const{
+(IPid fst_spid, IPid snd_spid) const{
   if(fst_spid == snd_spid) return true;
   IPid fst = SPS.get_pid(fst_spid);
   IPid snd = SPS.get_pid(snd_spid);
-  if(eoms.find(snd) != eoms.end() &&
-     std::find(eoms.at(snd).begin(), eoms.at(snd).end(), fst) !=
-     eoms.at(snd).end()) return true;
-  if(eoms.find(fst) != eoms.end() &&
-     std::find(eoms.at(fst).begin(), eoms.at(fst).end(), snd) !=
-     eoms.at(fst).end()) return true;
+  for(unsigned ei : threads[fst].event_indices){
+    for(unsigned ej : threads[snd].event_indices){
+      if(do_events_conflict(ei,ej)) {
+	return true;
+      }
+    }
+  }
+  // if(eoms.find(snd) != eoms.end() &&
+  //    std::find(eoms.at(snd).begin(), eoms.at(snd).end(), fst) !=
+  //    eoms.at(snd).end()) return true;
+  // if(eoms.find(fst) != eoms.end() &&
+  //    std::find(eoms.at(fst).begin(), eoms.at(fst).end(), snd) !=
+  //    eoms.at(fst).end()) return true;
   return false;
 }
 
@@ -2198,6 +2207,10 @@ void EventTraceBuilder::do_race_detect() {
     // for(unsigned ei : prefix[i].eom_before){
     //   eoms[prefix[i].iid.get_pid()].push_back(prefix[ei].iid.get_pid());
     // }
+    for(auto v : prefix.branch(i).pending_WSs) {
+      WakeupTreeRef<Branch> node = prefix.parent_at(i);
+      insert_WS(v, node);
+    }
     for (const Race &r : prefix[i].races){
       IPid fpid = prefix[r.first_event].iid.get_pid();
       IPid spid = prefix[r.second_event].iid.get_pid();
@@ -2266,6 +2279,11 @@ void EventTraceBuilder::race_detect_optimal
   if (!sequence_clears_sleep(v, isleep, sleeping_msgs, sleep_trees, eoms)) return;
   /* Do insertion into the wakeup tree */
   WakeupTreeRef<Branch> node = prefix.parent_at(i);
+  insert_WS(v, node);
+}
+
+void EventTraceBuilder::insert_WS(std::vector<Branch> &v, WakeupTreeRef<Branch> &node){
+  bool leftmost_branch = true;
   while(1) {
     if (!node.size()) {
       /* node is a leaf. That means that an execution that will explore the
@@ -2349,14 +2367,25 @@ void EventTraceBuilder::race_detect_optimal
 	else if (threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
 		 threads[SPS.get_pid(ve.spid)].handler_id ==
 		 threads[SPS.get_pid(child_it.branch().spid)].handler_id &&
-		 do_msgs_conflict(ve.spid,child_it.branch().spid,eoms)){
+		 child_it.branch().index == 1 && ve.index == 1 &&
+	         do_msgs_conflict(ve.spid,child_it.branch().spid)){
 	  /* This branch is incompatible, try the next */
+	  //TODO: Find if the message child_it.branch().spid is complete in the WS.
+	  //      Then decide if these messages are conflicting.
+	  // if(leftmost_branch){
+	    
+	  // } else{
+	  //   //llvm::dbgs()<<"Pending WS\n";//////////////
+	  //   child_it.branch().pending_WSs.push_back(std::move(v));
+	  //   return;
+	  // }
 	  skip = NEXT;
 	}
         else if (do_events_conflict(ve.spid, ve.sym,
 				    child_it.branch().spid,
 				    child_sym)) {
           /* This branch is incompatible, try the next */
+	  leftmost_branch = false;
           skip = NEXT;
         }
       }
@@ -2516,6 +2545,8 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
       //   }
       // }
     }
+    //TODO: for normal event-event race delete the messages from the same handler
+    //as the message where the first event of the race is.
 
     /* inserting notdep in v */
     for (unsigned k = br_point; k < prefix.len(); ++k){

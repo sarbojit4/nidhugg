@@ -43,6 +43,7 @@ bool SymEv::is_compatible_with(SymEv other) const {
     if (arg.num != other.arg.num) return false;
     break;
   case FULLMEM:
+  case RET:
   case NONE:
     break;
   default:

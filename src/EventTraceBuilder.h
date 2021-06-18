@@ -56,6 +56,7 @@ public:
   virtual NODISCARD bool spawn() override;
   virtual void create() override;
   virtual NODISCARD bool start(int pid) override;
+  virtual NODISCARD bool returnev() override;
   virtual NODISCARD bool post(const int tgt_proc) override;
   virtual NODISCARD bool store(const SymData &ml) override;
   virtual NODISCARD bool atomic_store(const SymData &ml) override;
@@ -345,6 +346,8 @@ protected:
     int alt;
     /* The number of events in this sequence. */
     int size;
+    std::vector<std::vector<Branch>> pending_WSs;
+    bool end;
     bool operator<(const Branch &b) const{
       return spid < b.spid || (spid == b.spid && alt < b.alt);
     };
@@ -630,8 +633,7 @@ protected:
                           IPid snd_pid, const sym_ty &snd) const;
   bool do_symevs_conflict(IPid fst_pid, const SymEv &fst,
                           IPid snd_pid, const SymEv &snd) const;
-  bool do_msgs_conflict(IPid fst_spid, IPid snd_spid,
-			const std::map<IPid, std::vector<IPid>> &eoms) const;
+  bool do_msgs_conflict(IPid fst_spid, IPid snd_spid) const;
   /* Check if events fst and snd are in an observed race with thd as an
    * observer.
    */
@@ -771,6 +773,7 @@ protected:
 			   const struct obs_sleep&,
 			   const std::vector<IPid>&,
 			   const sleep_trees_t &);
+  void insert_WS(std::vector<Branch> &v, WakeupTreeRef<Branch> &node);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch>
   wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms) const;

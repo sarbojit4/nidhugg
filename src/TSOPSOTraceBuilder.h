@@ -132,6 +132,8 @@ public:
   virtual void create(){};
   /* The current event starts a new qthread. */
   virtual NODISCARD bool start(int pid){ return true; }
+  /* The return instruction of a thread */
+  virtual NODISCARD bool returnev(){ return true; }
   /* The current event posts msg to another thread */
   virtual NODISCARD bool post(const int tgt_th){ return true; }
   /* The current event spawned a new thread.
