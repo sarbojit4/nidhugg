@@ -2367,19 +2367,22 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, WakeupTreeRef<Branch> 
 	else if (threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
 		 threads[SPS.get_pid(ve.spid)].handler_id ==
 		 threads[SPS.get_pid(child_it.branch().spid)].handler_id &&
-		 child_it.branch().index == 1 && ve.index == 1 &&
-	         do_msgs_conflict(ve.spid,child_it.branch().spid)){
+		 child_it.branch().index == 1 && ve.index == 1){//  &&
+	         // do_msgs_conflict(ve.spid,child_it.branch().spid)){
 	  /* This branch is incompatible, try the next */
 	  //TODO: Find if the message child_it.branch().spid is complete in the WS.
 	  //      Then decide if these messages are conflicting.
-	  // if(leftmost_branch){
-	    
-	  // } else{
-	  //   //llvm::dbgs()<<"Pending WS\n";//////////////
-	  //   child_it.branch().pending_WSs.push_back(std::move(v));
-	  //   return;
-	  // }
-	  skip = NEXT;
+	  if(leftmost_branch){
+	    if(do_msgs_conflict(ve.spid,child_it.branch().spid)){
+	      leftmost_branch = false;
+	      skip = NEXT;
+	    }
+	  } else{
+	    //llvm::dbgs()<<"Pending WS\n";//////////////
+	    child_it.branch().pending_WSs.push_back(std::move(v));
+	    return;
+	  }
+	  // skip = NEXT;
 	}
         else if (do_events_conflict(ve.spid, ve.sym,
 				    child_it.branch().spid,
