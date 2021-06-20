@@ -2207,9 +2207,12 @@ void EventTraceBuilder::do_race_detect() {
     // for(unsigned ei : prefix[i].eom_before){
     //   eoms[prefix[i].iid.get_pid()].push_back(prefix[ei].iid.get_pid());
     // }
-    for(auto v : prefix.branch(i).pending_WSs) {
+    for(auto v_it = prefix.branch(i).pending_WSs.begin();
+	v_it != prefix.branch(i).pending_WSs.end();) {
       WakeupTreeRef<Branch> node = prefix.parent_at(i);
+      std::vector<Branch> v = *v_it;
       insert_WS(v, node);
+      v_it = prefix.branch(i).pending_WSs.erase(v_it);
     }
     for (const Race &r : prefix[i].races){
       IPid fpid = prefix[r.first_event].iid.get_pid();
@@ -2378,8 +2381,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, WakeupTreeRef<Branch> 
 	      skip = NEXT;
 	    }
 	  } else{
-	    //llvm::dbgs()<<"Pending WS\n";//////////////
-	    child_it.branch().pending_WSs.push_back(std::move(v));
+	    child_it.branch().pending_WSs.insert(std::move(v));
 	    return;
 	  }
 	  // skip = NEXT;

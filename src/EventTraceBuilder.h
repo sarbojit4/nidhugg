@@ -346,7 +346,7 @@ protected:
     int alt;
     /* The number of events in this sequence. */
     int size;
-    std::vector<std::vector<Branch>> pending_WSs;
+    std::set<std::vector<Branch>> pending_WSs;
     bool end;
     bool operator<(const Branch &b) const{
       return spid < b.spid || (spid == b.spid && alt < b.alt);
