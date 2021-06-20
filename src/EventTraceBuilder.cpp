@@ -1043,7 +1043,7 @@ bool EventTraceBuilder::fence(){
 }
 
 bool EventTraceBuilder::join(int tgt_proc){
-  if (!record_symbolic(SymEv::Join(threads[tgt_proc].spid)))
+  if (!record_symbolic(SymEv::Join(threads[tgt_proc*2].spid)))
     return false;
   if(dryrun) return true;
   assert(threads[tgt_proc*2].store_buffer.empty());
