@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include "qthread.h"
 
+//6 traces
 
 qthread_t handler;
 

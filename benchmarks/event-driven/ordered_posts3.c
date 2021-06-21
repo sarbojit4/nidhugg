@@ -8,7 +8,7 @@
 qthread_t handler;
 
 atomic_int x;
-atomic_int y;
+//atomic_int y;
 void *mes(void *j){
   atomic_store_explicit(&x, 2, memory_order_seq_cst);
   return 0;

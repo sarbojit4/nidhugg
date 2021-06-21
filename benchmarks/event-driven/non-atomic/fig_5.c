@@ -3,6 +3,8 @@
 #include <pthread.h>
 #include "qthread.h"
 
+//2 traces
+
 qthread_t handler;
 
 atomic_int x;

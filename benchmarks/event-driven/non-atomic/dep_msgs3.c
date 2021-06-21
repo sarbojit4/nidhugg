@@ -3,6 +3,8 @@
 #include<pthread.h>
 #include"qthread.h"
 
+//(((2*N)!)^2)/2
+
 #ifndef N
 #  warning "N was not defined"
 #  define N 2
