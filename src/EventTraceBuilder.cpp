@@ -363,8 +363,9 @@ bool EventTraceBuilder::reset(){
       // TODO: Else if prefix[k] is conflicting with last event of
       // some message in explored_tails, then do same
       // TODO: collect other branches
-      if((prefix[k+1].explored_tails[threads[ipid].spid].empty() ||
-	  k == prefix.len()-1) && prefix.branch(k).access_global()){
+      if((k == prefix.len()-1 ||
+	  prefix[k+1].explored_tails[threads[ipid].spid].empty())
+	 && prefix.branch(k).access_global()){
   	explored_tails[threads[ipid].spid].emplace_back(1,prefix.branch(k));
   	continue;
       }
@@ -2444,7 +2445,7 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
   std::vector<Branch> notobs;
   bool in_v[prefix.len()];
   /* w is sequence of partial messages and events */
-  //bool in_w[prefix.len()];
+  bool in_w[prefix.len()];
   unsigned last_msg[threads.size()];
   unsigned fst_of_fst = threads[fpid].event_indices.front();
   unsigned br_point;
@@ -2463,20 +2464,20 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
       a[k] = false;
       last_msg[k] = 0;
     }
-
-    // /* from start to br_point the wakeup sequence
-    //  * is same as the current execution
-    //  */
-    // for (unsigned k = 0; k < br_point; ++k){
-    //   v.emplace_back(branch_with_symbolic_data(k));
-    //   in_v[k] = true;
-    // }
+    for(unsigned k = 0; k < br_point; k++) in_v[k] = true;
 
     /* in_v[k] is true if prefix[k] does not "happen after" prefix[i]
      * (their vector clocks are not strictly greater than prefix[i].clock).
      */
     for (unsigned k = br_point; k < int(prefix.len()); ++k){
-      if(!prefix[br_point].clock.leq(prefix[k].clock)){
+      if(!prefix[br_point].clock.leq(prefix[k].clock) &&
+	 (is_msg_msg_race || threads[fpid].handler_id == -1 ||
+	  threads[spid].handler_id == -1 ||
+	  threads[prefix[k].iid.get_pid()].handler_id !=
+	  threads[fpid].handler_id ||
+	  threads[prefix[k].iid.get_pid()].handler_id !=
+	  threads[spid].handler_id)){
+	  //TODO: consider multihandler case
 	in_v[k] = true;
       } else if (race.kind == Race::OBSERVED && k != j) {
 	if (!std::any_of(observers.begin(), observers.end(),
@@ -2496,7 +2497,6 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
 	  partial_msg[ipid] = true;
 	}
       }
-      //in_w[k]=false;
     }
 
     /* remove partial messages and the events from in_v 
@@ -2504,51 +2504,51 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
      * in_w contains events of first partial message of */
     for(unsigned k = br_point; k < int(prefix.len()); ++k){
       IPid ipid = prefix[k].iid.get_pid();
-      // in_w[k] = true;
-      // if(in_v[k] == false){
-      // 	if(threads[ipid].handler_id != -1) a[threads[ipid].handler_id] = true;
-      // 	in_w[k] = false;
-      // 	continue;
-      // }
-      // // v[k] is true
-      // if(partial_msg[ipid] == true && ipid != spid){
-      // 	if(a[threads[ipid].handler_id] == true){
-      // 	  in_w[k] = false;
-      // 	}
-      // 	in_v[k] = false;
-      // 	continue;
-      // }
-      // // not a partial msg
-      // if(threads[ipid].handler_id != -1 &&
-      //    a[threads[ipid].handler_id] == true){
-      //   in_w[k] = false;
-      //   continue;
-      // }
-      // //no partial msg before in the handler
-      // for (unsigned h : prefix(k).happens_after){
-      //   if(in_v[h] == false){
-      //     if(in_w[h] == false) in_w[k] = false;
-      //     in_v[k] = false;
-      //     break;
-      //   }
-      // }
-      // if(in_v[k] == false && in_w[k] == false) continue;
-      // for (auto race : prefix(k).races){
-      //   unsigned h = race.first_event; 
-      //   if(in_v[h] == false){
-      // 	if(in_w[h] == false) in_w[k] = false;
-      //     in_v[k] = false;
-      //     break;
-      //   }
-      // }
-      // if(in_v[k] == false && in_w[k] == false) continue;
-      // for (unsigned h : prefix(k).eom_before){
-      //   if(in_v[h] == false){
-      //     if(in_w[h] == false) in_w[k] = false;
-      //     in_v[k] = false;
-      //     break;
-      //   }
-      // }
+      if(in_v[k] == false){// || threads[ipid].handler_id == -1){
+      	if(threads[ipid].handler_id != -1) a[threads[ipid].handler_id] = true;
+      	in_w[k] = false;
+      	continue;
+      }
+      in_w[k] = true;
+      // v[k] is true
+      if(partial_msg[ipid] == true){
+      	if(a[threads[ipid].handler_id] == true){
+      	  in_w[k] = false;
+      	}
+      	in_v[k] = false;
+      	continue;
+      }
+      // not a partial msg
+      if(threads[ipid].handler_id != -1 && a[threads[ipid].handler_id] == true){
+        in_w[k] = false;
+        continue;
+      }
+      // no partial msg before in the handler
+      for (unsigned h : prefix[k].happens_after){
+        if(in_v[h] == false){
+          if(in_w[h] == false) in_w[k] = false;
+          in_v[k] = false;
+          break;
+        }
+      }
+      if(in_v[k] == false && in_w[k] == false) continue;
+      for (auto race : prefix[k].races){
+        unsigned h = race.first_event; 
+        if(in_v[h] == false){
+      	  if(in_w[h] == false) in_w[k] = false;
+          in_v[k] = false;
+          break;
+        }
+      }
+      if(in_v[k] == false && in_w[k] == false) continue;
+      for (unsigned h : prefix[k].eom_before){
+        if(in_v[h] == false){
+          if(in_w[h] == false) in_w[k] = false;
+          in_v[k] = false;
+          break;
+        }
+      }
+      if(in_v[k] == true) in_w[k] = false;
     }
     //TODO: for normal event-event race delete the messages from the same handler
     //as the message where the first event of the race is.
@@ -2557,9 +2557,9 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
     for (unsigned k = br_point; k < prefix.len(); ++k){
       if(in_v[k] == true) v.emplace_back(branch_with_symbolic_data(k));
     }
-    // for (unsigned k = br_point; k < int(prefix.len()); ++k){
-    //   if(in_w[k] == true) v.emplace_back(branch_with_symbolic_data(k));
-    // }
+    for (unsigned k = br_point; k < int(prefix.len()); ++k){
+      if(in_w[k] == true) v.emplace_back(branch_with_symbolic_data(k));
+    }
   }
   if(is_msg_msg_race){
     /* Include part of second message */
