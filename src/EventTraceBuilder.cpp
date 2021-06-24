@@ -1533,6 +1533,7 @@ EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
 
   for(auto slp_tree_it = sleep_trees.begin(); slp_tree_it != sleep_trees.end();){
     if(slp_tree_it->first == p && !slp_tree_it->second.empty()){
+      // TODO: Block according to the definition of the paper
       return obs_wake_res::BLOCK;
     }
     for(auto seq_it = slp_tree_it->second.begin(); seq_it != slp_tree_it->second.end();){
@@ -2210,9 +2211,8 @@ void EventTraceBuilder::do_race_detect() {
     // }
     for(auto v_it = prefix.branch(i).pending_WSs.begin();
 	v_it != prefix.branch(i).pending_WSs.end();) {
-      WakeupTreeRef<Branch> node = prefix.parent_at(i);
       std::vector<Branch> v = *v_it;
-      insert_WS(v, node);
+      insert_WS(v, i);
       v_it = prefix.branch(i).pending_WSs.erase(v_it);
     }
     for (const Race &r : prefix[i].races){
@@ -2257,7 +2257,7 @@ void EventTraceBuilder::race_detect_optimal
     ((threads[fpid].handler_id != -1) &&
      (threads[fpid].handler_id ==
       threads[spid].handler_id));
-  int i = is_msg_msg_race? fst_of_fst : race.first_event;
+  unsigned i = is_msg_msg_race? fst_of_fst : race.first_event;
 
   //for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
   //llvm::dbgs()<<"\n";///////////
@@ -2282,11 +2282,11 @@ void EventTraceBuilder::race_detect_optimal
   /* Check if we have previously explored everything startable with v */
   if (!sequence_clears_sleep(v, isleep, sleeping_msgs, sleep_trees, eoms)) return;
   /* Do insertion into the wakeup tree */
-  WakeupTreeRef<Branch> node = prefix.parent_at(i);
-  insert_WS(v, node);
+  insert_WS(v, i);
 }
 
-void EventTraceBuilder::insert_WS(std::vector<Branch> &v, WakeupTreeRef<Branch> &node){
+void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
+  WakeupTreeRef<Branch> node = prefix.parent_at(i);
   bool leftmost_branch = true;
   while(1) {
     if (!node.size()) {
@@ -2398,6 +2398,8 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, WakeupTreeRef<Branch> 
       if (skip == NEXT) { skip = NO; continue; }
 
       /* The child is compatible with v, recurse into it. */
+      //if(leftmost_branch && end_of_ws == i) return;
+      i++;
       node = child_it.node();
       skip = RECURSE;
       break;

@@ -773,7 +773,7 @@ protected:
 			   const struct obs_sleep&,
 			   const std::vector<IPid>&,
 			   const sleep_trees_t &);
-  void insert_WS(std::vector<Branch> &v, WakeupTreeRef<Branch> &node);
+  void insert_WS(std::vector<Branch> &v, unsigned i);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch>
   wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms) const;
