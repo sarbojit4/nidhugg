@@ -2303,6 +2303,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
     enum { NO, RECURSE, NEXT } skip = NO;
     for (auto child_it = node.begin(); child_it != node.end(); ++child_it) {
       const sym_ty &child_sym = child_it.branch().sym;
+      std::vector<unsigned> first_of_msgs;
 
       for (auto vei = v.begin(); skip == NO && vei != v.end(); ++vei) {
         const Branch &ve = *vei;
@@ -2367,29 +2368,61 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
             v.erase(vei);
           }
           break;
-        }
-	else if (threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
-		 threads[SPS.get_pid(ve.spid)].handler_id ==
-		 threads[SPS.get_pid(child_it.branch().spid)].handler_id &&
-		 child_it.branch().index == 1 && ve.index == 1){//  &&
-	         // do_msgs_conflict(ve.spid,child_it.branch().spid)){
+        } else if (threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
+		   child_it.branch().index == 1){
+	  if(threads[SPS.get_pid(ve.spid)].handler_id ==
+	     threads[SPS.get_pid(child_it.branch().spid)].handler_id){//  &&
+	     // do_msgs_conflict(ve.spid,child_it.branch().spid)){
 	  /* This branch is incompatible, try the next */
 	  //TODO: Find if the message child_it.branch().spid is complete in the WS.
 	  //      Then decide if these messages are conflicting.
-	  if(leftmost_branch){
-	    if(do_msgs_conflict(ve.spid,child_it.branch().spid)){
-	      leftmost_branch = false;
-	      skip = NEXT;
+	    if(leftmost_branch){
+	      if(ve.index == 1){
+		first_of_msgs.push_back(find_process_event(SPS.get_pid(ve.spid), 1));
+	      }
+	      IPid child_pid = SPS.get_pid(child_it.branch().spid);
+	      for(unsigned ei : threads[child_pid].event_indices){
+		if(do_events_conflict(ve.spid, ve.sym,
+				      child_it.branch().spid, prefix[ei].sym)){
+		  skip = NEXT;
+		  break;
+		}
+	      }
+	      // if(do_msgs_conflict(ve.spid,child_it.branch().spid)){
+	      //   leftmost_branch = false;
+	      //   skip = NEXT;
+	      // }
+	    } else{
+	      child_it.branch().pending_WSs.insert(std::move(v));
+	      return;
 	    }
 	  } else{
-	    child_it.branch().pending_WSs.insert(std::move(v));
-	    return;
+	    unsigned vi = find_process_event(SPS.get_pid(ve.spid), ve.index);
+	    if(do_events_conflict(ve.spid, ve.sym,
+				  child_it.branch().spid, child_sym)){
+	      leftmost_branch = false;
+	      skip = NEXT;
+	      break;
+	    }
+	    for(unsigned ei : first_of_msgs){
+	      if(prefix[ei].clock.lt(prefix[vi].clock)){
+		IPid child_pid = SPS.get_pid(child_it.branch().spid);
+	        for(unsigned ei : threads[child_pid].event_indices){
+		  if(do_events_conflict(ve.spid, ve.sym,
+				        child_it.branch().spid, prefix[ei].sym)){
+		    leftmost_branch = false;
+		    skip = NEXT;
+		    break;
+		  }
+		}
+		break;
+	      }
+	    }
 	  }
 	  // skip = NEXT;
-	}
-        else if (do_events_conflict(ve.spid, ve.sym,
-				    child_it.branch().spid,
-				    child_sym)) {
+	} else if (do_events_conflict(ve.spid, ve.sym,
+				      child_it.branch().spid,
+				      child_sym)) {
           /* This branch is incompatible, try the next */
 	  leftmost_branch = false;
           skip = NEXT;
@@ -2398,7 +2431,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
       if (skip == NEXT) { skip = NO; continue; }
 
       /* The child is compatible with v, recurse into it. */
-      //if(leftmost_branch && end_of_ws == i) return;
+      if(leftmost_branch && end_of_ws == i) return;
       i++;
       node = child_it.node();
       skip = RECURSE;
