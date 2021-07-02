@@ -20,13 +20,12 @@ atomic_int value[N];
 
 atomic_int a = 0;
 
-void *send_value(void *j) {
-  param p = *(param *)j;
-  atomic_int val = value[p.j];
-  
-  if (val > decision[p.i]) {
-    decision[p.i] = val;
+void *send_value(void *par) {
+  atomic_int val = atomic_load_explicit(&value[(*(param *)par).j], memory_order_seq_cst);
+  if (val > decision[(*(param *)par).i]) {
+    decision[(*(param *)par).i] = val;
   }
+  return 0;
 }
 
 void *broadcast(void *j) {
@@ -38,11 +37,11 @@ void *broadcast(void *j) {
     p.j = *(int *)j;
     qthread_post_event(collectors[i], &send_value, &p);
   }
+  return 0;
 }
 
 void *handler_func(void *i){ 
   int quit = qthread_exec();
-  
   return 0;
 }
 
@@ -57,9 +56,11 @@ int main() {
   }
   
   pthread_t t[N];
+  atomic_int a[N];
   
   for (int i = 0; i < N; i++) {
-    pthread_create(&t[i], NULL, &broadcast, i);
+    a[i] = i;
+    pthread_create(&t[i], NULL, &broadcast, &a[i]);
   }
   
   for (int i = 0; i < N; i++) {
