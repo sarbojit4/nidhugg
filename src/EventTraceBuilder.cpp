@@ -2332,6 +2332,37 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
             return;
           }
 
+	  // if(threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
+	  //    child_it.branch().index == 1){
+	  //   unsigned last_index = threads[SPS.get_pid(ve.spid)].event_indices.size()-1;
+	  //   unsigned last_visited = 0;
+	  //   for(auto wei = vei; wei != v.end(); wei++){
+	  //     if(wei->spid == child_it.branch().spid){
+	  // 	if(wei->index == last_index) break;
+	  // 	else last_visited++;
+	  //     }else{
+	  // 	unsigned vi = find_process_event(SPS.get_pid(wei->spid), wei->index);
+	  // 	for(unsigned ei : first_of_msgs){
+	  //         if(prefix[ei].clock.lt(prefix[vi].clock)){
+	  // 	    IPid child_pid = SPS.get_pid(child_it.branch().spid);
+	  //           for(unsigned ei : threads[child_pid].event_indices){
+	  // 	      if(ei > threads[SPS.get_pid(ve.spid)].event_indices[last_visited] &&
+	  // 		 do_events_conflict(ve.spid, ve.sym,
+	  // 			            child_it.branch().spid,
+	  // 				    prefix[ei].sym)){
+	  // 	        leftmost_branch = false;
+	  // 	        skip = NEXT;
+	  // 	        break;
+	  // 	      }
+	  // 	    }
+	  // 	    break;
+	  //         }
+	  //       }
+	  //     }
+	  //   }
+	  //   break;
+	  // }
+
           /* We will recurse into this node. To do that we first need to
            * drop all events in child_it.branch() from v.
            */
