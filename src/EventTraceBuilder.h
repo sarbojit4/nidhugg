@@ -473,7 +473,7 @@ protected:
     std::vector<sym_ty> sleep_evs;
     /* Done set of pids of messages */
     std::vector<IPid> done_msgs;
-    /* sleep_tree_t := std::map<IPid,std::vector<std::vector<Branch>>> */
+    /* sleep_tree_t := std::map<IPid,std::vector<std::list<Branch>>> */
     /* Contains subtree of explored continuation of the current message */
     sleep_trees_t explored_tails;
     /* Contains information about sleeping messages at this point */

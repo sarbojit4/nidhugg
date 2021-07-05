@@ -369,7 +369,8 @@ bool EventTraceBuilder::reset(){
   	explored_tails[threads[ipid].spid].emplace_back(1,prefix.branch(k));
   	continue;
       }
-      explored_tails = std::move(prefix[k+1].explored_tails);
+      if(!prefix[k+1].explored_tails.empty())
+        explored_tails = std::move(prefix[k+1].explored_tails);
       if(!prefix.branch(k).access_global()) continue;
       for(auto &tail : explored_tails[threads[ipid].spid]){
 	tail.push_front(prefix.branch(k));
@@ -408,14 +409,14 @@ bool EventTraceBuilder::reset(){
     }
     evt.sleep_branch_trace_count = sleep_branch_trace_count;
     /* Copying explored_tails and sleep_trees to the new event */
-    evt.sleep_trees = std::move(prev_evt.sleep_trees);
+    if(!prev_evt.sleep_trees.empty())evt.sleep_trees = std::move(prev_evt.sleep_trees);
     if(threads[prev_evt.iid.get_pid()].event_indices.front() == i){
       IPid ispid = threads[prev_evt.iid.get_pid()].spid;
       evt.sleep_trees[ispid] =
     	std::move(prev_evt.explored_tails[ispid]);
       prev_evt.explored_tails.erase(ispid);
     }
-    evt.explored_tails = std::move(prev_evt.explored_tails);
+    if(!prev_evt.explored_tails.empty()) evt.explored_tails = std::move(prev_evt.explored_tails);
 
     prefix.enter_first_child(std::move(evt));
   }
