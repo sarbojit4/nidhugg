@@ -2544,7 +2544,7 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
 	  threads[fpid].handler_id ||
 	  threads[prefix[k].iid.get_pid()].handler_id !=
 	  threads[spid].handler_id)){
-	  //TODO: consider multihandler case
+	  //TODO: for normal race, allow independent messages from same handler
 	in_v[k] = true;
       } else if (race.kind == Race::OBSERVED && k != j) {
 	if (!std::any_of(observers.begin(), observers.end(),
@@ -2617,7 +2617,6 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
       }
       if(in_v[k] == true) in_w[k] = false;
     }
-    //TODO: for normal event-event race delete the messages from the same handler
     //as the message where the first event of the race is.
 
     /* inserting notdep in v */
@@ -2674,32 +2673,31 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
     v.back().spid = threads[prefix[k].iid.get_pid()].spid;
   }
 
-  /* collect eoms within WS*/
-  for(int k = v.size()-1; k >= 0; k--){
-    Branch br = v[k];
-    IPid handler = threads[SPS.get_pid(br.spid)].handler_id;
-    if(handler != -1 && last_msg[handler] == 0)
-      last_msg[handler] = SPS.get_pid(br.spid);
-  }
-  for(IPid k = 2; k < threads.size(); k=k+2){
-    if(threads[k].handler_id == -1 || k == fpid || k == spid) continue;
-    unsigned last_ev = threads[k].event_indices.back();
-    if(in_v[last_ev] == true){
-      for(unsigned ei : prefix[threads[k].event_indices.front()].eom_before){
-      eoms[k].push_back(prefix[ei].iid.get_pid());
-      }
-    }
-    //TODO: Properly compute conflict relation between messages
-    else if(k != last_msg[threads[k].handler_id]){
-      eoms[k].push_back(last_msg[threads[k].handler_id]);
-    }
-  }
-  for(unsigned ei : prefix[threads[spid].event_indices.front()].eom_before){
-    if(prefix[ei].iid.get_pid() != fpid){
-      eoms[spid].push_back(prefix[ei].iid.get_pid());
-    }
-  }
-  eoms[fpid].push_back(spid);
+  // /* collect eoms within WS*/
+  // for(int k = v.size()-1; k >= 0; k--){
+  //   Branch br = v[k];
+  //   IPid handler = threads[SPS.get_pid(br.spid)].handler_id;
+  //   if(handler != -1 && last_msg[handler] == 0)
+  //     last_msg[handler] = SPS.get_pid(br.spid);
+  // }
+  // for(IPid k = 2; k < threads.size(); k=k+2){
+  //   if(threads[k].handler_id == -1 || k == fpid || k == spid) continue;
+  //   unsigned last_ev = threads[k].event_indices.back();
+  //   if(in_v[last_ev] == true){
+  //     for(unsigned ei : prefix[threads[k].event_indices.front()].eom_before){
+  //     eoms[k].push_back(prefix[ei].iid.get_pid());
+  //     }
+  //   }
+  //   else if(k != last_msg[threads[k].handler_id]){
+  //     eoms[k].push_back(last_msg[threads[k].handler_id]);
+  //   }
+  // }
+  // for(unsigned ei : prefix[threads[spid].event_indices.front()].eom_before){
+  //   if(prefix[ei].iid.get_pid() != fpid){
+  //     eoms[spid].push_back(prefix[ei].iid.get_pid());
+  //   }
+  // }
+  // eoms[fpid].push_back(spid);
 
   if (conf.dpor_algorithm == Configuration::OBSERVERS) {
     /* Recompute observed states on events in v */
