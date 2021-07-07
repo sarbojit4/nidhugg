@@ -2213,6 +2213,8 @@ void EventTraceBuilder::do_race_detect() {
     for(auto v_it = prefix.branch(i).pending_WSs.begin();
 	v_it != prefix.branch(i).pending_WSs.end();) {
       std::vector<Branch> v = *v_it;
+      // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
+      // llvm::dbgs()<<"\n";///////////
       insert_WS(v, i);
       v_it = prefix.branch(i).pending_WSs.erase(v_it);
     }
@@ -2260,8 +2262,8 @@ void EventTraceBuilder::race_detect_optimal
       threads[spid].handler_id));
   unsigned i = is_msg_msg_race? fst_of_fst : race.first_event;
 
-  //for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
-  //llvm::dbgs()<<"\n";///////////
+  // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
+  // llvm::dbgs()<<"\n";///////////
   // std::string line;
   // line += " [";
   // for(auto it = sleep_trees.begin(); it != sleep_trees.end(); it++){
@@ -2305,8 +2307,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
     for (auto child_it = node.begin(); child_it != node.end(); ++child_it) {
       const sym_ty &child_sym = child_it.branch().sym;
       std::vector<unsigned> first_of_msgs;
-
-      for (auto vei = v.begin(); skip == NO && vei != v.end(); ++vei) {
+      std::vector<unsigned> u;
+      unsigned j = 0;
+      for (auto vei = v.begin(); skip == NO && vei != v.end(); ++vei, ++j) {
         const Branch &ve = *vei;
         if (child_it.branch() == ve) {
           if (child_sym != ve.sym) {
@@ -2318,6 +2321,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
               const Branch &pe = *pei;
               if (do_events_conflict(ve.spid, ve.sym,
                                      pe.spid, pe.sym)){
+		leftmost_branch = false;
                 skip = NEXT;
               }
             }
@@ -2333,36 +2337,39 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
             return;
           }
 
-	  // if(threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
-	  //    child_it.branch().index == 1){
-	  //   unsigned last_index = threads[SPS.get_pid(ve.spid)].event_indices.size()-1;
-	  //   unsigned last_visited = 0;
-	  //   for(auto wei = vei; wei != v.end(); wei++){
-	  //     if(wei->spid == child_it.branch().spid){
-	  // 	if(wei->index == last_index) break;
-	  // 	else last_visited++;
-	  //     }else{
-	  // 	unsigned vi = find_process_event(SPS.get_pid(wei->spid), wei->index);
-	  // 	for(unsigned ei : first_of_msgs){
-	  //         if(prefix[ei].clock.lt(prefix[vi].clock)){
-	  // 	    IPid child_pid = SPS.get_pid(child_it.branch().spid);
-	  //           for(unsigned ei : threads[child_pid].event_indices){
-	  // 	      if(ei > threads[SPS.get_pid(ve.spid)].event_indices[last_visited] &&
-	  // 		 do_events_conflict(ve.spid, ve.sym,
-	  // 			            child_it.branch().spid,
-	  // 				    prefix[ei].sym)){
-	  // 	        leftmost_branch = false;
-	  // 	        skip = NEXT;
-	  // 	        break;
-	  // 	      }
-	  // 	    }
-	  // 	    break;
-	  //         }
-	  //       }
-	  //     }
-	  //   }
-	  //   break;
-	  // }
+	  if(threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
+	     child_it.branch().index == 1 && vei != v.begin()){
+	    unsigned last_index = threads[SPS.get_pid(ve.spid)].event_indices.size()-1;
+	    unsigned last_visited = 0;
+	    for(auto wei = vei+1; wei != v.end(); ++wei, ++j){
+	      if(wei->spid == child_it.branch().spid){
+		u.push_back(j);
+	  	if(wei->index == last_index) break;
+	  	else last_visited++;
+	      }else{
+	  	unsigned vi = find_process_event(SPS.get_pid(wei->spid), wei->index);
+		unsigned last_ev = find_process_event(SPS.get_pid(ve.spid), last_index);
+		if(prefix[vi].clock.lt(prefix[last_ev].clock)) u.push_back(j);
+	  	for(unsigned ei : first_of_msgs){
+	          if(prefix[ei].clock.lt(prefix[vi].clock)){
+	  	    IPid child_pid = SPS.get_pid(child_it.branch().spid);
+	            for(unsigned ei : threads[child_pid].event_indices){
+	  	      if(ei > threads[SPS.get_pid(ve.spid)].event_indices[last_visited] &&
+	  		 do_events_conflict(ve.spid, ve.sym,
+	  			            child_it.branch().spid,
+	  				    prefix[ei].sym)){
+	  	        leftmost_branch = false;
+	  	        skip = NEXT;
+	  	        break;
+	  	      }
+	  	    }
+	  	    break;
+	          }
+	        }
+	      }
+	    }
+	    if(skip == NEXT) break;
+	  }
 
           /* We will recurse into this node. To do that we first need to
            * drop all events in child_it.branch() from v.
@@ -2416,6 +2423,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	      for(unsigned ei : threads[child_pid].event_indices){
 		if(do_events_conflict(ve.spid, ve.sym,
 				      child_it.branch().spid, prefix[ei].sym)){
+		  leftmost_branch = false;
 		  skip = NEXT;
 		  break;
 		}
@@ -2430,6 +2438,11 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	    }
 	  } else{
 	    unsigned vi = find_process_event(SPS.get_pid(ve.spid), ve.index);
+	    unsigned last_index =
+	      threads[SPS.get_pid(child_it.branch().spid)].event_indices.size()-1;
+	    unsigned last_ev =
+	      find_process_event(SPS.get_pid(child_it.branch().spid), last_index);
+	    if(prefix[vi].clock.lt(prefix[last_ev].clock)) u.push_back(j);
 	    if(do_events_conflict(ve.spid, ve.sym,
 				  child_it.branch().spid, child_sym)){
 	      leftmost_branch = false;
@@ -2465,6 +2478,16 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
       /* The child is compatible with v, recurse into it. */
       if(leftmost_branch && end_of_ws == i) return;
       i++;
+      if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
+	 child_it.branch().index == 1){
+	//move events in the beginning
+	std::vector<Branch> msg;
+	for(unsigned k : u) msg.push_back(std::move(v[k]));
+	for(auto u_it = u.rbegin(); u_it != u.rend(); u_it++) {
+	  v.erase(v.begin()+(*u_it));
+	}
+	v.insert(v.begin(), msg.begin(), msg.end());
+      }
       node = child_it.node();
       skip = RECURSE;
       break;
