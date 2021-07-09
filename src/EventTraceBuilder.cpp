@@ -2213,8 +2213,8 @@ void EventTraceBuilder::do_race_detect() {
     for(auto v_it = prefix.branch(i).pending_WSs.begin();
 	v_it != prefix.branch(i).pending_WSs.end();) {
       std::vector<Branch> v = *v_it;
-      // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
-      // llvm::dbgs()<<"\n";///////////
+      //for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
+      //llvm::dbgs()<<"\n";///////////
       insert_WS(v, i);
       v_it = prefix.branch(i).pending_WSs.erase(v_it);
     }
@@ -2283,7 +2283,10 @@ void EventTraceBuilder::race_detect_optimal
   // llvm::dbgs()<<line;//////////////
 
   /* Check if we have previously explored everything startable with v */
-  if (!sequence_clears_sleep(v, isleep, sleeping_msgs, sleep_trees, eoms)) return;
+  if (!sequence_clears_sleep(v, isleep, sleeping_msgs, sleep_trees, eoms)){
+    //llvm::dbgs()<<"Redundant\n";
+    return;
+  }
   /* Do insertion into the wakeup tree */
   insert_WS(v, i);
 }
@@ -2308,6 +2311,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
       const sym_ty &child_sym = child_it.branch().sym;
       std::vector<unsigned> first_of_msgs;
       std::vector<unsigned> u;
+      unsigned last_visited = child_it.branch().size;;
       unsigned j = 0;
       for (auto vei = v.begin(); skip == NO && vei != v.end(); ++vei, ++j) {
         const Branch &ve = *vei;
@@ -2339,16 +2343,16 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 
 	  if(threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
 	     child_it.branch().index == 1 && vei != v.begin()){
-	    unsigned last_index = threads[SPS.get_pid(ve.spid)].event_indices.size()-1;
-	    unsigned last_visited = 0;
 	    for(auto wei = vei+1; wei != v.end(); ++wei, ++j){
 	      if(wei->spid == child_it.branch().spid){
 		u.push_back(j);
-	  	if(wei->index == last_index) break;
-	  	else last_visited++;
+	  	last_visited += wei->size;
+	  	if(last_visited == threads[SPS.get_pid(ve.spid)].event_indices.size()) break;
 	      }else{
 	  	unsigned vi = find_process_event(SPS.get_pid(wei->spid), wei->index);
-		unsigned last_ev = find_process_event(SPS.get_pid(ve.spid), last_index);
+		unsigned last_ev =
+		  find_process_event(SPS.get_pid(ve.spid),
+				     threads[SPS.get_pid(ve.spid)].event_indices.size()-1);
 		if(prefix[vi].clock.lt(prefix[last_ev].clock)) u.push_back(j);
 	  	for(unsigned ei : first_of_msgs){
 	          if(prefix[ei].clock.lt(prefix[vi].clock)){
@@ -2434,6 +2438,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	      // }
 	    } else{
 	      child_it.branch().pending_WSs.insert(std::move(v));
+	      //llvm::dbgs()<<"Pending WS\n";////////////////
 	      return;
 	    }
 	  } else{
@@ -2479,10 +2484,22 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
       if(leftmost_branch && end_of_ws == i) return;
       i++;
       if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
-	 child_it.branch().index == 1){
+	 child_it.branch().index == 1 && !first_of_msgs.empty()){
 	//move events in the beginning
 	std::vector<Branch> msg;
 	for(unsigned k : u) msg.push_back(std::move(v[k]));
+	unsigned last_index =
+	  threads[SPS.get_pid(child_it.branch().spid)].event_indices.size()-1;
+	while(last_visited <= last_index){
+	  unsigned ei =
+	    threads[SPS.get_pid(child_it.branch().spid)].event_indices[last_visited];
+	  msg.push_back(branch_with_symbolic_data(ei));
+	  if(prefix[ei].iid.get_index() < last_visited+1){
+	    msg.back().size -= (last_visited+1) - prefix[ei].iid.get_index();
+	    msg.back().sym.clear();
+	  }
+	  last_visited += msg.back().size;
+	}
 	for(auto u_it = u.rbegin(); u_it != u.rend(); u_it++) {
 	  v.erase(v.begin()+(*u_it));
 	}
