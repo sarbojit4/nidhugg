@@ -749,10 +749,10 @@ protected:
    * blocked.
    */
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
-			      std::vector<IPid> &sleeping_msgs,
 			      sleep_trees_t &sleep_trees,
-                              IPid p, const sym_ty &sym,
-			      const std::map<IPid, std::vector<IPid>> &eoms) const;
+                              IPid p, int index, const sym_ty &sym,
+			      const std::map<IPid, std::vector<unsigned>>
+			      &first_of_msgs) const;
   /* Performs the second half of a sleep set step, removing sleepers that
    * were identified as waking after event e.
    *
@@ -765,10 +765,10 @@ protected:
    * executed, it will never block, and thus has no return value.
    */
   void obs_sleep_wake(struct obs_sleep &sleep,
-		      std::vector<IPid> &sleeping_msgs,
 		      sleep_trees_t &sleep_trees,
 		      const Event &e,
-		      const std::map<IPid, std::vector<IPid>> &eoms) const;
+		      const std::map<IPid, std::vector<unsigned>>
+		      &first_of_msgs) const;
   void race_detect_optimal(const Race&,
 			   const struct obs_sleep&,
 			   const std::vector<IPid>&,
