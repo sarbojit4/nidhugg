@@ -2254,7 +2254,6 @@ void EventTraceBuilder::do_race_detect() {
     // for(unsigned ei : prefix[i].eom_before){
     //   eoms[prefix[i].iid.get_pid()].push_back(prefix[ei].iid.get_pid());
     // }
-    //llvm::dbgs()<<i<<"\n";
     for(auto v_it = prefix.branch(i).pending_WSs.begin();
 	v_it != prefix.branch(i).pending_WSs.end();) {
       std::vector<Branch> v = *v_it;
@@ -2392,7 +2391,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
           }
 
 	  if(threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
-	     child_it.branch().index == 1 && vei != v.begin()){
+	     child_it.branch().index == 1 && vei != v.begin() &&
+	     child_it.branch().size <
+	     threads[SPS.get_pid(ve.spid)].event_indices.size()){
 	    for(auto wei = vei+1; wei != v.end(); ++wei, ++j){
 	      if(wei->spid == child_it.branch().spid){
 		u.push_back(j);
@@ -2488,7 +2489,6 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	      // }
 	    } else{
 	      child_it.branch().pending_WSs.insert(std::move(v));
-	      //llvm::dbgs()<<"Pending WS\n";////////////////
 	      return;
 	    }
 	  } else{
