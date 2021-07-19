@@ -321,6 +321,21 @@ bool EventTraceBuilder::reset(){
   clear_vclocks();
   compute_vclocks(2);
   remove_nonreversible_races();
+  // for(auto p : currtrace){
+  //     llvm::dbgs()<<"("<<p.first<<","<<p.second<<")\n";
+  //   }
+  auto trace_it = Traces.find(currtrace);
+  if(trace_it != Traces.end()){
+    llvm::dbgs() << " === EventTraceBuilder reset ===\n";
+    debug_print();
+    llvm::dbgs() << " =============================\n";
+    llvm::dbgs() << " redundant trace\n";
+    for(auto p : (*trace_it)){
+      llvm::dbgs()<<"("<<p.first<<","<<p.second<<")\n";
+    }
+    return false;
+  }
+  Traces.insert(std::move(currtrace));
   do_race_detect();
   
   if(conf.debug_print_on_reset){
@@ -366,6 +381,7 @@ bool EventTraceBuilder::reset(){
       if((k == prefix.len()-1 ||
 	  prefix[k+1].explored_tails[threads[ipid].spid].empty())
 	 && prefix.branch(k).access_global()){
+	//TODO: collect all global events
   	explored_tails[threads[ipid].spid].emplace_back(1,prefix.branch(k));
   	continue;
       }
@@ -867,6 +883,7 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
           }
         }else{
           seen_accesses.insert(bi.last_update);
+	  currtrace.emplace(prefix[bi.last_update].iid, curev().iid);
         }
       }
     }
@@ -940,6 +957,7 @@ void EventTraceBuilder::do_load(const SymAddrSize &ml){
       IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
       if(lu_tipid == ipid && ml != lu_ml && lu != prefix_idx){
         add_happens_after(prefix_idx, lu);
+	currtrace.emplace(prefix[lu].iid, curev().iid);
       }
     }
     do_load(mem[b]);
@@ -1011,6 +1029,7 @@ void EventTraceBuilder::do_load(ByteInfo &m){
     IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
     if(lu_tipid != ipid){
       seen_accesses.insert(lu);
+      currtrace.emplace(prefix[lu].iid, curev().iid);
     }
     if (conf.dpor_algorithm == Configuration::OBSERVERS) {
       /* Update last_update to be an observed store */
@@ -2642,6 +2661,7 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
      * in_w contains events of first partial message of */
     for(unsigned k = br_point; k < int(prefix.len()); ++k){
       IPid ipid = prefix[k].iid.get_pid();
+      int index = prefix[k].iid.get_index();
       if(in_v[k] == false){// || threads[ipid].handler_id == -1){
       	if(threads[ipid].handler_id != -1) a[threads[ipid].handler_id] = true;
       	in_w[k] = false;
@@ -2662,6 +2682,11 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
         continue;
       }
       // no partial msg before in the handler
+      if(in_v[find_process_event(ipid, index-1)] == false){
+	if(in_w[find_process_event(ipid, index-1)] == false) in_w[k] = false;
+	in_v[k] = false;
+      }
+      if(in_v[k] == false && in_w[k] == false) continue;
       for (unsigned h : prefix[k].happens_after){
         if(in_v[h] == false){
           if(in_w[h] == false) in_w[k] = false;
