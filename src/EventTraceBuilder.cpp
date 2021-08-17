@@ -331,7 +331,8 @@ bool EventTraceBuilder::reset(){
     llvm::dbgs() << " =============================\n";
     llvm::dbgs() << " redundant trace\n";
     for(auto p : (*trace_it)){
-      llvm::dbgs()<<"("<<p.first<<","<<p.second<<")\n";
+      llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
+		  <<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
     }
     return false;
   }
@@ -381,7 +382,7 @@ bool EventTraceBuilder::reset(){
       if((k == prefix.len()-1 ||
 	  prefix[k+1].explored_tails[threads[ipid].spid].empty())
 	 && prefix.branch(k).access_global()){
-	//TODO: collect all global events
+	//TODO: collect all global events(locks,conds,mutexes,...)
   	explored_tails[threads[ipid].spid].emplace_back(1,prefix.branch(k));
   	continue;
       }
@@ -2266,7 +2267,7 @@ void EventTraceBuilder::do_race_detect() {
       IPid fpid = prefix[r.first_event].iid.get_pid();
       IPid spid = prefix[r.second_event].iid.get_pid();
       if(threads[fpid].handler_id != -1 &&
-	 threads[fpid].handler_id == threads[spid].handler_id)
+	threads[fpid].handler_id == threads[spid].handler_id)
 	races[threads[fpid].event_indices.front()].push_back(&r);
       else races[r.first_event].push_back(&r);
     }
@@ -2305,11 +2306,9 @@ void EventTraceBuilder::race_detect_optimal
   IPid fpid = prefix[race.first_event].iid.get_pid();
   IPid spid = prefix[race.second_event].iid.get_pid();
   unsigned fst_of_fst = threads[fpid].event_indices.front();
-  const bool is_msg_msg_race =
-    ((threads[fpid].handler_id != -1) &&
-     (threads[fpid].handler_id ==
-      threads[spid].handler_id));
-  unsigned i = is_msg_msg_race? fst_of_fst : race.first_event;
+  unsigned i = ((threads[fpid].handler_id != -1) &&
+                (threads[fpid].handler_id ==
+                 threads[spid].handler_id))? fst_of_fst : race.first_event;
 
   // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
   // llvm::dbgs()<<"\n";///////////
@@ -2602,7 +2601,6 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
   std::vector<Branch> notobs;
   bool in_v[prefix.len()];
   /* w is sequence of partial messages and events */
-  bool in_w[prefix.len()];
   unsigned last_msg[threads.size()];
   unsigned fst_of_fst = threads[fpid].event_indices.front();
   unsigned br_point;
@@ -2664,64 +2662,43 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
       int index = prefix[k].iid.get_index();
       if(in_v[k] == false){// || threads[ipid].handler_id == -1){
       	if(threads[ipid].handler_id != -1) a[threads[ipid].handler_id] = true;
-      	in_w[k] = false;
       	continue;
       }
-      in_w[k] = true;
       // v[k] is true
-      if(partial_msg[ipid] == true){
-      	if(a[threads[ipid].handler_id] == true){
-      	  in_w[k] = false;
-      	}
+      if(partial_msg[ipid] == true && a[threads[ipid].handler_id] == true){
       	in_v[k] = false;
       	continue;
       }
-      // not a partial msg
-      if(threads[ipid].handler_id != -1 && a[threads[ipid].handler_id] == true){
-        in_w[k] = false;
-        continue;
-      }
       // no partial msg before in the handler
       if(in_v[find_process_event(ipid, index-1)] == false){
-	if(in_w[find_process_event(ipid, index-1)] == false) in_w[k] = false;
 	in_v[k] = false;
       }
-      if(in_v[k] == false && in_w[k] == false) continue;
+      if(in_v[k] == false) continue;
       for (unsigned h : prefix[k].happens_after){
         if(in_v[h] == false){
-          if(in_w[h] == false) in_w[k] = false;
           in_v[k] = false;
           break;
         }
       }
-      if(in_v[k] == false && in_w[k] == false) continue;
+      if(in_v[k] == false) continue;
       for (auto race : prefix[k].races){
         unsigned h = race.first_event; 
         if(in_v[h] == false){
-      	  if(in_w[h] == false) in_w[k] = false;
           in_v[k] = false;
           break;
         }
       }
-      if(in_v[k] == false && in_w[k] == false) continue;
+      if(in_v[k] == false) continue;
       for (unsigned h : prefix[k].eom_before){
         if(in_v[h] == false){
-          if(in_w[h] == false) in_w[k] = false;
           in_v[k] = false;
           break;
         }
       }
-      if(in_v[k] == true) in_w[k] = false;
     }
     //as the message where the first event of the race is.
 
-    /* inserting notdep in v */
-    for (unsigned k = br_point; k < prefix.len(); ++k){
-      if(in_v[k] == true) v.emplace_back(branch_with_symbolic_data(k));
-    }
-    for (unsigned k = br_point; k < int(prefix.len()); ++k){
-      if(in_w[k] == true) v.emplace_back(branch_with_symbolic_data(k));
-    }
+    v = linearize_sequence(br_point, in_v);
   }
   if(is_msg_msg_race){
     /* Include part of second message */
@@ -2800,6 +2777,78 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
     recompute_observed(v);
   }
   return v;
+}
+
+std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
+linearize_sequence(unsigned br_point, bool in_v[]) const{
+  std::vector<std::vector<unsigned>> trace(prefix.len());
+  std::vector<unsigned> last_msgs;
+  for(int i = br_point; i < prefix.len(); i++){
+    if(!in_v[i]) continue;
+    trace[i] = prefix[i].happens_after;
+    trace[i].insert(trace[i].end(),
+		     prefix[i].eom_before.begin(),
+		     prefix[i].eom_before.end());
+    auto event_indices = threads[prefix[i].iid.get_pid()].event_indices;
+    if(prefix[i].iid.get_index() > 1){
+      unsigned last_event = event_indices[prefix[i].iid.get_index()-2];
+      trace[i].push_back(last_event);
+    }
+    /* include races in the trace except the race we are reversing */
+    for(auto race:prefix[i].races){
+      trace[i].push_back(race.first_event);
+    }
+  }
+  for(int i = 2; i < threads.size(); i = i+2){
+    if(threads[i].handler_id != -1 &&
+       threads[i].event_indices.front() >= br_point &&
+       in_v[threads[i].event_indices.front()] &&
+       !in_v[threads[i].event_indices.back()]){
+      IPid handler = threads[i].handler_id;
+      for(int j = 2; j < threads.size(); j = j+2){
+	if(i != j && threads[j].handler_id == threads[i].handler_id){
+	  if(in_v[threads[j].event_indices.back()]){
+	  trace[threads[i].event_indices.front()].
+	    push_back(threads[j].event_indices.back());
+	}
+	}
+      }
+    }
+  }
+  /* Do topological sort on the wakeup_sequence */
+  std::vector<bool> visited(prefix.len(),false), visiting(prefix.len(),false);
+  std::vector<unsigned> sorted_seq;
+  for(int i = br_point; i < prefix.len(); i++){
+    if(in_v[i] && !visited[i]){
+      if(visit_event(br_point,i,trace,visiting,visited,sorted_seq) == false){
+	llvm::dbgs() << "Linearize WS failsed: as cycle in the wakeup sequence.\n";
+        exit(1);
+      }
+    }
+  }
+  std::vector<Branch> linearized_ws;
+  for(int i : sorted_seq){
+    linearized_ws.push_back(branch_with_symbolic_data(i));
+  }
+  return linearized_ws;
+}
+
+bool EventTraceBuilder::
+visit_event(unsigned br_point, unsigned i,
+	    std::vector<std::vector<unsigned>> &trace, std::vector<bool> &visiting,
+	    std::vector<bool> &visited, std::vector<unsigned> &sorted_seq) const{
+  if(visiting[i] == true) return false;
+  visiting[i] = true;
+  for(unsigned j : trace[i]){
+    if(j >= br_point && !visited[j]){
+      if(visit_event(br_point,j,trace,visiting,visited,sorted_seq) == false)
+	return false;
+    }
+  }
+  visiting[i] = false;
+  visited[i] = true;
+  sorted_seq.push_back(i);
+  return true;
 }
 
 void EventTraceBuilder::

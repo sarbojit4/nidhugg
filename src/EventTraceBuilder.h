@@ -779,6 +779,12 @@ protected:
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch>
   wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms) const;
+  std::vector<Branch> linearize_sequence(unsigned br_point,
+					 bool in_v[]) const;
+  bool visit_event(unsigned br_point, unsigned i,
+		   std::vector<std::vector<unsigned>> &trace,
+		   std::vector<bool> &visiting, std::vector<bool> &visited,
+		   std::vector<unsigned> &sorted_seq) const;
   /* recompute branch for second event involved in a race */ 
   void recompute_second(const Race&, Branch &second_br, Event &second) const;
   /* Checks if a sequence of events will clear a sleep set. */
