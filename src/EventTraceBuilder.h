@@ -774,7 +774,8 @@ protected:
   void race_detect_optimal(const Race&,
 			   const struct obs_sleep&,
 			   const std::vector<IPid>&,
-			   const sleep_trees_t &);
+			   const sleep_trees_t &,
+			   std::map<IPid, std::vector<unsigned>>);
   void insert_WS(std::vector<Branch> &v, unsigned i);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch>
@@ -792,7 +793,8 @@ protected:
                              const struct obs_sleep &sleep,
 			     const std::vector<IPid> &sleeping_msgs,
 			     const sleep_trees_t &sleep_tree,
-			     const std::map<IPid, std::vector<IPid>> &eoms) const;
+			     const std::map<IPid, std::vector<IPid>> &eoms,
+			     std::map<IPid, std::vector<unsigned>> &first_of_msgs) const;
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);
