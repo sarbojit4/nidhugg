@@ -23,7 +23,6 @@
 
 #include <sstream>
 #include <stdexcept>
-#include <unordered_map>
 #include <forward_list>
 
 #define ANSIRed "\x1b[91m"
@@ -56,6 +55,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   *dryrun = false;
   *alt = 0;
   this->dryrun = false;
+  
   if(replay){
     /* Are we done with the current Event? */
     if(0 <= prefix_idx && threads[curev().iid.get_pid()].last_event_index() <
@@ -2258,13 +2258,26 @@ void EventTraceBuilder::do_race_detect() {
       insert_WS(v, i);
       v_it = prefix.branch(i).pending_WSs.erase(v_it);
     }
-    
+
+    auto special_case = [this](IPid handler, unsigned fst, unsigned sec){
+			  for(unsigned k = fst+1; k < sec; k++){
+			    IPid pid = prefix[k].iid.get_pid();
+			    if(prefix[k].iid.get_index() == 1 &&
+			       threads[pid].handler_id == handler &&
+			       prefix[k].clock.lt(prefix[sec].clock)){
+			      return true;
+			    }
+			  }
+			  return false;
+			};
     for (const Race &r : prefix[i].races){
       IPid fpid = prefix[r.first_event].iid.get_pid();
       IPid spid = prefix[r.second_event].iid.get_pid();
       if(threads[fpid].handler_id != -1 &&
-	threads[fpid].handler_id == threads[spid].handler_id)
+	 (threads[fpid].handler_id == threads[spid].handler_id ||
+	  special_case(threads[fpid].handler_id,r.first_event,r.second_event))){
 	races[threads[fpid].event_indices.front()].push_back(&r);
+      }
       else races[r.first_event].push_back(&r);
     }
   }
@@ -2283,7 +2296,7 @@ void EventTraceBuilder::do_race_detect() {
     for (const Race *race : races[i]) {
       assert(race->first_event == int(i));
       race_detect_optimal(*race, (const struct obs_sleep&)sleep,
-			  sleeping_msgs, sleep_trees, first_of_msgs);
+			  sleeping_msgs, sleep_trees, first_of_msgs, i);
     }
     obs_sleep_wake(sleep, sleep_trees, prefix[i], first_of_msgs);
   }
@@ -2296,17 +2309,14 @@ void EventTraceBuilder::race_detect_optimal
 (const Race &race, const struct obs_sleep &isleep,
  const std::vector<IPid> &sleeping_msgs,
  const sleep_trees_t &sleep_trees,
- std::map<IPid, std::vector<unsigned>> first_of_msgs){
+ std::map<IPid, std::vector<unsigned>> first_of_msgs, unsigned i){
   //llvm::dbgs()<<"Race "<<prefix[race.first_event].iid<<" "<<prefix[race.second_event].iid<<"\n";/////////////
 
   std::map<IPid, std::vector<IPid>> eoms;
-  std::vector<Branch> v = wakeup_sequence(race, eoms);
+  std::vector<Branch> v = wakeup_sequence(race, eoms, i);
   IPid fpid = prefix[race.first_event].iid.get_pid();
   IPid spid = prefix[race.second_event].iid.get_pid();
   unsigned fst_of_fst = threads[fpid].event_indices.front();
-  unsigned i = ((threads[fpid].handler_id != -1) &&
-                (threads[fpid].handler_id ==
-                 threads[spid].handler_id))? fst_of_fst : race.first_event;
 
   // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
   // llvm::dbgs()<<"\n";///////////
@@ -2577,7 +2587,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 }
 
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
-wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const{
+wakeup_sequence(const Race &race,
+		std::map<IPid, std::vector<IPid>> &eoms,
+		unsigned br_point) const{
   int i = race.first_event;
   int j = race.second_event;
   const Event &first = prefix[i];
@@ -2604,9 +2616,6 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
   /* w is sequence of partial messages and events */
   unsigned last_msg[threads.size()];
   unsigned fst_of_fst = threads[fpid].event_indices.front();
-  unsigned br_point;
-  if(is_msg_msg_race) br_point = fst_of_fst;
-  else br_point = i;
 
   /* notdep and notobs computation */
   {
@@ -2627,12 +2636,27 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
      */
     for (unsigned k = br_point; k < int(prefix.len()); ++k){
       if(!prefix[br_point].clock.leq(prefix[k].clock) &&
-	 (is_msg_msg_race || threads[fpid].handler_id == -1 ||
-	  threads[spid].handler_id == -1 ||
-	  threads[prefix[k].iid.get_pid()].handler_id !=
-	  threads[fpid].handler_id ||
-	  threads[prefix[k].iid.get_pid()].handler_id !=
+	 (is_msg_msg_race ||
+	  threads[prefix[k].iid.get_pid()].handler_id == -1)){
+	in_v[k] = true;
+      }
+      else if(!prefix[br_point].clock.leq(prefix[k].clock) &&
+	 (threads[prefix[k].iid.get_pid()].handler_id !=
+	   threads[fpid].handler_id &&
+           threads[prefix[k].iid.get_pid()].handler_id !=
 	  threads[spid].handler_id)){
+	in_v[k] = true;
+      }
+      else if(!prefix[br_point].clock.leq(prefix[k].clock) &&
+	    (threads[prefix[k].iid.get_pid()].handler_id ==
+	   threads[fpid].handler_id &&
+	     prefix[br_point].iid.get_index() == 1)){
+	in_v[k] = true;
+      }
+      else if(!prefix[br_point].clock.leq(prefix[k].clock) &&
+	 (threads[prefix[k].iid.get_pid()].handler_id ==
+	   threads[spid].handler_id &&
+	   threads[spid].event_indices.front() > br_point)){
 	  //TODO: for normal race, allow independent messages from same handler
 	in_v[k] = true;
       } else if (race.kind == Race::OBSERVED && k != j) {
@@ -2666,6 +2690,12 @@ wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms) const
       	continue;
       }
       // v[k] is true
+      if(partial_msg[ipid] == true && !is_msg_msg_race && ipid != spid &&
+	 (threads[ipid].handler_id == threads[fpid].handler_id ||
+	  threads[ipid].handler_id == threads[spid].handler_id)){
+	in_v[k] = false;
+      	continue;
+      }
       if(partial_msg[ipid] == true && a[threads[ipid].handler_id] == true){
       	in_v[k] = false;
       	continue;
@@ -2819,8 +2849,10 @@ linearize_sequence(unsigned br_point, bool in_v[]) const{
   /* Do topological sort on the wakeup_sequence */
   std::vector<bool> visited(prefix.len(),false), visiting(prefix.len(),false);
   std::vector<unsigned> sorted_seq;
+  //llvm::dbgs()<<"-------------\n";//////////////
   for(int i = br_point; i < prefix.len(); i++){
     if(in_v[i] && !visited[i]){
+      //llvm::dbgs()<< i<<"--\n";/////////////
       if(visit_event(br_point,i,trace,visiting,visited,sorted_seq) == false){
 	llvm::dbgs() << "Linearize WS failsed: as cycle in the wakeup sequence.\n";
         exit(1);
@@ -2838,13 +2870,20 @@ bool EventTraceBuilder::
 visit_event(unsigned br_point, unsigned i,
 	    std::vector<std::vector<unsigned>> &trace, std::vector<bool> &visiting,
 	    std::vector<bool> &visited, std::vector<unsigned> &sorted_seq) const{
+  //llvm::dbgs()<< i<<"\n";/////////////
   if(visiting[i] == true) return false;
   visiting[i] = true;
-  for(unsigned j : trace[i]){
-    if(j >= br_point && !visited[j]){
-      if(visit_event(br_point,j,trace,visiting,visited,sorted_seq) == false)
-	return false;
-    }
+  for(auto it = trace[i].begin(); it != trace[i].end();){
+    if(*it >= br_point && !visited[*it]){
+      if(visit_event(br_point,*it,trace,visiting,visited,sorted_seq) == false){
+        //llvm::dbgs()<<*it<<" "<<i<<"\n";////////////////
+	visiting[i] = false;
+	if((*it) <= i) {
+	  return false;
+	}
+	else it = trace[i].erase(it);
+      } else it++;
+    } else it++;
   }
   visiting[i] = false;
   visited[i] = true;

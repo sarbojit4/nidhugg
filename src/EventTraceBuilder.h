@@ -775,11 +775,11 @@ protected:
 			   const struct obs_sleep&,
 			   const std::vector<IPid>&,
 			   const sleep_trees_t &,
-			   std::map<IPid, std::vector<unsigned>>);
+			   std::map<IPid, std::vector<unsigned>>, unsigned);
   void insert_WS(std::vector<Branch> &v, unsigned i);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch>
-  wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms) const;
+  wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms, unsigned br_point) const;
   std::vector<Branch> linearize_sequence(unsigned br_point,
 					 bool in_v[]) const;
   bool visit_event(unsigned br_point, unsigned i,
