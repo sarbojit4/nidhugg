@@ -418,13 +418,17 @@ bool EventTraceBuilder::reset(){
 
     evt.sym = br.sym; /* For replay sanity assertions only */
     evt.sleep = prev_evt.sleep;
-    evt.done_msgs = prev_evt.done_msgs;
+    // evt.done_msgs = prev_evt.done_msgs;
     if(br.spid != threads[prev_evt.iid.get_pid()].spid){
-      if(threads[prev_evt.iid.get_pid()].handler_id != -1 &&
-         prefix[i-1].iid.get_pid() != prev_evt.iid.get_pid()){
-	evt.done_msgs.push_back(threads[prev_evt.iid.get_pid()].spid);
+      // if(threads[prev_evt.iid.get_pid()].handler_id != -1 &&
+      //    prefix[i-1].iid.get_pid() != prev_evt.iid.get_pid()){
+      // 	evt.done_msgs.push_back(threads[prev_evt.iid.get_pid()].spid);
+      // }
+      // else{
+      if(threads[prev_evt.iid.get_pid()].handler_id == -1 ||
+	 prev_evt.iid.get_index() > 1){
+        evt.sleep.insert(threads[prev_evt.iid.get_pid()].spid);
       }
-      else evt.sleep.insert(threads[prev_evt.iid.get_pid()].spid);
     }
     evt.sleep_branch_trace_count = sleep_branch_trace_count;
     /* Copying explored_tails and sleep_trees to the new event */
@@ -1431,9 +1435,9 @@ void EventTraceBuilder::obs_sleep_add(struct obs_sleep &sleep,
   for (int k = 0; k < e.sleep.size(); ++k){
     sleep.sleep.push_back({e.sleep[k], &e.sleep_evs[k], nullptr});
   }
-  for(IPid spid : e.done_msgs){
-    sleeping_msgs.push_back(spid);
-  }
+  // for(IPid spid : e.done_msgs){
+  //   sleeping_msgs.push_back(spid);
+  // }
   for(auto p : e.sleep_trees){
     sleep_trees.emplace(p);
   }
