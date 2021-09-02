@@ -327,10 +327,10 @@ bool EventTraceBuilder::reset(){
   /* Checking if current exploration is redundant */
   auto trace_it = Traces.find(currtrace);
   if(trace_it != Traces.end()){
-    llvm::dbgs() << " === EventTraceBuilder reset ===\n";
+    llvm::dbgs() << "|| ERROR: Redundant exploration ================\n";
     debug_print();
     llvm::dbgs() << " =============================\n";
-    llvm::dbgs() << " redundant trace\n";
+    llvm::dbgs() << " Trace:=====> \n";
     for(auto p : (*trace_it)){
       llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
 		  <<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
@@ -891,7 +891,10 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
       }
     }
     for(int i : bi.last_read){
-      if(0 <= i && prefix[i].iid.get_pid() != tipid) seen_accesses.insert(i);
+      if(0 <= i && prefix[i].iid.get_pid() != tipid){
+	currtrace.emplace(prefix[i].iid, curev().iid);
+	seen_accesses.insert(i);
+      }
     }
 
     /* Register in memory */
@@ -2649,7 +2652,7 @@ wakeup_sequence(const Race &race,
       }
       else if(!prefix[br_point].clock.leq(prefix[k].clock) &&
 	    (threads[prefix[k].iid.get_pid()].handler_id ==
-	   threads[fpid].handler_id &&
+	     threads[fpid].handler_id &&
 	     prefix[br_point].iid.get_index() == 1)){
 	in_v[k] = true;
       }
@@ -2730,7 +2733,6 @@ wakeup_sequence(const Race &race,
       }
     }
     //as the message where the first event of the race is.
-
     v = linearize_sequence(br_point, in_v);
   }
   if(is_msg_msg_race){
@@ -2851,9 +2853,9 @@ linearize_sequence(unsigned br_point, bool in_v[]) const{
   /* Do topological sort on the wakeup_sequence */
   std::vector<bool> visited(prefix.len(),false), visiting(prefix.len(),false);
   std::vector<unsigned> sorted_seq;
-  for(int i = br_point; i < prefix.len(); i++){
+  for(unsigned i = br_point; i < prefix.len(); i++){
     if(in_v[i] && !visited[i]){
-      if(visit_event(br_point,i,trace,visiting,visited,sorted_seq) == false){
+      if(visit_event(br_point,i,in_v,trace,visiting,visited,sorted_seq) == false){
 	llvm::dbgs() << "Linearize WS failsed: as cycle in the wakeup sequence.\n";
         exit(1);
       }
@@ -2867,19 +2869,25 @@ linearize_sequence(unsigned br_point, bool in_v[]) const{
 }
 
 bool EventTraceBuilder::
-visit_event(unsigned br_point, unsigned i,
+visit_event(unsigned br_point, unsigned i, bool in_v[],
 	    std::vector<std::vector<unsigned>> &trace, std::vector<bool> &visiting,
 	    std::vector<bool> &visited, std::vector<unsigned> &sorted_seq) const{
   if(visiting[i] == true) return false;
   visiting[i] = true;
   for(auto it = trace[i].begin(); it != trace[i].end();){
-    if(*it >= br_point && !visited[*it]){
-      if(visit_event(br_point,*it,trace,visiting,visited,sorted_seq) == false){
+    if(in_v[*it] == false){
+      visiting[i] = false;
+      in_v[i] = false;
+      return true;
+    } else if(*it >= br_point && !visited[*it]){
+      if(visit_event(br_point,*it,in_v,trace,visiting,visited,sorted_seq) == false){
 	visiting[i] = false;
-	if((*it) <= i) {
-	  return false;
+	if((*it) <= i) return false;
+	else{// Is it always a message
+	  it = trace[i].erase(it);
+	  IPid pid = prefix[*it].iid.get_pid();
+	  in_v[threads[pid].event_indices.front()] = false;
 	}
-	else it = trace[i].erase(it);
       } else it++;
     } else it++;
   }

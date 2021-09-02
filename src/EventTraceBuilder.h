@@ -782,7 +782,7 @@ protected:
   wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms, unsigned br_point) const;
   std::vector<Branch> linearize_sequence(unsigned br_point,
 					 bool in_v[]) const;
-  bool visit_event(unsigned br_point, unsigned i,
+  bool visit_event(unsigned br_point, unsigned i, bool in_v[],
 		   std::vector<std::vector<unsigned>> &trace,
 		   std::vector<bool> &visiting, std::vector<bool> &visited,
 		   std::vector<unsigned> &sorted_seq) const;
