@@ -346,8 +346,10 @@ protected:
     int alt;
     /* The number of events in this sequence. */
     int size;
+    /* Parked WSs which will be inserted later */
     std::set<std::vector<Branch>> pending_WSs;
-    bool end;
+    //bool end;
+    VClock<IPid> clock;
     bool operator<(const Branch &b) const{
       return spid < b.spid || (spid == b.spid && alt < b.alt);
     };
