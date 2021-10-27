@@ -143,6 +143,7 @@ struct SymEv {
     else if(kind == SPAWN || kind == JOIN || kind == POST) return true;
     return false;
   }
+  bool is_return() const { return kind == NONE; }
 
 private:
   SymEv(enum kind kind, union arg arg) : kind(kind), arg(arg) {};

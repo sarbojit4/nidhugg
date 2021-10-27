@@ -78,6 +78,7 @@ std::string SymEv::to_string(std::function<std::string(int)> pid_str) const {
     case STORE:    return "Store("   + arg.addr.to_string(pid_str)
         + "," + block_to_string(_written, arg.addr.size) + ")";
     case POST:  return "Post("+pid_str(arg.num)+")";
+    case RET:  return "Ret()";  
     case FULLMEM:  return "Fullmem()";
 
     case M_INIT:   return "MInit("   + arg.addr.to_string(pid_str) + ")";
@@ -127,7 +128,7 @@ bool SymEv::has_addr() const {
     return true;
   case NONE:
   case FULLMEM: case NONDET:
-  case SPAWN: case JOIN: case POST:
+  case SPAWN: case JOIN: case POST: case RET:
     return false;
   }
   abort();
@@ -139,6 +140,7 @@ bool SymEv::has_num() const {
   case NONDET:
     return true;
   case NONE:
+  case RET:
   case C_WAIT: case C_AWAKE:
   case FULLMEM:
   case LOAD: case STORE:
@@ -158,6 +160,7 @@ bool SymEv::has_data() const {
   case RMW: case CMPXHG: case CMPXHGFAIL:
     return (bool)_written;
   case NONE:
+  case RET:
   case SPAWN: case JOIN: case POST:
   case NONDET:
   case C_WAIT: case C_AWAKE:
@@ -176,7 +179,7 @@ bool SymEv::has_expected() const {
   case CMPXHG: case CMPXHGFAIL:
     return (bool)_written;
   case NONE:
-  case SPAWN: case JOIN: case POST:
+  case SPAWN: case JOIN: case POST: case RET:
   case NONDET:
   case C_WAIT: case C_AWAKE:
   case FULLMEM:

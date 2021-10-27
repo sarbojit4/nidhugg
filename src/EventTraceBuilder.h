@@ -361,6 +361,11 @@ protected:
 	if(symev.access_global()) return true;
       return false;
     }
+    bool is_ret_stmt() const{
+      for(const SymEv &symev : sym)
+	if(symev.is_return()) return true;
+      return false;
+    }
   };
 
   struct Race {
