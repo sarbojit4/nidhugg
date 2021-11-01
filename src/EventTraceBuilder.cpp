@@ -2255,6 +2255,7 @@ void EventTraceBuilder::do_race_detect() {
     // for(unsigned ei : prefix[i].eom_before){
     //   eoms[prefix[i].iid.get_pid()].push_back(prefix[ei].iid.get_pid());
     // }
+    // llvm::dbgs()<<i<<"\n";//////////////
     /* Insert pending WSs */
     for(auto v_it = prefix.branch(i).pending_WSs.begin();
 	v_it != prefix.branch(i).pending_WSs.end();) {
@@ -2378,13 +2379,14 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
     enum { NO, RECURSE, NEXT } skip = NO;
     for (auto child_it = node.begin(); child_it != node.end(); ++child_it) {
       const sym_ty &child_sym = child_it.branch().sym;
-      std::vector<unsigned> first_of_msgs;
+      std::vector<VClock<IPid>> first_of_msgs;
       std::vector<unsigned> u;
-      unsigned last_visited = child_it.branch().size;;
+      bool branch_found = false;
       unsigned j = 0;
       for (auto vei = v.begin(); skip == NO && vei != v.end(); ++vei, ++j) {
         const Branch &ve = *vei;
         if (child_it.branch() == ve) {
+	  branch_found = true;
           if (child_sym != ve.sym) {
             /* This can happen due to observer effects. We must now make sure
              * ve.second->sym does not have any conflicts with any previous
@@ -2411,49 +2413,38 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
           }
 
 	  /* After finding first event of the message match the whole message */
+	  /* if there is messages from the same handler before(first_of_msgs) */ 
+	  /* and the message has more than one event */
+	  unsigned last_seen_msg_event = 0;
+	  bool partial_msg = v[j].is_ret_stmt()? false : true;
 	  if(threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
-	     child_it.branch().index == 1 && vei != v.begin() &&
-	     child_it.branch().size <
-	     threads[SPS.get_pid(ve.spid)].event_indices.size()){
-	    j = j+1;
-	    for(auto wei = vei+1; wei != v.end(); ++wei, ++j){
-	      // run till we find the last event of the message in v
-	      if(wei->spid == child_it.branch().spid){
-		u.push_back(j);// put rest of the events from the message in u
-	  	last_visited += wei->size;
-	  	if(last_visited == threads[SPS.get_pid(ve.spid)].event_indices.size()) break;
-	      }else{
-	  	//unsigned wi = find_process_event(SPS.get_pid(wei->spid), wei->index);
-		unsigned last_ev =
-		  find_process_event(SPS.get_pid(ve.spid),
-				     threads[SPS.get_pid(ve.spid)].event_indices.size()-1);
-		// put causal events of the message in u
-		if(wei->clock.lt(prefix[last_ev].clock)) u.push_back(j);
-	  	for(unsigned fei : first_of_msgs){
-		  // If wi is happens after some event in some message in the same handler
-	          if(v[fei].clock.lt(wei->clock)){
-	  	    IPid child_pid = SPS.get_pid(child_it.branch().spid);
-	            for(unsigned ei : threads[child_pid].event_indices){
-		      // Check if all the events after the last visited
-		      // in the current message is conflicting
-		      // works for only non-branching case
-	  	      if(ei > threads[SPS.get_pid(ve.spid)].event_indices[last_visited] &&
-	  		 do_events_conflict(ve.spid, ve.sym,
-	  			            child_it.branch().spid,
-	  				    prefix[ei].sym)){
-	  	        leftmost_branch = false;
-	  	        skip = NEXT;
-	  	        break;
-	  	      }
-	  	    }
-	  	    break;
-	          }
-	        }
+	     child_it.branch().index == 1 && !first_of_msgs.empty() &&
+	     !v[j].is_ret_stmt()){
+	    /* Check if the rest of the message can go first in the handler */
+	    for(unsigned k = v.size()-1; k > j; --k){
+	      if(v[k].spid == child_it.branch().spid && last_seen_msg_event == 0){
+		last_seen_msg_event = k;
+		if(v[k].is_ret_stmt()) partial_msg = false;
+		else break;
+		continue;
+	      }
+	      else if(k < last_seen_msg_event &&
+	    	 v[k].clock.lt(v[last_seen_msg_event].clock)){
+	    	for(VClock<IPid> clk : first_of_msgs){
+	    	  if(clk.leq(v[k].clock)){
+	    	    leftmost_branch = false;
+	    	    skip = NEXT;
+	    	    break;
+	    	  }
+	    	}
+		if(skip == NEXT) break;
+	    	continue;
 	      }
 	    }
 	    if(skip == NEXT) break;
 	  }
-
+	  VClock<IPid> clk_lst_msg_event = v[last_seen_msg_event].clock;
+	  
           /* We will recurse into this node. To do that we first need to
            * drop all events in child_it.branch() from v.
            */
@@ -2489,6 +2480,34 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
             /* Drop ve from v. */
             v.erase(vei);
           }
+	  if(partial_msg){
+	    /* delete the messages in the same handler before the current message */
+	    /* and the events that are happening after them */
+	    for(auto wei = v.begin(); wei != v.end(); wei++){
+	      for(VClock<IPid> clk : first_of_msgs){
+		if(clk.leq(wei->clock)){
+		  wei = v.erase(wei);
+		  wei--;
+		  break;
+		}
+	      }
+	    }
+	  } else{
+	    std::vector<Branch> msg;
+	    for(unsigned k : u) msg.push_back(v[k]);
+	    for(unsigned k = j; k < v.size(); k++){
+	      if(clk_lst_msg_event.geq(v[k].clock)){
+		u.push_back(k);
+		msg.push_back(v[k]);
+	      }
+	    }
+	    for(auto k = u.rbegin(); k != u.rend(); ){
+	      v.erase(v.begin()+(*k));
+	      k++;
+	      u.pop_back();
+	    }
+	    v.insert(v.begin(), msg.begin(), msg.end());
+	  }
           break;
         } else if (threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
 		   child_it.branch().index == 1){
@@ -2500,7 +2519,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	  //      Then decide if these messages are conflicting.
 	    if(leftmost_branch){
 	      if(ve.index == 1){
-		first_of_msgs.push_back(j);
+		first_of_msgs.push_back(v[j].clock);
 	      }
 	      IPid child_pid = SPS.get_pid(child_it.branch().spid);
 	      /* Check if all the events of the message in WS is non-conflicting */
@@ -2521,7 +2540,6 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	      return;
 	    }
 	  } else{
-	    //unsigned vi = find_process_event(SPS.get_pid(ve.spid), ve.index);
 	    unsigned last_index =
 	      threads[SPS.get_pid(child_it.branch().spid)].event_indices.size()-1;
 	    unsigned last_ev =
@@ -2533,8 +2551,8 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	      skip = NEXT;
 	      break;
 	    }
-	    for(unsigned fei : first_of_msgs){
-	      if(v[fei].clock.lt(ve.clock)){
+	    for(VClock<IPid> clk : first_of_msgs){
+	      if(clk.lt(ve.clock)){
 		IPid child_pid = SPS.get_pid(child_it.branch().spid);
 	        for(unsigned ei : threads[child_pid].event_indices){
 		  if(do_events_conflict(ve.spid, ve.sym,
@@ -2561,31 +2579,8 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 
       /* The child is compatible with v, recurse into it. */
       if(leftmost_branch && end_of_ws == i) return;
+      if(!branch_found) return;
       i++;
-      if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
-	 child_it.branch().index == 1 && !first_of_msgs.empty()){
-	//move the current messagse in the beginning
-	std::vector<Branch> msg;
-	for(unsigned k : u){
-	  msg.push_back(std::move(v[k]));
-	}
-	unsigned last_index =
-	  threads[SPS.get_pid(child_it.branch().spid)].event_indices.size()-1;
-	while(last_visited <= last_index){
-	  unsigned ei =
-	    threads[SPS.get_pid(child_it.branch().spid)].event_indices[last_visited];
-	  msg.push_back(branch_with_symbolic_data(ei));
-	  if(prefix[ei].iid.get_index() < last_visited+1){
-	    msg.back().size -= (last_visited+1) - prefix[ei].iid.get_index();
-	    msg.back().sym.clear();
-	  }
-	  last_visited += msg.back().size;
-	}
-	for(auto u_it = u.rbegin(); u_it != u.rend(); u_it++) {
-	  v.erase(v.begin()+(*u_it));
-	}
-	v.insert(v.begin(), msg.begin(), msg.end());
-      }
       node = child_it.node();
       skip = RECURSE;
       break;
