@@ -2417,28 +2417,46 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	  /* and the message has more than one event */
 	  unsigned last_seen_msg_event = 0;
 	  bool partial_msg = v[j].is_ret_stmt()? false : true;
-	  if(threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
-	     child_it.branch().index == 1 && !first_of_msgs.empty() &&
-	     !v[j].is_ret_stmt()){
+	  if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
+	     child_it.branch().index == 1 && !first_of_msgs.empty() && partial_msg){
 	    /* Check if the rest of the message can go first in the handler */
 	    for(unsigned k = v.size()-1; k > j; --k){
 	      if(v[k].spid == child_it.branch().spid && last_seen_msg_event == 0){
 		last_seen_msg_event = k;
 		if(v[k].is_ret_stmt()) partial_msg = false;
-		else break;
-		continue;
+		break;
 	      }
-	      else if(k < last_seen_msg_event &&
-	    	 v[k].clock.lt(v[last_seen_msg_event].clock)){
-	    	for(VClock<IPid> clk : first_of_msgs){
-	    	  if(clk.leq(v[k].clock)){
-	    	    leftmost_branch = false;
-	    	    skip = NEXT;
-	    	    break;
-	    	  }
-	    	}
-		if(skip == NEXT) break;
-	    	continue;
+	    }
+	    /* check if events from the message occuring in WS are conflicting */
+	    for(VClock<IPid> clk : first_of_msgs){
+	      if(clk.lt(v[last_seen_msg_event].clock)){
+	        leftmost_branch = false;
+	        skip = NEXT;
+	        break;
+	      }
+	    }
+	    /* events are same as the current execution for partial non-branching message */
+	    /* check conflict for the rest of the message not in WS */
+	    if(skip != NEXT && partial_msg){
+	      unsigned last_index = v[last_seen_msg_event].index +
+		v[last_seen_msg_event].size - 1;
+	      for(unsigned k = v.size()-1; k > j; --k){
+		if(v[k].spid == child_it.branch().spid){
+		  continue;
+		}
+		for(VClock<IPid> clk : first_of_msgs){
+		  if(clk.leq(v[k].clock)){
+		    std::vector<unsigned> event_indices =
+		      threads[SPS.get_pid(child_it.branch().spid)].event_indices;
+		    for(unsigned ei = last_index+1; ei < event_indices.size(); ei++){
+		      if(do_events_conflict(child_it.branch().spid, child_it.branch().sym,
+					    child_it.branch().spid, prefix[ei].sym))
+			skip = NEXT;
+		      break;
+		    }
+		  }
+		  if(skip == NEXT) break;
+		}
 	      }
 	    }
 	    if(skip == NEXT) break;
@@ -2480,33 +2498,36 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
             /* Drop ve from v. */
             v.erase(vei);
           }
-	  if(partial_msg){
-	    /* delete the messages in the same handler before the current message */
-	    /* and the events that are happening after them */
-	    for(auto wei = v.begin(); wei != v.end(); wei++){
-	      for(VClock<IPid> clk : first_of_msgs){
-		if(clk.leq(wei->clock)){
-		  wei = v.erase(wei);
-		  wei--;
-		  break;
+	  if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
+	     child_it.branch().index == 1){
+	    if(partial_msg){
+	      /* delete the messages in the same handler before the current message */
+	      /* and the events that are happening after them */
+	      for(auto wei = v.begin(); wei != v.end(); wei++){
+		for(VClock<IPid> clk : first_of_msgs){
+		  if(clk.leq(wei->clock)){
+		    wei = v.erase(wei);
+		    wei--;
+		    break;
+		  }
 		}
 	      }
-	    }
-	  } else{
-	    std::vector<Branch> msg;
-	    for(unsigned k : u) msg.push_back(v[k]);
-	    for(unsigned k = j; k < v.size(); k++){
-	      if(clk_lst_msg_event.geq(v[k].clock)){
-		u.push_back(k);
-		msg.push_back(v[k]);
+	    } else{
+	      std::vector<Branch> msg;
+	      for(unsigned k : u) msg.push_back(v[k]);
+	      for(unsigned k = j; k < v.size(); k++){
+		if(clk_lst_msg_event.geq(v[k].clock)){
+		  u.push_back(k);
+		  msg.push_back(v[k]);
+		}
 	      }
+	      for(auto k = u.rbegin(); k != u.rend(); ){
+		v.erase(v.begin()+(*k));
+		k++;
+		u.pop_back();
+	      }
+	      v.insert(v.begin(), msg.begin(), msg.end());
 	    }
-	    for(auto k = u.rbegin(); k != u.rend(); ){
-	      v.erase(v.begin()+(*k));
-	      k++;
-	      u.pop_back();
-	    }
-	    v.insert(v.begin(), msg.begin(), msg.end());
 	  }
           break;
         } else if (threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
