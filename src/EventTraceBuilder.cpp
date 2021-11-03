@@ -2387,21 +2387,21 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
         const Branch &ve = *vei;
         if (child_it.branch() == ve) {
 	  branch_found = true;
-          if (child_sym != ve.sym) {
-            /* This can happen due to observer effects. We must now make sure
-             * ve.second->sym does not have any conflicts with any previous
-             * event in v; i.e. wether it actually is a weak initial of v.
-             */
-            for (auto pei = v.begin(); skip == NO && pei != vei; ++pei){
-              const Branch &pe = *pei;
-              if (do_events_conflict(ve.spid, ve.sym,
-                                     pe.spid, pe.sym)){
-		leftmost_branch = false;
-                skip = NEXT;
-              }
-            }
-            if (skip == NEXT) break;
-          }
+          // if (child_sym != ve.sym) {
+          //   /* This can happen due to observer effects. We must now make sure
+          //    * ve.second->sym does not have any conflicts with any previous
+          //    * event in v; i.e. wether it actually is a weak initial of v.
+          //    */
+          //   for (auto pei = v.begin(); skip == NO && pei != vei; ++pei){
+          //     const Branch &pe = *pei;
+          //     if (do_events_conflict(ve.spid, ve.sym,
+          //                            pe.spid, pe.sym)){
+	  // 	leftmost_branch = false;
+          //       skip = NEXT;
+          //     }
+          //   }
+          //   if (skip == NEXT) break;
+          // }
 
           if (v.size() == 1) {
             /* v is about to run out, which means that we had already
@@ -2418,87 +2418,20 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	  unsigned last_seen_msg_event = 0;
 	  bool partial_msg = v[j].is_ret_stmt()? false : true;
 	  if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
-	     child_it.branch().index == 1 && !first_of_msgs.empty() && partial_msg){
-	    /* Check if the rest of the message can go first in the handler */
-	    for(unsigned k = v.size()-1; k > j; --k){
-	      if(v[k].spid == child_it.branch().spid && last_seen_msg_event == 0){
-		last_seen_msg_event = k;
-		if(v[k].is_ret_stmt()) partial_msg = false;
-		break;
-	      }
-	    }
-	    /* check if events from the message occuring in WS are conflicting */
-	    for(VClock<IPid> clk : first_of_msgs){
-	      if(clk.lt(v[last_seen_msg_event].clock)){
-	        leftmost_branch = false;
-	        skip = NEXT;
-	        break;
-	      }
-	    }
-	    /* events are same as the current execution for partial non-branching message */
-	    /* check conflict for the rest of the message not in WS */
-	    if(skip != NEXT && partial_msg){
-	      unsigned last_index = v[last_seen_msg_event].index +
-		v[last_seen_msg_event].size - 1;
-	      for(unsigned k = v.size()-1; k > j; --k){
-		if(v[k].spid == child_it.branch().spid){
-		  continue;
-		}
-		for(VClock<IPid> clk : first_of_msgs){
-		  if(clk.leq(v[k].clock)){
-		    std::vector<unsigned> event_indices =
-		      threads[SPS.get_pid(child_it.branch().spid)].event_indices;
-		    for(unsigned ei = last_index+1; ei < event_indices.size(); ei++){
-		      if(do_events_conflict(child_it.branch().spid, child_it.branch().sym,
-					    child_it.branch().spid, prefix[ei].sym))
-			skip = NEXT;
-		      break;
-		    }
-		  }
-		  if(skip == NEXT) break;
-		}
-	      }
-	    }
-	    if(skip == NEXT) break;
+	     child_it.branch().index == 1 && !first_of_msgs.empty() && partial_msg &&
+	     conflict_with_rest_of_msg(j, child_it.branch(), v, first_of_msgs,
+				       last_seen_msg_event, partial_msg)){
+	    skip = NEXT;
+	    leftmost_branch = false;
+	    break;
 	  }
 	  VClock<IPid> clk_lst_msg_event = v[last_seen_msg_event].clock;
 	  
           /* We will recurse into this node. To do that we first need to
            * drop all events in child_it.branch() from v.
            */
-          if (ve.size < child_it.branch().size) {
-            /* child_it.branch() contains more events than just ve.
-             * We need to scan v to find all of them.
-             */
-            int missing = child_it.branch().size - ve.size;
-            int spid = ve.spid;
-            for (auto vri = v.erase(vei); missing != 0 && vri != v.end();) {
-              if (vri->spid == spid) {
-                assert(vri->sym.empty());
-                if (vri->size > missing) {
-                  vri->size = missing;
-                  missing = 0;
-                  break;
-                } else {
-                  missing -= vri->size;
-                  vri =  v.erase(vri);
-                }
-              } else {
-                ++vri;
-              }
-            }
-          } else if (ve.size > child_it.branch().size) {
-            /* ve is larger than child_it.branch(). Delete the common
-             * prefix from ve.
-             */
-            vei->size -= child_it.branch().size;
-            vei->sym.clear();
-            vei->alt = 0;
-          } else {
-            /* Drop ve from v. */
-            v.erase(vei);
-          }
-	  if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
+	  delete_matching_events(v, child_it.branch().size, vei);
+          if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
 	     child_it.branch().index == 1){
 	    if(partial_msg){
 	      /* delete the messages in the same handler before the current message */
@@ -2621,6 +2554,92 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
     branches++;
     return;
   }
+}
+
+void EventTraceBuilder::delete_matching_events(std::vector<Branch> &v, unsigned child_size,
+					       std::vector<Branch>::iterator vei){
+  Branch ve = *vei;
+  if (ve.size < child_size) {
+  /* child_it.branch() contains more events than just ve.
+   * We need to scan v to find all of them.
+   */
+  int missing = child_size - ve.size;
+  int spid = ve.spid;
+  for (auto vri = v.erase(vei); missing != 0 && vri != v.end();) {
+    if (vri->spid == spid) {
+      assert(vri->sym.empty());
+      if (vri->size > missing) {
+	vri->size = missing;
+	missing = 0;
+	break;
+      } else {
+	missing -= vri->size;
+	vri =  v.erase(vri);
+      }
+    } else {
+      ++vri;
+    }
+  }
+  } else if (ve.size > child_size) {
+    /* ve is larger than child_it.branch(). Delete the common
+     * prefix from ve.
+     */
+    vei->size -= child_size;
+    vei->sym.clear();
+    vei->alt = 0;
+  } else {
+    /* Drop ve from v. */
+    v.erase(vei);
+  }
+}
+
+bool EventTraceBuilder::
+conflict_with_rest_of_msg(unsigned j, Branch &child, const std::vector<Branch> &v,
+			  const std::vector<VClock<IPid>> &first_of_msgs,
+			  unsigned &last_seen_msg_event, bool &partial_msg) const{
+  /* After finding first event of the message match the whole message */
+  /* if there is messages from the same handler before(first_of_msgs) */
+  /* and the message has more than one event */
+
+  for(unsigned k = v.size()-1; k > j; --k){
+    if(v[k].spid == child.spid && last_seen_msg_event == 0){
+      last_seen_msg_event = k;
+      if(v[k].is_ret_stmt()) partial_msg = false;
+      break;
+    }
+  }
+
+  /* check if events from the message occuring in WS are conflicting */
+  if(last_seen_msg_event > 0){
+    for(VClock<IPid> clk : first_of_msgs){
+      if(clk.lt(v[last_seen_msg_event].clock)){
+	return true;
+      }
+    }
+  }
+  /* events are same as the current execution for partial non-branching message */
+  /* check conflict for the rest of the message not in WS */
+  if(partial_msg){
+    unsigned last_index = v[last_seen_msg_event].index +
+      v[last_seen_msg_event].size - 1;
+    for(unsigned k = v.size()-1; k > j; --k){
+      if(v[k].spid != child.spid){
+	for(VClock<IPid> clk : first_of_msgs){
+	  if(clk.leq(v[k].clock)){
+	    std::vector<unsigned> event_indices =
+	      threads[SPS.get_pid(child.spid)].event_indices;
+	    for(unsigned ei = last_index+1; ei < event_indices.size(); ei++){
+	      if(do_events_conflict(child.spid, child.sym,
+				    child.spid, prefix[ei].sym))
+		return true;
+
+	    }
+	  }
+	}
+      }
+    }
+  }
+  return false;
 }
 
 std::pair<std::vector<bool>, std::vector<EventTraceBuilder::Branch>>

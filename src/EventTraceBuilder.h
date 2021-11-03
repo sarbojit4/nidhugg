@@ -783,10 +783,20 @@ protected:
 			   const std::vector<IPid>&,
 			   const sleep_trees_t &,
 			   std::map<IPid, std::vector<unsigned>>, unsigned);
+  void delete_matching_events(std::vector<Branch> &v, unsigned child_size,
+			      std::vector<Branch>::iterator vei);
+  bool conflict_with_rest_of_msg(unsigned j, Branch &child,
+                                 const std::vector<Branch> &v,
+                                 const std::vector<VClock<IPid>> &first_of_msgs,
+                                 unsigned &last_seen_msg_event,
+                                 bool &partial_msg) const;
+
   void insert_WS(std::vector<Branch> &v, unsigned i);
   /* Compute the wakeup sequence for reversing a race. */
   std::pair<std::vector<bool>, std::vector<Branch>>
-  wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms, unsigned br_point) const;
+  wakeup_sequence(const Race&, std::map<IPid,
+		  std::vector<IPid>> &eoms,
+		  unsigned br_point) const;
   std::vector<Branch> linearize_sequence(unsigned br_point,
 					 std::vector<bool> &in_v) const;
   bool visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
