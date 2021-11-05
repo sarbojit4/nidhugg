@@ -2691,30 +2691,26 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
      * (their vector clocks are not strictly greater than prefix[i].clock).
      */
     for (unsigned k = br_point; k < int(prefix.len()); ++k){
-      if(!prefix[br_point].clock.leq(prefix[k].clock) &&
-	 (is_msg_msg_race ||
-	  threads[prefix[k].iid.get_pid()].handler_id == -1)){
-	in_notdep[k] = true;
+      if(!prefix[br_point].clock.leq(prefix[k].clock)){
+	if(is_msg_msg_race ||
+	   
+	   threads[prefix[k].iid.get_pid()].handler_id == -1 ||
+	   
+	   (threads[prefix[k].iid.get_pid()].handler_id !=
+	    threads[fpid].handler_id &&
+            threads[prefix[k].iid.get_pid()].handler_id !=
+	    threads[spid].handler_id) ||
+	   
+	   (threads[prefix[k].iid.get_pid()].handler_id ==
+	    threads[fpid].handler_id &&
+	    prefix[br_point].iid.get_index() == 1) ||
+	   
+	   (threads[prefix[k].iid.get_pid()].handler_id ==
+	    threads[spid].handler_id &&
+	    threads[spid].event_indices.front() > br_point))
+	  in_notdep[k] = true;
       }
-      else if(!prefix[br_point].clock.leq(prefix[k].clock) &&
-	 (threads[prefix[k].iid.get_pid()].handler_id !=
-	   threads[fpid].handler_id &&
-           threads[prefix[k].iid.get_pid()].handler_id !=
-	  threads[spid].handler_id)){
-	in_notdep[k] = true;
-      }
-      else if(!prefix[br_point].clock.leq(prefix[k].clock) &&
-	    (threads[prefix[k].iid.get_pid()].handler_id ==
-	     threads[fpid].handler_id &&
-	     prefix[br_point].iid.get_index() == 1)){
-	in_notdep[k] = true;
-      }
-      else if(!prefix[br_point].clock.leq(prefix[k].clock) &&
-	 (threads[prefix[k].iid.get_pid()].handler_id ==
-	   threads[spid].handler_id &&
-	   threads[spid].event_indices.front() > br_point)){
-	in_notdep[k] = true;
-      } // else if (race.kind == Race::OBSERVED && k != j) {
+      // else if (race.kind == Race::OBSERVED && k != j) {
       // 	if (!std::any_of(observers.begin(), observers.end(),
       // 			 [this,k](const Event* o){
       // 			   return o->clock.leq(prefix[k].clock); })){
