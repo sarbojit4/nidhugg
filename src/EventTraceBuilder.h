@@ -758,8 +758,8 @@ protected:
    * blocked.
    */
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
-			      sleep_trees_t &sleep_trees,
-                              IPid p, int index, const sym_ty &sym,
+			      sleep_trees_t &sleep_trees, IPid p,
+			      int index, VClock<IPid> clock, const sym_ty &sym,
 			      const std::map<IPid, std::vector<unsigned>>
 			      &first_of_msgs) const;
   /* Performs the second half of a sleep set step, removing sleepers that
