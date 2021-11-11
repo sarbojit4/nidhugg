@@ -2294,15 +2294,15 @@ void EventTraceBuilder::do_race_detect() {
   std::map<IPid, std::vector<unsigned>> first_of_msgs;
   for (unsigned i = 0; i < races.size(); ++i){
     obs_sleep_add(sleep, sleeping_msgs, sleep_trees, prefix[i]);
-    if(threads[prefix[i].iid.get_pid()].handler_id != -1 &&
-       prefix[i].iid.get_index() == 1)
-      first_of_msgs[threads[prefix[i].iid.get_pid()].handler_id].
-	push_back(find_process_event(prefix[i].iid.get_pid(),1));
     for (const Race *race : races[i]) {
       assert(race->first_event == int(i));
       race_detect_optimal(*race, (const struct obs_sleep&)sleep,
 			  sleeping_msgs, sleep_trees, first_of_msgs, i);
     }
+    if(threads[prefix[i].iid.get_pid()].handler_id != -1 &&
+       prefix[i].iid.get_index() == 1)
+      first_of_msgs[threads[prefix[i].iid.get_pid()].handler_id].
+	push_back(find_process_event(prefix[i].iid.get_pid(),1));
     obs_sleep_wake(sleep, sleep_trees, prefix[i], first_of_msgs);
   }
 
@@ -2325,7 +2325,7 @@ void EventTraceBuilder::race_detect_optimal
   for(unsigned j = i; j < prefix.len(); j++){
     if(ws.first[j]){
       v.push_back(branch_with_symbolic_data(j));
-      v.back().clock = prefix[i].clock;
+      v.back().clock = prefix[j].clock;
     }
   }
   v.insert(v.end(),ws.second.begin(),ws.second.end());
@@ -3044,6 +3044,14 @@ recompute_second(const Race &race, Branch &second_br, Event &second) const{
       if(r.first_event != i) {
 	clock += prefix[r.first_event].clock;
       }
+    }
+    for (auto r : prefix[i].races){
+      assert(r.first_event < j);
+      if(do_events_conflict(prefix[r.first_event].iid.get_pid(),
+			    prefix[r.first_event].sym,
+			    prefix[j].iid.get_pid(),
+			    prefix[j].sym))
+        clock += prefix[r.first_event].clock;
     }
     for (unsigned k : prefix[j].eom_before){
       assert(k < j);
