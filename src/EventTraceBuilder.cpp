@@ -2416,6 +2416,10 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	  /* After finding first event of the message match the whole message */
 	  /* if there is messages from the same handler before(first_of_msgs) */ 
 	  /* and the message has more than one event */
+	  if(!leftmost_branch){
+	    child_it.branch().pending_WSs.insert(std::move(v));
+	    return;
+	  }
 	  unsigned last_seen_msg_event = 0;
 	  bool partial_msg = v[j].is_ret_stmt()? false : true;
 	  if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
