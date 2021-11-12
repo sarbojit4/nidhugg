@@ -6,7 +6,7 @@
 //N!*N! traces
 #ifndef N
 #  warning "N was not defined; defining it as 2"
-#  define N 3
+#  define N 4
 #endif
 
 qthread_t handler;

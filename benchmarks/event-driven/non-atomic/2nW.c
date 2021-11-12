@@ -3,9 +3,11 @@
 #include <pthread.h>
 #include "qthread.h"
 
+// (N+1)! traces
+
 #ifndef N
 #  warning "N was not defined; defining it as 2"
-#  define N 3
+#  define N 4
 #endif
 
 qthread_t handler;

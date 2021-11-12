@@ -10,12 +10,12 @@
 
 atomic_int g1,g2;
 void *mes1(void *j){
-  atomic_store_explicit(&g1, *(atomic_int *)j, memory_order_seq_cst);
+  atomic_store_explicit(&g1, 1, memory_order_seq_cst);
   return 0;
 }
 
 void *mes2(void *j){
-  atomic_store_explicit(&g2, *(atomic_int *)j, memory_order_seq_cst);
+  atomic_store_explicit(&g2, 1, memory_order_seq_cst);
   return 0;
 }
 void *mes3(void *j){

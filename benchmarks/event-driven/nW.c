@@ -5,7 +5,7 @@
 
 #ifndef N
 #  warning "N was not defined; defining it as 2"
-#  define N 6
+#  define N 5
 #endif
 
 qthread_t handler;

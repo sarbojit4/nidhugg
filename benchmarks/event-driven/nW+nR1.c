@@ -2,7 +2,7 @@
 #include<stdatomic.h>
 #include<pthread.h>
 #include"qthread.h"
-/* ((N+1)^N)*(N!) traces*/
+/* ((N+1)^(N-1))*(N!) traces*/
 #ifndef N
 #  warning "N was not defined"
 #  define N 3

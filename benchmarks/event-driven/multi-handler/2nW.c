@@ -3,6 +3,8 @@
 #include <pthread.h>
 #include "qthread.h"
 
+// (2*N)! traces
+
 #ifndef N
 #  warning "N was not defined; defining it as 2"
 #  define N 3
@@ -11,7 +13,7 @@
 qthread_t handler1;
 qthread_t handler2;
 
-atomic_int x;
+atomic_int x,y;
 void *mes(void *j){
   atomic_store_explicit(&x, 2, memory_order_seq_cst);
   return 0;
