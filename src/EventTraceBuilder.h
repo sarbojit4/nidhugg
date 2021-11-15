@@ -423,7 +423,7 @@ protected:
    * lock. All are of kind LOCK_FAIL.
    */
   std::vector<Race> lock_fail_races;
-  typedef std::map<IPid,std::vector<std::list<Branch>>> sleep_trees_t;
+  typedef std::map<IPid,std::set<std::list<Branch>>> sleep_trees_t;
 
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts

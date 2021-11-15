@@ -380,19 +380,28 @@ bool EventTraceBuilder::reset(){
        threads[ipid].event_indices.front() <= i){
       // TODO: Else if prefix[k] is conflicting with last event of
       // some message in explored_tails, then do same
-      // TODO: collect other branches
-      if((k == prefix.len()-1 ||
-	  prefix[k+1].explored_tails[threads[ipid].spid].empty())
-	 && prefix.branch(k).access_global()){
-	//TODO: collect all global events(locks,conds,mutexes,...)
-  	explored_tails[threads[ipid].spid].emplace_back(1,prefix.branch(k));
+      if(k == prefix.len()-1 ||
+	 prefix[k+1].explored_tails[threads[ipid].spid].empty()){
+	if(prefix.branch(k).access_global()){
+	  //TODO: collect all global events(locks,conds,mutexes,...)
+  	  explored_tails[threads[ipid].spid].emplace(1,prefix.branch(k));
+	}
   	continue;
       }
-      if(!prefix[k+1].explored_tails.empty())
-        explored_tails = std::move(prefix[k+1].explored_tails);
-      if(!prefix.branch(k).access_global()) continue;
-      for(auto &tail : explored_tails[threads[ipid].spid]){
-	tail.push_front(prefix.branch(k));
+      for(auto slp_tree_it = prefix[k+1].explored_tails.begin();
+	  slp_tree_it != prefix[k+1].explored_tails.end(); slp_tree_it++){
+        if(slp_tree_it->first == threads[ipid].spid &&
+	   prefix.branch(k).access_global()){
+	  for(auto tail : slp_tree_it->second){
+	    std::list<Branch> new_tail = tail;
+	    new_tail.push_front(prefix.branch(k));
+	    explored_tails[slp_tree_it->first].insert(new_tail);
+	  }
+	}
+	else
+	  explored_tails[slp_tree_it->first].
+	    insert(prefix[k+1].explored_tails[slp_tree_it->first].begin(),
+		   prefix[k+1].explored_tails[slp_tree_it->first].end());
       }
     }
   }
@@ -434,7 +443,7 @@ bool EventTraceBuilder::reset(){
     /* Copying explored_tails and sleep_trees to the new event */
     if(!prev_evt.sleep_trees.empty())
       evt.sleep_trees = std::move(prev_evt.sleep_trees);
-    if(threads[prev_evt.iid.get_pid()].event_indices.front() == i &&
+    if(prev_evt.iid.get_index() == 1 &&
        threads[prev_evt.iid.get_pid()].handler_id != -1){
       IPid ispid = threads[prev_evt.iid.get_pid()].spid;
       evt.sleep_trees[ispid] =
@@ -1561,7 +1570,7 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       // TODO: Block according to the definition of the paper
       return obs_wake_res::BLOCK;
     }
-    Branch first_ev = slp_tree_it->second.front().front();
+    Branch first_ev = slp_tree_it->second.begin()->front();
     if(do_events_conflict(p, sym, first_ev.spid, first_ev.sym)){
       slp_tree_it = sleep_trees.erase(slp_tree_it);
       continue;
