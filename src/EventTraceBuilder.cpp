@@ -2262,17 +2262,6 @@ void EventTraceBuilder::do_race_detect() {
     // for(unsigned ei : prefix[i].eom_before){
     //   eoms[prefix[i].iid.get_pid()].push_back(prefix[ei].iid.get_pid());
     // }
-    // llvm::dbgs()<<i<<"\n";//////////////
-    /* Insert pending WSs */
-    for(auto v_it = prefix.branch(i).pending_WSs.begin();
-	v_it != prefix.branch(i).pending_WSs.end();) {
-      std::vector<Branch> v = *v_it;
-      // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
-      // llvm::dbgs()<<"\n";///////////
-      insert_WS(v, i);
-      v_it = prefix.branch(i).pending_WSs.erase(v_it);
-    }
-
     auto special_case = [this](IPid handler, unsigned fst, unsigned sec){
 			  for(unsigned k = fst+1; k < sec; k++){
 			    IPid pid = prefix[k].iid.get_pid();
@@ -2303,6 +2292,16 @@ void EventTraceBuilder::do_race_detect() {
   std::map<IPid, std::vector<unsigned>> first_of_msgs;
   for (unsigned i = 0; i < races.size(); ++i){
     obs_sleep_add(sleep, sleeping_msgs, sleep_trees, prefix[i]);
+    // llvm::dbgs()<<i<<"\n";//////////////
+    /* Insert pending WSs */
+    for(auto v_it = prefix.branch(i).pending_WSs.begin();
+	v_it != prefix.branch(i).pending_WSs.end();) {
+      std::vector<Branch> v = *v_it;
+      // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
+      // llvm::dbgs()<<"\n";///////////
+      insert_WS(v, i, sleep, sleep_trees, first_of_msgs);
+      v_it = prefix.branch(i).pending_WSs.erase(v_it);
+    }
     for (const Race *race : races[i]) {
       assert(race->first_event == int(i));
       race_detect_optimal(*race, (const struct obs_sleep&)sleep,
@@ -2368,10 +2367,14 @@ void EventTraceBuilder::race_detect_optimal
   // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
   // llvm::dbgs()<<"\n";///////////
   /* Do insertion into the wakeup tree */
-  insert_WS(v, i);
+  insert_WS(v, i, isleep, sleep_trees, first_of_msgs);
 }
 
-void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
+void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
+				  struct obs_sleep sleep,
+				  sleep_trees_t sleep_trees,
+		                  std::map<IPid, std::vector<unsigned>>
+				  first_of_msgs){
   WakeupTreeRef<Branch> node = prefix.parent_at(i);
   bool leftmost_branch = true;
   while(1) {
@@ -2389,7 +2392,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
     enum { NO, RECURSE, NEXT } skip = NO;
     for (auto child_it = node.begin(); child_it != node.end(); ++child_it) {
       const sym_ty &child_sym = child_it.branch().sym;
-      std::vector<VClock<IPid>> first_of_msgs;
+      std::vector<VClock<IPid>> clk_fst_of_msgs;
       std::vector<unsigned> u;
       bool branch_found = false;
       unsigned j = 0;
@@ -2423,7 +2426,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
           }
 
 	  /* After finding first event of the message match the whole message */
-	  /* if there is messages from the same handler before(first_of_msgs) */ 
+	  /* if there is messages from the same handler before(clk_fst_of_msgs) */ 
 	  /* and the message has more than one event */
 	  if(!leftmost_branch){
 	    child_it.branch().pending_WSs.insert(std::move(v));
@@ -2432,9 +2435,19 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	  unsigned last_seen_msg_event = 0;
 	  bool partial_msg = v[j].is_ret_stmt()? false : true;
 	  if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
-	     child_it.branch().index == 1 && !first_of_msgs.empty() && partial_msg &&
-	     conflict_with_rest_of_msg(j, child_it.branch(), v, first_of_msgs,
+	     child_it.branch().index == 1 && !clk_fst_of_msgs.empty() && partial_msg &&
+	     conflict_with_rest_of_msg(j, child_it.branch(), v, clk_fst_of_msgs,
 				       last_seen_msg_event, partial_msg)){
+	    //put the message in the sleep_trees
+	    std::list<Branch> explored_trail;
+	    for(auto eit =
+		  threads[SPS.get_pid(child_it.branch().spid)].event_indices.begin();
+		eit !=
+		  threads[SPS.get_pid(child_it.branch().spid)].event_indices.end();){
+	      explored_trail.push_back(branch_with_symbolic_data(*eit));
+	      eit += prefix.branch(*eit).size;
+	    }
+	    sleep_trees[child_it.branch().spid].insert(std::move(explored_trail));
 	    skip = NEXT;
 	    leftmost_branch = false;
 	    break;
@@ -2451,7 +2464,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	      /* delete the messages in the same handler before the current message */
 	      /* and the events that are happening after them */
 	      for(auto wei = v.begin(); wei != v.end(); wei++){
-		for(VClock<IPid> clk : first_of_msgs){
+		for(VClock<IPid> clk : clk_fst_of_msgs){
 		  if(clk.leq(wei->clock)){
 		    wei = v.erase(wei);
 		    wei--;
@@ -2487,13 +2500,23 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	  //      Then decide if these messages are conflicting.
 	    if(leftmost_branch){
 	      if(ve.index == 1){
-		first_of_msgs.push_back(v[j].clock);
+	        clk_fst_of_msgs.push_back(v[j].clock);
 	      }
 	      IPid child_pid = SPS.get_pid(child_it.branch().spid);
 	      /* Check if all the events of the message in WS is non-conflicting */
 	      for(unsigned ei : threads[child_pid].event_indices){
 		if(do_events_conflict(ve.spid, ve.sym,
 				      child_it.branch().spid, prefix[ei].sym)){
+		  //put the message in the sleep trees
+		  std::list<Branch> explored_trail;
+		  for(auto eit =
+			threads[SPS.get_pid(child_it.branch().spid)].event_indices.begin();
+		      eit !=
+			threads[SPS.get_pid(child_it.branch().spid)].event_indices.end();){
+		    explored_trail.push_back(branch_with_symbolic_data(*eit));
+		    eit += prefix.branch(*eit).size;
+		  }
+		  sleep_trees[child_it.branch().spid].insert(std::move(explored_trail));
 		  leftmost_branch = false;
 		  skip = NEXT;
 		  break;
@@ -2515,16 +2538,36 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	    if(vei->clock.lt(prefix[last_ev].clock)) u.push_back(j);
 	    if(do_events_conflict(ve.spid, ve.sym,
 				  child_it.branch().spid, child_sym)){
+	      //put messgae in the sleep trees
+	      std::list<Branch> explored_trail;
+	      for(auto eit =
+		    threads[SPS.get_pid(child_it.branch().spid)].event_indices.begin();
+		  eit !=
+		    threads[SPS.get_pid(child_it.branch().spid)].event_indices.end();){
+		explored_trail.push_back(branch_with_symbolic_data(*eit));
+		eit += prefix.branch(*eit).size;
+	      }
+	      sleep_trees[child_it.branch().spid].insert(std::move(explored_trail));
 	      leftmost_branch = false;
 	      skip = NEXT;
 	      break;
 	    }
-	    for(VClock<IPid> clk : first_of_msgs){
+	    for(VClock<IPid> clk : clk_fst_of_msgs){
 	      if(clk.lt(ve.clock)){
 		IPid child_pid = SPS.get_pid(child_it.branch().spid);
 	        for(unsigned ei : threads[child_pid].event_indices){
 		  if(do_events_conflict(ve.spid, ve.sym,
 				        child_it.branch().spid, prefix[ei].sym)){
+		    //put message in the sleep trees
+		    std::list<Branch> explored_trail;
+		    for(auto eit =
+			  threads[SPS.get_pid(child_it.branch().spid)].event_indices.begin();
+			eit !=
+			  threads[SPS.get_pid(child_it.branch().spid)].event_indices.end();){
+		      explored_trail.push_back(branch_with_symbolic_data(*eit));
+		      eit += prefix.branch(*eit).size;
+		    }
+		    sleep_trees[child_it.branch().spid].insert(std::move(explored_trail));
 		    leftmost_branch = false;
 		    skip = NEXT;
 		    break;
@@ -2538,6 +2581,8 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
 	} else if (do_events_conflict(ve.spid, ve.sym,
 				      child_it.branch().spid,
 				      child_sym)) {
+	  //put the event in the sleep set
+	  sleep.sleep.push_back({child_it.branch().spid, &child_sym, nullptr});
           /* This branch is incompatible, try the next */
 	  leftmost_branch = false;
           skip = NEXT;
@@ -2549,6 +2594,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i){
       if(leftmost_branch && end_of_ws == i) return;
       if(!branch_found) return;
       i++;
+      obs_sleep_wake(sleep, sleep_trees, child_it.branch().spid,
+      		     child_it.branch().index, child_it.branch().clock,
+      		     child_it.branch().sym, first_of_msgs);
       node = child_it.node();
       skip = RECURSE;
       break;

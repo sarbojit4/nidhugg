@@ -791,7 +791,9 @@ protected:
                                  unsigned &last_seen_msg_event,
                                  bool &partial_msg) const;
 
-  void insert_WS(std::vector<Branch> &v, unsigned i);
+  void insert_WS(std::vector<Branch> &v, unsigned i,
+		 struct obs_sleep sleep, sleep_trees_t sleep_trees,
+		 std::map<IPid, std::vector<unsigned>> first_of_msgs);
   /* Compute the wakeup sequence for reversing a race. */
   std::pair<std::vector<bool>, std::vector<Branch>>
   wakeup_sequence(const Race&, std::map<IPid,
