@@ -502,7 +502,7 @@ std::string EventTraceBuilder::iid_string(std::size_t pos) const{
   return iid_string(prefix.branch(pos), prefix[pos].iid.get_index());
 }
 
-std::string EventTraceBuilder::iid_string(const Branch &branch, int index) const{
+std::string EventTraceBuilder::iid_string(const Branch &branch, unsigned index) const{
   std::stringstream ss;
   ss << "(" << threads[SPS.get_pid(branch.spid)].cpid << "," << index;
   if(branch.size > 1){
@@ -1510,7 +1510,7 @@ static bool symev_does_load(const SymEv &e) {
 
 EventTraceBuilder::obs_wake_res EventTraceBuilder::
 obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
-	       int index, VClock<IPid> clock, const sym_ty &sym,
+	       unsigned index, VClock<IPid> clock, const sym_ty &sym,
 	       const std::map<IPid, std::vector<unsigned>> &first_of_msgs) const{
   if (conf.dpor_algorithm == Configuration::OBSERVERS) {
     for (const SymEv &e : sym) {
@@ -2270,6 +2270,35 @@ bool EventTraceBuilder::is_observed_conflict
   return symev_does_load(thd) && thd.addr().overlaps(snd.addr());
 }
 
+void EventTraceBuilder::mark_sleepset_clearing_events(std::vector<Branch> &v,
+						      const struct obs_sleep &isleep,
+						      const sleep_trees_t &sleep_trees){
+  // obs_wake_res state = obs_wake_res::CONTINUE;
+  // for(Branch &br : v){
+  //   if(threads[SPS.get_pid(br.spid)].handler_id != -1 && br.index == 1)
+  //     first_of_msgs[threads[SPS.get_pid(br.spid)].handler_id].
+  // 	push_back(find_process_event(SPS.get_pid(br.spid),1));
+
+  //   std::vector<std::pair<IPid, 
+  //   for (unsigned i = 0; i < sleep.sleep.size();) {
+  //     const auto &s = sleep.sleep[i];
+  //     if (s.spid == p) {
+  // 	break;
+  //     } else if (do_events_conflict(p, sym, s.spid, *s.sym)){
+  // 	unordered_vector_delete(sleep.sleep, i);
+  //     } else {
+  // 	++i;
+  //     }
+  //   }
+
+    
+  //   state = obs_sleep_wake(isleep, slp_trees, br.spid, br.index,
+  // 			   br.clock, br.sym, first_of_msgs);
+  // }
+  // /* Redundant */
+  // return (state == obs_wake_res::CLEAR);
+}
+
 void EventTraceBuilder::do_race_detect() {
   assert(has_vclocks);
   assert(0 < prefix.size());
@@ -2347,7 +2376,8 @@ void EventTraceBuilder::race_detect_optimal
   // 	      <<threads[prefix[race.second_event].iid.get_pid()].cpid
   // 	      <<","<<prefix[race.second_event].iid.get_index()<<")\n";/////////////
   std::map<IPid, std::vector<IPid>> eoms;
-  std::pair<std::vector<bool>,std::vector<Branch>> ws = wakeup_sequence(race, eoms, i);
+  std::vector<Branch> unfiltered_notdep;
+  std::pair<std::vector<bool>,Branch> ws = wakeup_sequence(race, eoms, i, unfiltered_notdep);
   std::vector<Branch> v;
   for(unsigned j = i; j < prefix.len(); j++){
     if(ws.first[j]){
@@ -2355,7 +2385,7 @@ void EventTraceBuilder::race_detect_optimal
       v.back().clock = prefix[j].clock;
     }
   }
-  v.insert(v.end(),ws.second.begin(),ws.second.end());
+  v.push_back(ws.second);
 
   // std::string line;
   // line += " [";
@@ -2382,9 +2412,15 @@ void EventTraceBuilder::race_detect_optimal
     return;
   }
   v = linearize_sequence(i, prefix[race.second_event].iid.get_pid(), ws.first);
-  v.insert(v.end(),ws.second.begin(),ws.second.end());
+  v.push_back(ws.second);
   // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
   // llvm::dbgs()<<"\n";///////////
+
+
+  unfiltered_notdep.insert(unfiltered_notdep.end(), ws.second);
+  //mark_sleepset_clearing_events();
+  
+  
   /* Do insertion into the wakeup tree */
   insert_WS(v, i, isleep, sleep_trees, first_of_msgs);
 }
@@ -2744,10 +2780,11 @@ conflict_with_rest_of_msg(unsigned j, Branch &child,
   return false;
 }
 
-std::pair<std::vector<bool>, std::vector<EventTraceBuilder::Branch>>
+std::pair<std::vector<bool>, EventTraceBuilder::Branch>
 EventTraceBuilder::wakeup_sequence(const Race &race,
 		                   std::map<IPid, std::vector<IPid>> &eoms,
-		                   unsigned br_point) const{
+		                   unsigned br_point,
+				   std::vector<Branch> &unfiltered_notdep) const{
   int i = race.first_event;
   int j = race.second_event;
   const Event &first = prefix[i];
@@ -2888,8 +2925,9 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
      * that are happens after some partial message
      * in_w contains events of first partial message of */
     for(unsigned k = br_point; k < prefix.len(); ++k){
+      if(in_notdep[k]) unfiltered_notdep.push_back(branch_with_symbolic_data(k));
       IPid ipid = prefix[k].iid.get_pid();
-      int index = prefix[k].iid.get_index();
+      unsigned index = prefix[k].iid.get_index();
       if(ipid == spid || (in_notdep[k] == false &&
 			  threads[ipid].handler_id != -1 && index > 1 &&
 			  in_notdep[find_process_event(ipid,1)])){
@@ -2933,28 +2971,11 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
         }
       }
     }
-    //as the message where the first event of the race is.
   }
-
-  std::vector<Branch> rest;
-  // if(is_msg_msg_race){
-  //   /* Include part of second message */
-  //   for(unsigned k = threads[spid].event_indices.front();
-  // 	k < j; k++){
-  //     if(in_notdep[k] == false &&
-  // 	 prefix[k].iid.get_pid() != fpid &&
-  //        prefix[k].clock.lt(prefix[j].clock)){
-  // 	Branch br = branch_with_symbolic_data(k);
-  // 	br.clock = prefix[k].clock;
-  // 	rest.emplace_back(br);
-  //     }
-  //   }
-  // }
 
   if (race.kind == Race::NONBLOCK) {
     recompute_cmpxhg_success(second_br.sym, v, br_point);
   }
-  rest.push_back(std::move(second_br));
   //TODO: Works only for NONBLOCK race. Find actual j and make in_v[j] true
 
   /* Part of the first message of the race */
@@ -3013,7 +3034,7 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
     /* Recompute observed states on events in v */
     //recompute_observed(v);
   }
-  return std::pair<std::vector<bool>, std::vector<Branch>>(in_notdep,rest);
+  return std::pair<std::vector<bool>, Branch>(in_notdep,second_br);
 }
 
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
@@ -3215,7 +3236,7 @@ reconstruct_lock_event(const Race &race) const {
 }
 
 inline std::pair<bool,unsigned> EventTraceBuilder::
-try_find_process_event(IPid pid, int index) const{
+try_find_process_event(IPid pid, unsigned index) const{
   assert(pid >= 0 && pid < int(threads.size()));
   assert(index >= 1);
   if (index > int(threads[pid].event_indices.size())){
@@ -3232,7 +3253,7 @@ try_find_process_event(IPid pid, int index) const{
   return {true, k};
 }
 
-inline unsigned EventTraceBuilder::find_process_event(IPid pid, int index) const{
+inline unsigned EventTraceBuilder::find_process_event(IPid pid, unsigned index) const{
   assert(pid >= 0 && pid < int(threads.size()));
   assert(index >= 1 && index <= int(threads[pid].event_indices.size()));
   unsigned k = threads[pid].event_indices[index-1];

@@ -325,7 +325,7 @@ protected:
    */
   class Branch{
   public:
-    Branch (IPid spid, int index, int alt = 0, sym_ty sym = {})
+    Branch (IPid spid, unsigned index, int alt = 0, sym_ty sym = {})
       : sym(std::move(sym)), spid(spid), index(index), alt(alt), size(1) {}
     Branch (const Branch &base, sym_ty sym)
       : sym(std::move(sym)), spid(base.spid), index(base.index),
@@ -334,7 +334,7 @@ protected:
      */
     sym_ty sym;
     IPid spid;
-    int index;
+    unsigned index;
     /* Some instructions may execute in several alternative ways
      * nondeterministically. (E.g. malloc may succeed or fail
      * nondeterministically if Configuration::malloy_may_fail is set.)
@@ -597,15 +597,15 @@ protected:
   /* Finds the index in prefix of the event of process pid that has iid-index
    * index.
    */
-  std::pair<bool,unsigned> try_find_process_event(IPid pid, int index) const;
-  unsigned find_process_event(IPid pid, int index) const;
+  std::pair<bool,unsigned> try_find_process_event(IPid pid, unsigned index) const;
+  unsigned find_process_event(IPid pid, unsigned index) const;
   unsigned iid_to_event(IID<IPid> iid){ return find_process_event(iid.get_pid(),iid.get_index()); }
 
 
   /* Pretty-prints the iid of prefix[pos]. */
   std::string iid_string(std::size_t pos) const;
   /* Pretty-prints the iid <branch.pid, index>. */
-  std::string iid_string(const Branch &branch, int index) const;
+  std::string iid_string(const Branch &branch, unsigned index) const;
   /* Pretty prints the wakeup tree subtree rooted at <branch,node>
    * into the buffer lines starting at line line.
    * iid_map needs to be an iid_map at <branch,node>. It is restored to
@@ -759,7 +759,7 @@ protected:
    */
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
 			      sleep_trees_t &sleep_trees, IPid p,
-			      int index, VClock<IPid> clock, const sym_ty &sym,
+			      unsigned index, VClock<IPid> clock, const sym_ty &sym,
 			      const std::map<IPid, std::vector<unsigned>>
 			      &first_of_msgs) const;
   /* Performs the second half of a sleep set step, removing sleepers that
@@ -778,6 +778,9 @@ protected:
 		      const Event &e,
 		      const std::map<IPid, std::vector<unsigned>>
 		      &first_of_msgs) const;
+  void mark_sleepset_clearing_events(std::vector<Branch> &v,
+				     const struct obs_sleep &isleep,
+				     const sleep_trees_t &sleep_trees);
   void race_detect_optimal(const Race&,
 			   const struct obs_sleep&,
 			   const std::vector<IPid>&,
@@ -795,10 +798,9 @@ protected:
 		 struct obs_sleep sleep, sleep_trees_t sleep_trees,
 		 std::map<IPid, std::vector<unsigned>> first_of_msgs);
   /* Compute the wakeup sequence for reversing a race. */
-  std::pair<std::vector<bool>, std::vector<Branch>>
-  wakeup_sequence(const Race&, std::map<IPid,
-		  std::vector<IPid>> &eoms,
-		  unsigned br_point) const;
+  std::pair<std::vector<bool>, Branch>
+  wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms,
+		  unsigned br_point, std::vector<Branch> &unfiltered_notdep) const;
   std::vector<Branch> linearize_sequence(unsigned br_point, IPid spid,
 					 std::vector<bool> &in_v) const;
   bool visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
