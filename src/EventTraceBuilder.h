@@ -759,7 +759,8 @@ protected:
    */
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
 			      sleep_trees_t &sleep_trees, IPid p,
-			      unsigned index, VClock<IPid> clock, const sym_ty &sym,
+			      unsigned index, VClock<IPid> clock,
+			      const sym_ty &sym,
 			      const std::map<IPid, std::vector<unsigned>>
 			      &first_of_msgs) const;
   /* Performs the second half of a sleep set step, removing sleepers that
@@ -778,9 +779,12 @@ protected:
 		      const Event &e,
 		      const std::map<IPid, std::vector<unsigned>>
 		      &first_of_msgs) const;
-  void mark_sleepset_clearing_events(std::vector<Branch> &v,
-				     const struct obs_sleep &isleep,
-				     const sleep_trees_t &sleep_trees);
+  std::map<IPid, std::vector<unsigned>>
+  mark_sleepset_clearing_events(std::vector<Branch> &v,
+				struct obs_sleep sleep,
+				sleep_trees_t sleep_trees,
+				std::map<IPid, std::vector<unsigned>>
+				first_of_msgs);
   void race_detect_optimal(const Race&,
 			   const struct obs_sleep&,
 			   const std::vector<IPid>&,

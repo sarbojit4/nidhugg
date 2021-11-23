@@ -2270,33 +2270,87 @@ bool EventTraceBuilder::is_observed_conflict
   return symev_does_load(thd) && thd.addr().overlaps(snd.addr());
 }
 
-void EventTraceBuilder::mark_sleepset_clearing_events(std::vector<Branch> &v,
-						      const struct obs_sleep &isleep,
-						      const sleep_trees_t &sleep_trees){
-  // obs_wake_res state = obs_wake_res::CONTINUE;
-  // for(Branch &br : v){
-  //   if(threads[SPS.get_pid(br.spid)].handler_id != -1 && br.index == 1)
-  //     first_of_msgs[threads[SPS.get_pid(br.spid)].handler_id].
-  // 	push_back(find_process_event(SPS.get_pid(br.spid),1));
+std::map<EventTraceBuilder::IPid,
+	 std::vector<unsigned>> EventTraceBuilder::
+mark_sleepset_clearing_events(std::vector<Branch> &v,
+			      struct obs_sleep sleep,
+			      sleep_trees_t sleep_trees,
+		              std::map<IPid, std::vector<unsigned>>
+			      first_of_msgs){
+  obs_wake_res state = obs_wake_res::CONTINUE;
+  std::map<IPid, std::vector<unsigned>> clear_set;
+  for(unsigned i = 0; i < v.size(); i++){
+    if(threads[SPS.get_pid(v[i].spid)].handler_id != -1 && v[i].index == 1)
+      first_of_msgs[threads[SPS.get_pid(v[i].spid)].handler_id].
+  	push_back(find_process_event(SPS.get_pid(v[i].spid),1));
 
-  //   std::vector<std::pair<IPid, 
-  //   for (unsigned i = 0; i < sleep.sleep.size();) {
-  //     const auto &s = sleep.sleep[i];
-  //     if (s.spid == p) {
-  // 	break;
-  //     } else if (do_events_conflict(p, sym, s.spid, *s.sym)){
-  // 	unordered_vector_delete(sleep.sleep, i);
-  //     } else {
-  // 	++i;
-  //     }
-  //   }
+    for (unsigned j = 0; j < sleep.sleep.size();) {
+      const auto &s = sleep.sleep[j];
+      if (s.spid == v[i].spid) {
+	unordered_vector_delete(sleep.sleep, j);
+      } else if (do_events_conflict(v[i].spid, v[i].sym, s.spid, *s.sym)){
+	bool skip = false;
+	for(unsigned ei : clear_set[s.spid]){
+	  if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
+	     skip = true; 
+	}
+	if(!skip) clear_set[s.spid].emplace_back(i);
+	++j;
+      } else ++j;
+    }
 
-    
-  //   state = obs_sleep_wake(isleep, slp_trees, br.spid, br.index,
-  // 			   br.clock, br.sym, first_of_msgs);
-  // }
-  // /* Redundant */
-  // return (state == obs_wake_res::CLEAR);
+    for(auto slp_tree_it = sleep_trees.begin();
+    	slp_tree_it != sleep_trees.end();){
+      unsigned handler = threads[SPS.get_pid(slp_tree_it->first)].handler_id;
+      if(slp_tree_it->first == v[i].spid){
+    	// TODO: Block according to the definition of the paper
+    	slp_tree_it = sleep_trees.erase(slp_tree_it);
+	continue;
+      }
+      Branch first_ev = slp_tree_it->second.begin()->front();
+      if(do_events_conflict(v[i].spid, v[i].sym, first_ev.spid, first_ev.sym)){
+    	bool skip = false;
+    	for(unsigned ei : clear_set[slp_tree_it->first]){
+    	  if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
+    	     skip = true; 
+    	}
+    	if(!skip) clear_set[slp_tree_it->first].emplace_back(i);
+	slp_tree_it++;
+    	continue;
+      }
+      if(first_of_msgs.find(handler) == first_of_msgs.end()){
+    	slp_tree_it++;
+    	continue;
+      }
+      for(unsigned fst : first_of_msgs.at(handler)){
+    	if(prefix[fst].clock.leq(v[i].clock)){
+    	  /* For events that happens after at least one of the messages in the same handler */
+    	  for(auto seq_it = slp_tree_it->second.begin();
+    	      seq_it != slp_tree_it->second.end(); seq_it++){
+    	    bool conflict = false;
+    	    for(Branch br : (*seq_it)){
+    	      if(do_events_conflict(v[i].spid, v[i].sym, br.spid, br.sym)){
+    		conflict = true;
+    		break;
+    	      }
+    	    }
+    	    if(conflict){
+    	      bool skip = false;
+    	      for(unsigned ei : clear_set[slp_tree_it->first]){
+    		if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
+    		  skip = true; 
+    	      }
+    	      if(!skip)
+    		clear_set[slp_tree_it->first].emplace_back(i);
+    	    }
+    	  }
+    	  break;
+    	}
+      }
+      slp_tree_it++;
+    }
+  }
+  return clear_set;
 }
 
 void EventTraceBuilder::do_race_detect() {
@@ -2418,9 +2472,12 @@ void EventTraceBuilder::race_detect_optimal
 
 
   unfiltered_notdep.insert(unfiltered_notdep.end(), ws.second);
-  //mark_sleepset_clearing_events();
-  
-  
+  std::map<IPid, std::vector<unsigned>> clear_set =
+    mark_sleepset_clearing_events(unfiltered_notdep, isleep,
+				  sleep_trees, first_of_msgs);
+
+  // for(Branch br : unfiltered_notdep) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
+  // llvm::dbgs()<<"\n";///////////;
   /* Do insertion into the wakeup tree */
   insert_WS(v, i, isleep, sleep_trees, first_of_msgs);
 }
