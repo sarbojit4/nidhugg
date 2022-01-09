@@ -424,6 +424,7 @@ protected:
    */
   std::vector<Race> lock_fail_races;
   typedef std::map<IPid,std::set<std::list<Branch>>> sleep_trees_t;
+  typedef std::map<IPid, std::vector<VClock<IPid>>> first_of_msgs_t;
 
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts
@@ -761,8 +762,7 @@ protected:
 			      sleep_trees_t &sleep_trees, IPid p,
 			      unsigned index, VClock<IPid> clock,
 			      const sym_ty &sym,
-			      const std::map<IPid, std::vector<unsigned>>
-			      &first_of_msgs) const;
+			      const first_of_msgs_t &first_of_msgs) const;
   /* Performs the second half of a sleep set step, removing sleepers that
    * were identified as waking after event e.
    *
@@ -777,19 +777,17 @@ protected:
   void obs_sleep_wake(struct obs_sleep &sleep,
 		      sleep_trees_t &sleep_trees,
 		      const Event &e,
-		      const std::map<IPid, std::vector<unsigned>>
-		      &first_of_msgs) const;
+		      const first_of_msgs_t &first_of_msgs) const;
   std::map<IPid, std::vector<unsigned>>
   mark_sleepset_clearing_events(std::vector<Branch> &v,
 				struct obs_sleep sleep,
 				sleep_trees_t sleep_trees,
-				std::map<IPid, std::vector<unsigned>>
-				first_of_msgs);
+			        first_of_msgs_t first_of_msgs);
   void race_detect_optimal(const Race&,
 			   const struct obs_sleep&,
 			   const std::vector<IPid>&,
 			   const sleep_trees_t &,
-			   std::map<IPid, std::vector<unsigned>>, unsigned);
+			   first_of_msgs_t, unsigned);
   void delete_matching_events(std::vector<Branch> &v, unsigned child_size,
 			      std::vector<Branch>::iterator vei);
   bool conflict_with_rest_of_msg(unsigned j, Branch &child,
@@ -800,13 +798,15 @@ protected:
 
   void insert_WS(std::vector<Branch> &v, unsigned i,
 		 struct obs_sleep sleep, sleep_trees_t sleep_trees,
-		 std::map<IPid, std::vector<unsigned>> first_of_msgs);
+		 first_of_msgs_t first_of_msgs);
   /* Compute the wakeup sequence for reversing a race. */
   std::pair<std::vector<bool>, Branch>
-  wakeup_sequence(const Race&, std::map<IPid, std::vector<IPid>> &eoms,
-		  unsigned br_point, std::vector<Branch> &unfiltered_notdep) const;
+  wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms,
+		  unsigned br_point, std::vector<bool> &unfiltered_notdep) const;
   std::vector<Branch> linearize_sequence(unsigned br_point, IPid spid,
 					 std::vector<bool> &in_v) const;
+  bool linearize_sequence1(std::vector<Branch> &v,
+			   std::map<IPid, std::vector<unsigned>> clear_set) const;
   bool visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
 		   std::vector<std::vector<unsigned>> &trace,
 		   std::vector<bool> &visiting, std::vector<bool> &visited,
@@ -819,7 +819,7 @@ protected:
 			     const std::vector<IPid> &sleeping_msgs,
 			     const sleep_trees_t &sleep_tree,
 			     const std::map<IPid, std::vector<IPid>> &eoms,
-			     std::map<IPid, std::vector<unsigned>> &first_of_msgs) const;
+			     first_of_msgs_t &first_of_msgs) const;
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);
