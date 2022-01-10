@@ -1582,6 +1582,7 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
     unsigned handler = threads[SPS.get_pid(slp_tree_it->first)].handler_id;
     if(slp_tree_it->first == p){
       // TODO: Block according to the definition of the paper
+      // Check till the end of the message
       return obs_wake_res::BLOCK;
     }
     Branch first_ev = slp_tree_it->second.begin()->front();
@@ -2434,14 +2435,14 @@ void EventTraceBuilder::race_detect_optimal
   std::map<IPid, std::vector<IPid>> eoms;
   std::vector<bool> unfiltered_notdep;
   std::pair<std::vector<bool>,Branch> ws = wakeup_sequence(race, eoms, i, unfiltered_notdep);
-  std::vector<Branch> v;
-  for(unsigned j = i; j < prefix.len(); j++){
-    if(ws.first[j]){
-      v.push_back(branch_with_symbolic_data(j));
-      v.back().clock = prefix[j].clock;
-    }
-  }
-  v.push_back(ws.second);
+  // std::vector<Branch> v;
+  // for(unsigned j = i; j < prefix.len(); j++){
+  //   if(ws.first[j]){
+  //     v.push_back(branch_with_symbolic_data(j));
+  //     v.back().clock = prefix[j].clock;
+  //   }
+  // }
+  // v.push_back(ws.second);
 
   // std::string line;
   // line += " [";
@@ -2462,11 +2463,11 @@ void EventTraceBuilder::race_detect_optimal
   // llvm::dbgs()<<line;//////////////
 
   /* Check if we have previously explored everything startable with v */
-  if (!sequence_clears_sleep(v, isleep, sleeping_msgs,
-  			     sleep_trees, eoms, first_of_msgs)){
-    // llvm::dbgs()<<"Redundant\n";/////////////////
-    return;
-  }
+  // if (!sequence_clears_sleep(v, isleep, sleeping_msgs,
+  // 			     sleep_trees, eoms, first_of_msgs)){
+  //   // llvm::dbgs()<<"Redundant\n";/////////////////
+  //   return;
+  // }
   // v = linearize_sequence(i, prefix[race.second_event].iid.get_pid(), ws.first);
   // v.push_back(ws.second);
   // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
@@ -2744,13 +2745,15 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
     std::map<IPid, std::vector<unsigned>> clear_set =
       mark_sleepset_clearing_events(v, sleep,
 				    sleep_trees, first_of_msgs);
+    unsigned old_size = v.size();
     if(!linearize_sequence1(v, clear_set)){
       llvm::dbgs()<<"PROBLEM------\n";///////////////
       return;
     }
     std::vector<IPid> sleeping_msgs;
     std::map<IPid, std::vector<IPid>> eoms;
-    if (!sequence_clears_sleep(v, sleep, sleeping_msgs,
+    if (old_size != v.size() &&
+	!sequence_clears_sleep(v, sleep, sleeping_msgs,
   			       sleep_trees, eoms, first_of_msgs)){
       //llvm::dbgs()<<"Redundant\n";/////////////////
       return;
