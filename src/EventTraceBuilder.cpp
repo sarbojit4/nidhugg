@@ -382,37 +382,35 @@ bool EventTraceBuilder::reset(){
   for(unsigned k = prefix.len()-1; k >= i ; k--){
     IPid ipid = prefix[k].iid.get_pid();
     sleep_trees_t &explored_tails = prefix[k].explored_tails;
+    if(k < prefix.len()-1) explored_tails = std::move(prefix[k+1].explored_tails);
     /* add prefix[k] into sleep tree of same message */
     if(threads[ipid].handler_id != -1 &&
        threads[ipid].event_indices.front() <= i){
       // TODO: Else if prefix[k] is conflicting with last event of
       // some message in explored_tails, then do same
       if(k == prefix.len()-1 ||
-	 prefix[k+1].explored_tails[threads[ipid].spid].empty()){
+	 explored_tails[threads[ipid].spid].empty()){
 	if(prefix.branch(k).access_global()){
 	  //TODO: collect all global events(locks,conds,mutexes,...)
   	  explored_tails[threads[ipid].spid].emplace(1,prefix.branch(k));
 	}
-  	continue;
+	continue;
       }
-      for(auto slp_tree_it = prefix[k+1].explored_tails.begin();
-	  slp_tree_it != prefix[k+1].explored_tails.end(); slp_tree_it++){
+      for(auto slp_tree_it = explored_tails.begin();
+	  slp_tree_it != explored_tails.end(); slp_tree_it++){
         if(slp_tree_it->first == threads[ipid].spid &&
 	   prefix.branch(k).access_global()){
+	  std::set<std::list<Branch>> tail_set;
 	  for(auto tail : slp_tree_it->second){
-	    std::list<Branch> new_tail = tail;
+	    std::list<Branch> new_tail = std::move(tail);
 	    new_tail.push_front(prefix.branch(k));
-	    explored_tails[slp_tree_it->first].insert(new_tail);
+	    tail_set.insert(new_tail);
 	  }
+	  slp_tree_it->second = std::move(tail_set);
 	}
-	else
-	  explored_tails[slp_tree_it->first].
-	    insert(prefix[k+1].explored_tails[slp_tree_it->first].begin(),
-		   prefix[k+1].explored_tails[slp_tree_it->first].end());
       }
     }
   }
-
   /* Setup the new Event at prefix[i] */
   {
     uint64_t sleep_branch_trace_count =
@@ -1578,7 +1576,6 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
   // }
 
   for(auto slp_tree_it = sleep_trees.begin(); slp_tree_it != sleep_trees.end();){
-    //llvm::dbgs()<<slp_tree_it->first<<"\n";//////////////////
     unsigned handler = threads[SPS.get_pid(slp_tree_it->first)].handler_id;
     if(slp_tree_it->first == p){
       // TODO: Block according to the definition of the paper
@@ -1586,7 +1583,7 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       return obs_wake_res::BLOCK;
     }
     Branch first_ev = slp_tree_it->second.begin()->front();
-    if(do_events_conflict(p, sym, first_ev.spid, first_ev.sym)){
+    if(first_ev.index == 1 && do_events_conflict(p, sym, first_ev.spid, first_ev.sym)){
       slp_tree_it = sleep_trees.erase(slp_tree_it);
       continue;
     }
@@ -1615,7 +1612,6 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
     if(slp_tree_it->second.empty()) slp_tree_it = sleep_trees.erase(slp_tree_it);
     else slp_tree_it++;
   }
-  //llvm::dbgs()<<"Hello\n";/////////////
 
   /* Check if the sleep set became empty */
   if (sleep.sleep.empty() && sleep.must_read.empty() &&
