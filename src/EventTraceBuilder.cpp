@@ -381,7 +381,7 @@ bool EventTraceBuilder::reset(){
   /* Store explored branches of diffrerent messages */
   for(unsigned k = prefix.len()-1; k >= i ; k--){
     IPid ipid = prefix[k].iid.get_pid();
-    sleep_trees_t &explored_tails = prefix[k].explored_tails;
+    done_trees_t &explored_tails = prefix[k].explored_tails;
     if(k < prefix.len()-1) explored_tails = std::move(prefix[k+1].explored_tails);
     /* add prefix[k] into sleep tree of same message */
     if(threads[ipid].handler_id != -1 &&
@@ -698,8 +698,12 @@ void EventTraceBuilder::debug_print() const {
     iid_offs = std::max(iid_offs,2*ipid+int(iid_string(i).size()));
     symev_offs = std::max(symev_offs,
                           int(events_to_string(prefix[i].sym).size()));
-    obs_sleep_add(sleep_set, sleeping_msgs, sleep_trees, prefix[i]);
+    obs_sleep_add(sleep_set, sleeping_msgs, sleep_trees, first_of_msgs, prefix[i]);
     lines.push_back(" SLP:" + oslp_string(sleep_set));
+    if(threads[prefix[i].iid.get_pid()].handler_id != -1 &&
+       prefix[i].iid.get_index() == 1)
+      first_of_msgs[threads[prefix[i].iid.get_pid()].handler_id].
+	push_back(prefix[i].clock);
     obs_sleep_wake(sleep_set, sleep_trees, threads[ipid].spid,
 		   prefix[i].iid.get_index(),
 		   prefix[i].clock, prefix[i].sym, first_of_msgs);
@@ -1453,6 +1457,7 @@ bool EventTraceBuilder::register_alternatives(int alt_count){
 void EventTraceBuilder::obs_sleep_add(struct obs_sleep &sleep,
 				      std::vector<IPid> &sleeping_msgs,
 				      sleep_trees_t &sleep_trees,
+				      const first_of_msgs_t &first_of_msgs,
                                       const Event &e) const{
   for (int k = 0; k < e.sleep.size(); ++k){
     sleep.sleep.push_back({e.sleep[k], &e.sleep_evs[k], nullptr});
@@ -1461,7 +1466,10 @@ void EventTraceBuilder::obs_sleep_add(struct obs_sleep &sleep,
   //   sleeping_msgs.push_back(spid);
   // }
   for(auto p : e.sleep_trees){
-    sleep_trees.emplace(p);
+    IPid handler = threads[SPS.get_pid(p.first)].handler_id;
+    unsigned size = (first_of_msgs.find(handler) != first_of_msgs.end())?
+      first_of_msgs.at(handler).size() : 0;
+    sleep_trees.emplace(p.first,std::make_pair(size,p.second));
   }
 }
 
@@ -1578,11 +1586,20 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
   for(auto slp_tree_it = sleep_trees.begin(); slp_tree_it != sleep_trees.end();){
     unsigned handler = threads[SPS.get_pid(slp_tree_it->first)].handler_id;
     if(slp_tree_it->first == p){
+      // bool partial_msg = true;
+      // for(const SymEv &symev : sym) if(symev.is_return()) partial_msg = false;
+      // if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1 &&
+      // 	 child_it.branch().index == 1 &&
+      // 	 first_of_msgs.find(handler) != first_of_msgs.end() &&
+      // 	 partial_msg &&
+      // 	 conflict_with_rest_of_msg(j, child_it.branch(), v, clk_fst_of_msgs,
+      // 				   last_seen_msg_event, partial_msg)){
+      // }
       // TODO: Block according to the definition of the paper
       // Check till the end of the message
       return obs_wake_res::BLOCK;
     }
-    Branch first_ev = slp_tree_it->second.begin()->front();
+    Branch first_ev = slp_tree_it->second.second.begin()->front();
     if(first_ev.index == 1 && do_events_conflict(p, sym, first_ev.spid, first_ev.sym)){
       slp_tree_it = sleep_trees.erase(slp_tree_it);
       continue;
@@ -1591,11 +1608,11 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       slp_tree_it++;
       continue;
     }
-    for(VClock<IPid> fst : first_of_msgs.at(handler)){
-      if(fst.leq(clock)){
+    for(unsigned i = slp_tree_it->second.first; i < first_of_msgs.at(handler).size(); i++){
+      if(first_of_msgs.at(handler)[i].leq(clock)){
 	/* For events that happens after at least one of the messages in the same handler */
-	for(auto seq_it = slp_tree_it->second.begin();
-	    seq_it != slp_tree_it->second.end();){
+	for(auto seq_it = slp_tree_it->second.second.begin();
+	    seq_it != slp_tree_it->second.second.end();){
 	  bool conflict = false;
 	  for(Branch br : (*seq_it)){
 	    if(do_events_conflict(p, sym, br.spid, br.sym)){
@@ -1603,13 +1620,13 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
 	      break;
 	    }
 	  }
-	  if(conflict) seq_it = slp_tree_it->second.erase(seq_it);
+	  if(conflict) seq_it = slp_tree_it->second.second.erase(seq_it);
 	  else seq_it++;
 	}
 	break;
       }
     }
-    if(slp_tree_it->second.empty()) slp_tree_it = sleep_trees.erase(slp_tree_it);
+    if(slp_tree_it->second.second.empty()) slp_tree_it = sleep_trees.erase(slp_tree_it);
     else slp_tree_it++;
   }
 
@@ -2305,7 +2322,7 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
     	slp_tree_it = sleep_trees.erase(slp_tree_it);
 	continue;
       }
-      Branch first_ev = slp_tree_it->second.begin()->front();
+      Branch first_ev = slp_tree_it->second.second.begin()->front();
       if(do_events_conflict(v[i].spid, v[i].sym, first_ev.spid, first_ev.sym)){
     	bool skip = false;
     	for(unsigned ei : clear_set[slp_tree_it->first]){
@@ -2323,8 +2340,8 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
       for(auto fst : first_of_msgs.at(handler)){
     	if(fst.leq(v[i].clock)){
     	  /* For events that happens after at least one of the messages in the same handler */
-    	  for(auto seq_it = slp_tree_it->second.begin();
-    	      seq_it != slp_tree_it->second.end(); seq_it++){
+    	  for(auto seq_it = slp_tree_it->second.second.begin();
+    	      seq_it != slp_tree_it->second.second.end(); seq_it++){
     	    bool conflict = false;
     	    for(Branch br : (*seq_it)){
     	      if(do_events_conflict(v[i].spid, v[i].sym, br.spid, br.sym)){
@@ -2391,8 +2408,8 @@ void EventTraceBuilder::do_race_detect() {
   sleep_trees_t sleep_trees;
   first_of_msgs_t first_of_msgs;
   for (unsigned i = 0; i < races.size(); ++i){
-    obs_sleep_add(sleep, sleeping_msgs, sleep_trees, prefix[i]);
     // llvm::dbgs()<<i<<"\n";//////////////
+    obs_sleep_add(sleep, sleeping_msgs, sleep_trees, first_of_msgs, prefix[i]);
     /* Insert pending WSs */
     for(auto v_it = prefix.branch(i).pending_WSs.begin();
 	v_it != prefix.branch(i).pending_WSs.end();) {
@@ -2563,7 +2580,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	        explored_trail.push_back(branch_with_symbolic_data(*eit));
 	      eit += prefix.branch(*eit).size;
 	    }
-	    sleep_trees[child_it.branch().spid].
+	    sleep_trees[child_it.branch().spid].second.
 	      insert(std::move(explored_trail));
 	    skip = NEXT;
 	    leftmost_branch = false;
@@ -2635,7 +2652,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 		      explored_trail.push_back(branch_with_symbolic_data(*eit));
 		    eit += prefix.branch(*eit).size;
 		  }
-		  sleep_trees[child_it.branch().spid].
+		  sleep_trees[child_it.branch().spid].second.
 		    insert(std::move(explored_trail));
 		  leftmost_branch = false;
 		  skip = NEXT;
@@ -2670,7 +2687,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 		  explored_trail.push_back(branch_with_symbolic_data(*eit));
 		eit += prefix.branch(*eit).size;
 	      }
-	      sleep_trees[child_it.branch().spid].
+	      sleep_trees[child_it.branch().spid].second.
 		insert(std::move(explored_trail));
 	      leftmost_branch = false;
 	      skip = NEXT;
@@ -2693,7 +2710,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 			  push_back(branch_with_symbolic_data(*eit));
 		      eit += prefix.branch(*eit).size;
 		    }
-		    sleep_trees[child_it.branch().spid].
+		    sleep_trees[child_it.branch().spid].second.
 		      insert(std::move(explored_trail));
 		    leftmost_branch = false;
 		    skip = NEXT;
@@ -2831,6 +2848,7 @@ conflict_with_rest_of_msg(unsigned j, Branch &child,
   }
   /* events are same as the current execution for partial non-branching message */
   /* check conflict for the rest of the message not in WS */
+  // TODO: Branching case 
   if(partial_msg){
     unsigned last_index = v[last_seen_msg_event].index +
       v[last_seen_msg_event].size - 1;

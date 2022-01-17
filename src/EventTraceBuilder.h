@@ -423,7 +423,8 @@ protected:
    * lock. All are of kind LOCK_FAIL.
    */
   std::vector<Race> lock_fail_races;
-  typedef std::map<IPid,std::set<std::list<Branch>>> sleep_trees_t;
+  typedef std::map<IPid,std::set<std::list<Branch>>> done_trees_t;
+  typedef std::map<IPid,std::pair<unsigned,std::set<std::list<Branch>>>> sleep_trees_t;
   typedef std::map<IPid, std::vector<VClock<IPid>>> first_of_msgs_t;
 
   /* Information about a (short) sequence of consecutive events by the
@@ -483,9 +484,9 @@ protected:
     std::vector<IPid> done_msgs;
     /* sleep_tree_t := std::map<IPid,std::vector<std::list<Branch>>> */
     /* Contains subtree of explored continuation of the current message */
-    sleep_trees_t explored_tails;
+    done_trees_t explored_tails;
     /* Contains information about sleeping messages at this point */
-    sleep_trees_t sleep_trees;
+    done_trees_t sleep_trees;
     /* The set of sleeping threads that wake up during or after this
      * event sequence.
      */
@@ -746,6 +747,7 @@ protected:
   void obs_sleep_add(struct obs_sleep &sleep,
 		     std::vector<IPid> &sleeping_msgs,
 		     sleep_trees_t &sleep_trees,
+		     const first_of_msgs_t &first_of_msgs,
 		     const Event &e) const;
   enum class obs_wake_res {
     CLEAR,
