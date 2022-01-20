@@ -423,8 +423,15 @@ protected:
    * lock. All are of kind LOCK_FAIL.
    */
   std::vector<Race> lock_fail_races;
+
+  struct sleep_tree{
+    unsigned i;
+    /* Start checking events from start_index of every sequence in msg_trails */
+    unsigned start_index;
+    std::set<std::list<Branch>> msg_trails;
+  };
   typedef std::map<IPid,std::set<std::list<Branch>>> done_trees_t;
-  typedef std::map<IPid,std::pair<unsigned,std::set<std::list<Branch>>>> sleep_trees_t;
+  typedef std::map<IPid,struct sleep_tree> sleep_trees_t;
   typedef std::map<IPid, std::vector<VClock<IPid>>> first_of_msgs_t;
 
   /* Information about a (short) sequence of consecutive events by the
