@@ -8,6 +8,7 @@ libnidhugg_a_SOURCES = \
   Configuration.cpp Configuration.h \
   CPid.cpp CPid.h \
   Cpubind.cpp Cpubind.h \
+  DeadCodeElimPass.cpp DeadCodeElimPass.h \
   Debug.cpp Debug.h \
   DetCheckTraceBuilder.cpp DetCheckTraceBuilder.h \
   DPORDriver.cpp DPORDriver.h \
@@ -19,7 +20,7 @@ libnidhugg_a_SOURCES = \
   GlobalContext.cpp GlobalContext.h \
   IID.h IID.tcc \
   Interpreter.cpp Interpreter.h \
-  LoopUnrollPass.cpp LoopUnrollPass.h \
+  LoopBoundPass.cpp LoopBoundPass.h \
   MRef.cpp MRef.h \
   nregex.cpp nregex.h \
   Option.h \

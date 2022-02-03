@@ -99,7 +99,11 @@ public:
     print_progress = false;
     print_progress_estimate = false;
     exploration_scheduler = WORKSTEALING;
+#ifdef NO_SMTLIB_SOLVER
+    sat_solver = NONE;
+#else
     sat_solver = SMTLIB;
+#endif
     argv.push_back(get_default_program_name());
   };
   /* Read the switches given to the program by the user. Assign
@@ -182,6 +186,8 @@ public:
   bool debug_print_on_error;
   /* In module transformation, enable the SpinAssume pass. */
   bool transform_spin_assume;
+  /* In module transformation, enable the DeadCodeElim pass. */
+  bool transform_dead_code_elim = true;
   /* If transform_loop_unroll is non-negative, in module
    * transformation, enable loop unrolling with depth
    * transform_loop_unroll.
@@ -189,6 +195,8 @@ public:
   int transform_loop_unroll;
   /* Number to return from __VERIFIER_nondet_u?int() */
   Option<int> svcomp_nondet_int;
+  /* If set, rmws are allowed to commute. */
+  bool commute_rmws = false;
   /* If set, DPORDriver will continually print its progress to stdout. */
   bool print_progress;
   /* If set and print_progress is set, DPORDriver will together with
@@ -211,7 +219,11 @@ public:
 
   /* Sat solver to use. */
   enum SatSolverEnum {
+#ifdef NO_SMTLIB_SOLVER
+        NONE,
+#else
         SMTLIB,
+#endif
   } sat_solver;
   std::unique_ptr<SatSolver> get_sat_solver() const;
   /* The arguments that will be passed to the program under test */

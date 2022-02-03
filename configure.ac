@@ -175,6 +175,45 @@ else
   AC_DEFINE([NO_TIMING], [1], [Define to 1 if timing should be disabled])
 fi
 
+AC_ARG_ENABLE(smtlib-consistency-check,
+              [AS_HELP_STRING([--enable-smtlib-consistency-check],
+               [Allow the use of SMTLib compatible SMT solvers as decision procedure for RF-SMC])],
+              [if test "x$enableval" != "xno" ; then
+                 enable_smtlib_consistency_check=yes
+               fi
+              ], [enable_smtlib_consistency_check="auto"])
+if test "x$enable_smtlib_consistency_check" != "xno" -a "x$ax_cv_boost_system" != "xyes"; then
+  if test "x$enable_smtlib_consistency_check" = "xyes"; then
+    AC_MSG_FAILURE([SMTLib consistency procedure requires boost-system.])
+  fi
+  AC_MSG_NOTICE([Disabling SMTLib consistency procedure for RF-SMC because boost-system is not available.])
+  AC_DEFINE([NO_SMTLIB_SOLVER], [1], [Define to 1 if timing should be disabled])
+elif test "x$enable_smtlib_consistency_check" != "xno"; then
+  AC_MSG_CHECKING([whether boost-system can compile with -fno-rtti])
+  old_CXXFLAGS="$CXXFLAGS"
+  CXXFLAGS="$CXXFLAGS -fno-rtti"
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <boost/process.hpp>
+]],[[
+  boost::process::ipstream out;
+  boost::process::opstream in;
+  boost::process::child c;
+  in << "hej";
+        ]])],
+        [AC_MSG_RESULT([yes])],
+        [AC_MSG_RESULT([no])
+         if test "x$enable_smtlib_consistency_check" = "xyes"; then
+           AC_MSG_FAILURE([SMTLib consistency procedure requires boost-system.])
+         fi
+         AC_MSG_NOTICE([Disabling SMTLib consistency procedure for RF-SMC because boost-system is not compatible with -fno-rtti.])
+         AC_DEFINE([NO_SMTLIB_SOLVER], [1], [Define to 1 if timing should be disabled])
+        ])
+  CXXFLAGS="$old_CXXFLAGS"
+else
+  AC_MSG_NOTICE([Disabling SMTLib consistency procedure for RF-SMC.])
+  AC_DEFINE([NO_SMTLIB_SOLVER], [1], [Define to 1 if timing should be disabled])
+fi
+
 AC_CHECK_HEADERS([ \
   stdlib.h \
   sys/types.h \
@@ -443,7 +482,20 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
            [AC_DEFINE([HAVE_LLVM_SYS_FS_OPENFLAGS],[1],
             [Define if the type llvm::sys::fs::OpenFlags exists.])
             AC_MSG_RESULT([yes])],
-           [AC_MSG_RESULT([no])])
+           [AC_MSG_RESULT([no])
+           AC_MSG_CHECKING([for llvm::sys::fs::OpenFlags (OF_None)])
+           AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <llvm/Support/FileSystem.h>
+]],[[
+  llvm::sys::fs::OpenFlags f = llvm::sys::fs::OF_None;
+  return f;
+]])],
+                             [AC_DEFINE([HAVE_LLVM_SYS_FS_OPENFLAGS],[1],
+                              [Define if the type llvm::sys::fs::OpenFlags exists.])
+                              AC_DEFINE([LLVM_SYS_FS_OPENFLAGS_PREFIX_OF],[1],
+                              [Define if the values in the enum llvm::sys::fs::OpenFlags have the names OF_*.])
+                              AC_MSG_RESULT([yes])],
+                             [AC_MSG_RESULT([no])])])
 
 ## Check if Mutexes use the method "lock" or "acquire"
 AC_MSG_CHECKING([for llvm::sys::Mutex::lock])

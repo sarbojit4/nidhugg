@@ -82,6 +82,7 @@ struct SymEv {
     arg2() {}
     arg2(RmwAction::Kind kind) : rmw_kind(kind) {}
   } arg2;
+  bool _rmw_result_used;
   SymData::block_type _expected, _written;
 
   SymEv() : kind(NONE) {};
@@ -92,6 +93,7 @@ struct SymEv {
   static SymEv Store(SymData addr) { return {STORE, std::move(addr)}; }
   static SymEv Post(int num) { return {POST, num}; }
   static SymEv Rmw(SymData addr, RmwAction action) {
+    assert(addr.get_block());
     return {RMW, std::move(addr), std::move(action)};
   }
   static SymEv CmpXhg(SymData addr, SymData::block_type expected) {
@@ -146,7 +148,16 @@ struct SymEv {
   }
   RmwAction rmwaction() const {
     assert(has_rmwaction());
-    return {arg2.rmw_kind, _expected};
+    assert(_expected);
+    return {arg2.rmw_kind, _expected, _rmw_result_used};
+  }
+  RmwAction::Kind rmw_kind() const {
+    assert(has_rmwaction());
+    return arg2.rmw_kind;
+  }
+  bool rmw_result_used() const {
+    assert(has_rmwaction());
+    return _rmw_result_used;
   }
 
   void purge_data();
@@ -171,6 +182,7 @@ private:
       _written(std::move(addr_written.get_shared_block())) {};
   SymEv(enum kind kind, SymData addr_written, RmwAction action)
     : kind(kind), arg(addr_written.get_ref()), arg2(action.kind),
+      _rmw_result_used(action.result_used),
       _expected(std::move(action.operand)),
       _written(std::move(addr_written.get_shared_block())) {
       assert(has_data());

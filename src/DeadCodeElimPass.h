@@ -1,4 +1,4 @@
-/* Copyright (C) 2014-2017 Carl Leonardsson
+/* Copyright (C) 2021 Magnus Lång
  *
  * This file is part of Nidhugg.
  *
@@ -19,35 +19,28 @@
 
 #include <config.h>
 
-#ifndef __LOOP_UNROLL_PASS_H__
-#define __LOOP_UNROLL_PASS_H__
+#ifndef __DEAD_CODE_ELIM_PASS_H__
+#define __DEAD_CODE_ELIM_PASS_H__
 
 #include <llvm/Pass.h>
 #include <llvm/Analysis/LoopPass.h>
 
-#include "Debug.h"
-
-class LoopUnrollPass : public llvm::LoopPass{
+/* The DeadCodeElim pass is a conservative dead-code eliminator, which
+ * preserves behaviour visible to stateless model checking, such as
+ * undefined behaviour and memory accesses.
+ */
+class DeadCodeElimPass final : public llvm::FunctionPass{
 public:
   static char ID;
-  LoopUnrollPass(int depth) : llvm::LoopPass(ID), unroll_depth(depth) {
-    if(unroll_depth < 0){
-      Debug::warn("loopunrollpass:negative depth")
-        << "WARNING: Negative depth given to loop unroll pass. Defaulting to depth zero.\n";
-      unroll_depth = 0;
-    }
-  };
-  virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const;
-  virtual bool runOnLoop(llvm::Loop *L, llvm::LPPassManager &LPM);
+  DeadCodeElimPass() : llvm::FunctionPass(ID) {};
+  void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
+  bool runOnFunction(llvm::Function &F) override;
 #ifdef LLVM_PASS_GETPASSNAME_IS_STRINGREF
-  virtual llvm::StringRef getPassName() const { return "LoopUnrollPass"; };
+  llvm::StringRef getPassName() const override { return "DeadCodeElimPass"; } ;
 #else
-  virtual const char *getPassName() const { return "LoopUnrollPass"; };
+  const char *getPassName() const override { return "DeadCodeElimPass"; };
 #endif
-protected:
-  llvm::BasicBlock *make_diverge_block(llvm::Loop *L);
-  int unroll_depth;
+private:
 };
 
 #endif
-
