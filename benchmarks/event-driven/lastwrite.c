@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stdatomic.h>
 #include <pthread.h>
-
+// ((N+1)^N)*(N!) traces
 #ifndef N
 #  warning "N was not defined, assuming N=3"
 #  define N 3

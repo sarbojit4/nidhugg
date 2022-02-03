@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include "qthread.h"
 
+//1 trace
 #ifndef N
 #  warning "N was not defined; defining it as 2"
 #  define N 7

@@ -3,7 +3,7 @@
 #include <pthread.h>
 #include "qthread.h"
 
-// # traces(Don't know)
+// 24 traces
 
 qthread_t handler1;
 qthread_t handler2;

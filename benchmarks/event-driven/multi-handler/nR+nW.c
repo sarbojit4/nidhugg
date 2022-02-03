@@ -3,9 +3,10 @@
 #include <pthread.h>
 #include "qthread.h"
 
+//((N+1)^N)*(N!) traces
 #ifndef N
 #  warning "N was not defined; defining it as 2"
-#  define N 2
+#  define N 3
 #endif
 
 qthread_t handler1;
@@ -47,7 +48,7 @@ int main(){
   for (int i = 0; i < N; i++){
     pthread_create(&t1[i], NULL, &th_post1, NULL);
   }
-  for (int i = 0; i < N-1; i++){
+  for (int i = 0; i < N; i++){
     pthread_create(&t2[i], NULL, &th_post2, NULL);
   }
   for (int i = 0; i < N; i++){

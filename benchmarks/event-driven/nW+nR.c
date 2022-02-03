@@ -2,13 +2,14 @@
 #include<stdatomic.h>
 #include<pthread.h>
 #include"qthread.h"
-/* ((N+1)^N)*(N!) traces*/
+//((N+1)^N)*(N!) traces
 #ifndef N
 #  warning "N was not defined"
 #  define N 3
 #endif
 
 atomic_int g;
+qthread_t handler;
 void *mes1(void *j){
   atomic_store_explicit(&g, 1, memory_order_seq_cst);
   return 0;
@@ -20,12 +21,12 @@ void *mes2(void *j){
 }
 
 void *th_post1(void *i){
-  qthread_post_event(1, &mes1, i); 
+  qthread_post_event(handler, &mes1, i); 
   return 0;
 }
 
 void *th_post2(void *i){
-  qthread_post_event(1, &mes2, i); 
+  qthread_post_event(handler, &mes2, i); 
   return 0;
 }
 void *handler_func(void *i){ 
@@ -35,7 +36,6 @@ void *handler_func(void *i){
 
 int main() {
   pthread_t t[2*N];
-  qthread_t handler;
 
   qthread_create(&handler, &handler_func, NULL);
   qthread_start(handler);
@@ -48,7 +48,6 @@ int main() {
   for (int i = 0; i < 2*N; i++){
     pthread_join(t[i], NULL);
   }
-  //qthread_quit(handler);
   qthread_wait(handler, NULL);
   return 0;
 }

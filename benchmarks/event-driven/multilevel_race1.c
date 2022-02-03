@@ -4,6 +4,7 @@
 #include "qthread.h"
 
 //N!*N! traces
+//PI[k=1...(n-1)]((2k+1)*(k+1))
 #ifndef N
 #  warning "N was not defined; defining it as 2"
 #  define N 4
