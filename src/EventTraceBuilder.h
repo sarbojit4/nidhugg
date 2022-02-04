@@ -145,7 +145,7 @@ protected:
     Thread(const CPid &cpid, int spawn_event, IPid handler_id = -1)
       : cpid(cpid), available(true), spawn_event(spawn_event),
 	sleeping(false), sleep_full_memory_conflict(false),
-	sleep_sym(nullptr), last_post(-1), handler_id(handler_id) {};
+	sleep_sym(nullptr), handler_id(handler_id) {};
     CPid cpid;
     IPid spid;
     /* Is the thread available for scheduling? */
@@ -199,8 +199,6 @@ protected:
      * NULL if !sleeping.
      */
     sym_ty *sleep_sym;
-    /* contains last event that posted message to this thread */
-    int last_post;
     /* Each time a handler thread receives a  meesage, it creates a new 
      * thread to execute the message. If this thread is solely for 
      * executing message, handler_id contains the id of the handler thread

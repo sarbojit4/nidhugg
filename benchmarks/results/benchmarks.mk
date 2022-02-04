@@ -16,6 +16,7 @@ SOURCE    = $(NIDHUGG) -c11 -sc -source
 OPTIMAL   = $(NIDHUGG) -c11 -sc -optimal
 OBSERVERS = $(NIDHUGG) -c11 -sc -observers
 RFSC      = $(NIDHUGG) -c11 -sc -rf --n-threads=$(1)
+EVENT     = $(NIDDUGG) -c11 -sc -event
 DCDPOR ?= dcdpor -dc
 VCDPOR ?= vcdpor -vc
 RCMC ?= rcmc
