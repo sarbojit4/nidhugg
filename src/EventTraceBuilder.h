@@ -430,7 +430,7 @@ protected:
   };
   typedef std::map<IPid,std::set<std::list<Branch>>> done_trees_t;
   typedef std::map<IPid,struct sleep_tree> sleep_trees_t;
-  typedef std::map<IPid, std::vector<VClock<IPid>>> first_of_msgs_t;
+  typedef std::map<IPid, std::vector<std::pair<IPid,VClock<IPid>>>> first_of_msgs_t;
 
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts

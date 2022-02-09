@@ -3156,6 +3156,7 @@ void Interpreter::callQThreadExec(Function *F,
     return;
   }
   int first_message = Threads[CurrentThread].msgs.front();
+
   TB.mark_available(first_message);
   Threads[CurrentThread].msgs.pop_front();
 }
@@ -3551,7 +3552,9 @@ void Interpreter::run() {
 	  }
         }
 	else{
-	  llvm::dbgs() << "Error: Cannot execute message, handler is busy.\n";
+	  llvm::dbgs() << "Error: Cannot execute message "
+		       << CurrentThread
+		       << ", handler is busy.\n";
 	  abort();
 	}
       } else{

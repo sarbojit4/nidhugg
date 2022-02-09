@@ -703,7 +703,7 @@ void EventTraceBuilder::debug_print() const {
     if(threads[prefix[i].iid.get_pid()].handler_id != -1 &&
        prefix[i].iid.get_index() == 1)
       first_of_msgs[threads[prefix[i].iid.get_pid()].handler_id].
-	push_back(prefix[i].clock);
+	emplace_back(threads[ipid].spid, prefix[i].clock);
     obs_sleep_wake(sleep_set, sleep_trees, threads[ipid].spid,
 		   prefix[i].iid.get_index(),
 		   prefix[i].clock, prefix[i].sym, first_of_msgs);
@@ -1592,11 +1592,15 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       for(const SymEv &symev : sym) if(symev.is_return()) partial_msg = false;
       if(first_of_msgs.find(handler) != first_of_msgs.end() &&
       	 partial_msg){
-        slp_tree_it->second.start_index++;
+	for(const SymEv &symev : sym){
+	  if(symev.access_global()) slp_tree_it->second.start_index++;
+	}
 	slp_tree_it++;
 	continue;
       }
-      else return obs_wake_res::BLOCK;
+      else{
+	return obs_wake_res::BLOCK;
+      }
     }
     Branch first_ev = slp_tree_it->second.msg_trails.begin()->front();
     if(slp_tree_it->second.start_index == 0 && first_ev.index == 1 &&
@@ -1609,7 +1613,8 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       continue;
     }
     for(unsigned i = slp_tree_it->second.i; i < first_of_msgs.at(handler).size(); i++){
-      if(first_of_msgs.at(handler)[i].leq(clock)){
+      if(first_of_msgs.at(handler)[i].first != slp_tree_it->first &&
+	 first_of_msgs.at(handler)[i].second.leq(clock)){
 	/* For events that happens after at least one of the messages in the same handler */
 	for(auto seq_it = slp_tree_it->second.msg_trails.begin();
 	    seq_it != slp_tree_it->second.msg_trails.end();){
@@ -1617,13 +1622,16 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
 	  bool conflict = false;
 	  for(auto br_it = seq_it->begin();
 	      br_it != seq_it->end(); br_it++, ind++){
-	    if(slp_tree_it->second.start_index <= ind &&
-	       do_events_conflict(p, sym, br_it->spid, br_it->sym)){
-	      conflict = true;
-	      break;
+	    if(slp_tree_it->second.start_index <= ind){
+	      if(do_events_conflict(p, sym, br_it->spid, br_it->sym)){
+	        conflict = true;
+	        break;
+	      }
 	    }
 	  }
-	  if(conflict) seq_it = slp_tree_it->second.msg_trails.erase(seq_it);
+	  if(conflict){
+	    seq_it = slp_tree_it->second.msg_trails.erase(seq_it);
+	  }
 	  else seq_it++;
 	}
 	break;
@@ -1671,7 +1679,7 @@ sequence_clears_sleep(const std::vector<Branch> &seq,
          && it != seq.cend(); ++it) {
     if(threads[SPS.get_pid(it->spid)].handler_id != -1 && it->index == 1){
       first_of_msgs[threads[SPS.get_pid(it->spid)].handler_id].
-	push_back(it->clock);
+	emplace_back(it->spid, it->clock);
     }
     state = obs_sleep_wake(isleep, slp_trees, it->spid, it->index,
 			   it->clock, it->sym, first_of_msgs);
@@ -2300,7 +2308,7 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
   for(unsigned i = 0; i < v.size(); i++){
     if(threads[SPS.get_pid(v[i].spid)].handler_id != -1 && v[i].index == 1)
       first_of_msgs[threads[SPS.get_pid(v[i].spid)].handler_id].
-  	push_back(v[i].clock);
+  	emplace_back(v[i].spid, v[i].clock);
 
     for (unsigned j = 0; j < sleep.sleep.size();) {
       const auto &s = sleep.sleep[j];
@@ -2341,7 +2349,7 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
     	continue;
       }
       for(auto fst : first_of_msgs.at(handler)){
-    	if(fst.leq(v[i].clock)){
+    	if(fst.first != slp_tree_it->first && fst.second.leq(v[i].clock)){
     	  /* For events that happens after at least one of the messages in the same handler */
     	  for(auto seq_it = slp_tree_it->second.msg_trails.begin();
     	      seq_it != slp_tree_it->second.msg_trails.end(); seq_it++){
@@ -2431,7 +2439,7 @@ void EventTraceBuilder::do_race_detect() {
     if(threads[prefix[i].iid.get_pid()].handler_id != -1 &&
        prefix[i].iid.get_index() == 1)
       first_of_msgs[threads[prefix[i].iid.get_pid()].handler_id].
-	push_back(prefix[i].clock);
+	emplace_back(threads[prefix[i].iid.get_pid()].spid, prefix[i].clock);
     obs_sleep_wake(sleep, sleep_trees, prefix[i], first_of_msgs);
   }
 
@@ -2751,7 +2759,8 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       if(!branch_found) return;
       i++;
       if(child_handler != -1 && child_it.branch().index == 1)
-	first_of_msgs[child_handler].push_back(child_it.branch().clock);
+	first_of_msgs[child_handler].
+	  emplace_back(child_it.branch().spid, child_it.branch().clock);
       obs_sleep_wake(sleep, sleep_trees, child_it.branch().spid,
       		     child_it.branch().index, child_it.branch().clock,
       		     child_it.branch().sym, first_of_msgs);
@@ -2940,14 +2949,16 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
 	  if(!prefix[br_point].clock.leq(prefix[k].clock)) in_notdep[k] = true;
         }
 	else{
-	  if(k == j){
+	  if(k == j){// second event of the race does not go in the notdep
 	    in_notdep[k] = false;
 	    continue;
 	  }
 	  if(prefix[k].iid.get_pid() == spid && k < j){
+	    //events before second event in second message should be in notdep
 	    in_notdep[k] = true;
 	    continue;
 	  }
+	  //The events after the first half of the second message should be in the notdep
 	  if(prefix[k].iid.get_index() > 1 &&
 	     in_notdep[find_process_event(prefix[k].iid.get_pid(),
 					  prefix[k].iid.get_index()-1)]
