@@ -810,14 +810,15 @@ protected:
   std::pair<std::vector<bool>, Branch>
   wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms,
 		  unsigned br_point, std::vector<bool> &unfiltered_notdep) const;
-  std::vector<Branch> linearize_sequence(unsigned br_point, IPid spid,
-					 std::vector<bool> &in_v) const;
+  std::vector<Branch> linearize_sequence(unsigned br_point, bool is_msg_msg_race,
+					 IPid spid, std::vector<bool> &in_v) const;
   bool linearize_sequence1(std::vector<Branch> &v,
 			   std::map<IPid, std::vector<unsigned>> clear_set) const;
   bool visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
 		   std::vector<std::vector<unsigned>> &trace,
 		   std::vector<bool> &visiting, std::vector<bool> &visited,
 		   std::vector<unsigned> &sorted_seq) const;
+  VClock<IPid> recompute_clock_for_second(unsigned i, unsigned k) const;
   /* recompute branch for second event involved in a race */ 
   void recompute_second(const Race&, Branch &second_br, Event &second) const;
   /* Checks if a sequence of events will clear a sleep set. */
