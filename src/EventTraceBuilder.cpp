@@ -2390,7 +2390,7 @@ void EventTraceBuilder::do_race_detect() {
     // for(unsigned ei : prefix[i].eom_before){
     //   eoms[prefix[i].iid.get_pid()].push_back(prefix[ei].iid.get_pid());
     // }
-    auto special_case = [this](IPid handler, unsigned fst, unsigned sec){
+    auto special_case1 = [this](IPid handler, unsigned fst, unsigned sec){
 			  for(unsigned k = fst+1; k < sec; k++){
 			    IPid pid = prefix[k].iid.get_pid();
 			    if(prefix[k].iid.get_index() == 1 &&
@@ -2401,14 +2401,28 @@ void EventTraceBuilder::do_race_detect() {
 			  }
 			  return false;
 			};
+    auto special_case2 = [this](IPid handler, unsigned fst, unsigned sec){
+			  for(unsigned k = fst+1; k < sec; k++){
+			    IPid pid = prefix[k].iid.get_pid();
+			    if(threads[pid].handler_id == handler &&
+			       threads[prefix[k].iid.get_pid()].event_indices.back() == k &&
+			       prefix[fst].clock.lt(prefix[k].clock)){
+			      return true;
+			    }
+			  }
+			  return false;
+			};
     for (const Race &r : prefix[i].races){
       IPid fpid = prefix[r.first_event].iid.get_pid();
       IPid spid = prefix[r.second_event].iid.get_pid();
       if(threads[fpid].handler_id != -1 &&
 	 (threads[fpid].handler_id == threads[spid].handler_id ||
-	  special_case(threads[fpid].handler_id,r.first_event,r.second_event))){
+	  special_case1(threads[fpid].handler_id,r.first_event,r.second_event))){
 	races[threads[fpid].event_indices.front()].push_back(&r);
       }
+      else if(threads[fpid].handler_id != -1 &&
+	      special_case2(threads[spid].handler_id,r.first_event,r.second_event))
+	continue;
       else races[r.first_event].push_back(&r);
     }
   }
