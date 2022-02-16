@@ -3300,7 +3300,7 @@ linearize_sequence(unsigned br_point, bool is_msg_msg_race,
       trace[i].push_back(race.first_event);
     }
   }
-  for(int i = 2; i < threads.size(); i = i+2){
+  for(int i = 2; i < threads.size(); i+=2){
     if(threads[i].handler_id != -1 &&
        threads[i].event_indices.front() > br_point &&
        in_v[threads[i].event_indices.front()] &&
@@ -3406,10 +3406,7 @@ recompute_clock_for_second(unsigned i, unsigned k) const{
   }
   for (auto r : prefix[k].races){
     assert(r.first_event < k);
-    if(prefix[r.first_event].iid.get_pid() != prefix[i].iid.get_pid()) {
-      clock += prefix[r.first_event].clock;
-    }
-    else{
+    if(r.first_event == i){
       for (auto rr : prefix[r.first_event].races){
 	assert(rr.first_event < k);
 	if(do_events_conflict(prefix[rr.first_event].iid.get_pid(),
@@ -3418,7 +3415,7 @@ recompute_clock_for_second(unsigned i, unsigned k) const{
 			      prefix[k].sym))
 	  clock += prefix[rr.first_event].clock;
       }
-    }
+    } else clock += prefix[r.first_event].clock;
   }
   
   for (unsigned ei : prefix[k].eom_before){
@@ -3450,39 +3447,7 @@ recompute_second(const Race &race, Branch &second_br, Event &second) const{
     second.sleep.clear();
     second.wakeup.clear();
     second_br = branch_with_symbolic_data(j);
-    VClock<IPid> clock;
-    if (prefix[j].iid.get_index() > 1) {
-      unsigned last = find_process_event(prefix[j].iid.get_pid(),
-					 prefix[j].iid.get_index()-1);
-      clock = prefix[last].clock;
-    } else {
-      clock = VClock<IPid>();
-    }
-    clock[prefix[j].iid.get_pid()] = prefix[j].iid.get_index();
-    for (unsigned k : prefix[j].happens_after){
-      assert(k < j);
-      clock += prefix[k].clock;
-    }
-    for (auto r : prefix[j].races){
-      assert(r.first_event < j);
-      if(r.first_event != i) {
-	clock += prefix[r.first_event].clock;
-      }
-    }
-    for (auto r : prefix[i].races){
-      assert(r.first_event < j);
-      if(do_events_conflict(prefix[r.first_event].iid.get_pid(),
-			    prefix[r.first_event].sym,
-			    prefix[j].iid.get_pid(),
-			    prefix[j].sym))
-	clock += prefix[r.first_event].clock;
-    }
-    for (unsigned k : prefix[j].eom_before){
-      assert(k < j);
-      if(prefix[k].iid.get_pid() != prefix[i].iid.get_pid())
-	clock += prefix[k].clock;
-    }
-    second_br.clock = clock;
+    second_br.clock = recompute_clock_for_second(i,j);
   }
   if (race.kind != Race::OBSERVED) {
     /* Only replay the racy event. */
