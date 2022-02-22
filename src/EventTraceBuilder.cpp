@@ -1469,7 +1469,7 @@ void EventTraceBuilder::obs_sleep_add(struct obs_sleep &sleep,
     IPid handler = threads[SPS.get_pid(p.first)].handler_id;
     unsigned size = (first_of_msgs.find(handler) != first_of_msgs.end())?
       first_of_msgs.at(handler).size() : 0;
-    sleep_trees.emplace(p.first,sleep_tree{size, 0, p.second});
+    sleep_trees.push_back(sleep_tree{p.first,size, 0, p.second});
   }
 }
 
@@ -1584,8 +1584,8 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
   // }
 
   for(auto slp_tree_it = sleep_trees.begin(); slp_tree_it != sleep_trees.end();){
-    unsigned handler = threads[SPS.get_pid(slp_tree_it->first)].handler_id;
-    if(slp_tree_it->first == p){
+    unsigned handler = threads[SPS.get_pid(slp_tree_it->pid)].handler_id;
+    if(slp_tree_it->pid == p){
       // Block according to the definition of the paper
       // Check till the end of the message
       bool partial_msg = true;
@@ -1593,7 +1593,7 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       if(first_of_msgs.find(handler) != first_of_msgs.end() &&
       	 partial_msg){
 	for(const SymEv &symev : sym){
-	  if(symev.access_global()) slp_tree_it->second.start_index++;
+	  if(symev.access_global()) slp_tree_it->start_index++;
 	}
 	slp_tree_it++;
 	continue;
@@ -1602,8 +1602,8 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
 	return obs_wake_res::BLOCK;
       }
     }
-    Branch first_ev = slp_tree_it->second.msg_trails.begin()->front();
-    if(slp_tree_it->second.start_index == 0 && first_ev.index == 1 &&
+    Branch first_ev = slp_tree_it->msg_trails.begin()->front();
+    if(slp_tree_it->start_index == 0 && first_ev.index == 1 &&
        do_events_conflict(p, sym, first_ev.spid, first_ev.sym)){
       slp_tree_it = sleep_trees.erase(slp_tree_it);
       continue;
@@ -1612,30 +1612,30 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       slp_tree_it++;
       continue;
     }
-    for(unsigned i = slp_tree_it->second.i; i < first_of_msgs.at(handler).size(); i++){
-      if(first_of_msgs.at(handler)[i].first != slp_tree_it->first &&
+    for(unsigned i = slp_tree_it->i; i < first_of_msgs.at(handler).size(); i++){
+      if(first_of_msgs.at(handler)[i].first != slp_tree_it->pid &&
 	 first_of_msgs.at(handler)[i].second.leq(clock)){
 	/* For events that happens after at least one of the messages in the same handler */
-	for(auto seq_it = slp_tree_it->second.msg_trails.begin();
-	    seq_it != slp_tree_it->second.msg_trails.end();){
+	for(auto seq_it = slp_tree_it->msg_trails.begin();
+	    seq_it != slp_tree_it->msg_trails.end();){
 	  unsigned ind = 0;
 	  bool conflict = false;
 	  for(auto br_it = seq_it->begin();
 	      br_it != seq_it->end(); br_it++, ind++){
-	    if(slp_tree_it->second.start_index <= ind){
+	    if(slp_tree_it->start_index <= ind){
 	      if(do_events_conflict(p, sym, br_it->spid, br_it->sym)){
 	        conflict = true;
 	        break;
 	      }
 	    }
 	  }
-	  if(conflict) seq_it = slp_tree_it->second.msg_trails.erase(seq_it);
+	  if(conflict) seq_it = slp_tree_it->msg_trails.erase(seq_it);
 	  else seq_it++;
 	}
 	break;
       }
     }
-    if(slp_tree_it->second.msg_trails.empty()) slp_tree_it = sleep_trees.erase(slp_tree_it);
+    if(slp_tree_it->msg_trails.empty()) slp_tree_it = sleep_trees.erase(slp_tree_it);
     else slp_tree_it++;
   }
 
@@ -2325,20 +2325,20 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
 
     for(auto slp_tree_it = sleep_trees.begin();
     	slp_tree_it != sleep_trees.end();){
-      unsigned handler = threads[SPS.get_pid(slp_tree_it->first)].handler_id;
-      if(slp_tree_it->first == v[i].spid){
+      unsigned handler = threads[SPS.get_pid(slp_tree_it->pid)].handler_id;
+      if(slp_tree_it->pid == v[i].spid){
     	// TODO: Block according to the definition of the paper
     	slp_tree_it = sleep_trees.erase(slp_tree_it);
 	continue;
       }
-      Branch first_ev = slp_tree_it->second.msg_trails.begin()->front();
+      Branch first_ev = slp_tree_it->msg_trails.begin()->front();
       if(do_events_conflict(v[i].spid, v[i].sym, first_ev.spid, first_ev.sym)){
     	bool skip = false;
-    	for(unsigned ei : clear_set[slp_tree_it->first]){
+    	for(unsigned ei : clear_set[slp_tree_it->pid]){
     	  if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
     	     skip = true; 
     	}
-    	if(!skip) clear_set[slp_tree_it->first].emplace_back(i);
+    	if(!skip) clear_set[slp_tree_it->pid].emplace_back(i);
 	slp_tree_it++;
     	continue;
       }
@@ -2347,10 +2347,10 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
     	continue;
       }
       for(auto fst : first_of_msgs.at(handler)){
-    	if(fst.first != slp_tree_it->first && fst.second.leq(v[i].clock)){
+    	if(fst.first != slp_tree_it->pid && fst.second.leq(v[i].clock)){
     	  /* For events that happens after at least one of the messages in the same handler */
-    	  for(auto seq_it = slp_tree_it->second.msg_trails.begin();
-    	      seq_it != slp_tree_it->second.msg_trails.end(); seq_it++){
+    	  for(auto seq_it = slp_tree_it->msg_trails.begin();
+    	      seq_it != slp_tree_it->msg_trails.end(); seq_it++){
     	    bool conflict = false;
     	    for(Branch br : (*seq_it)){
     	      if(do_events_conflict(v[i].spid, v[i].sym, br.spid, br.sym)){
@@ -2360,12 +2360,12 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
     	    }
     	    if(conflict){
     	      bool skip = false;
-    	      for(unsigned ei : clear_set[slp_tree_it->first]){
+    	      for(unsigned ei : clear_set[slp_tree_it->pid]){
     		if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
     		  skip = true; 
     	      }
     	      if(!skip)
-    		clear_set[slp_tree_it->first].emplace_back(i);
+    		clear_set[slp_tree_it->pid].emplace_back(i);
     	    }
     	  }
     	  break;
@@ -2611,8 +2611,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	    unsigned size =
 	      first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
 	      : first_of_msgs[child_handler].size();
-	    sleep_trees[child_it.branch().spid] =
-	      {size, 0, std::set<std::list<Branch>>{std::move(explored_trail)}};
+	    sleep_trees.push_back({child_it.branch().spid, size, 0,
+				   std::set<std::list<Branch>>
+				   {std::move(explored_trail)}});
 	    skip = NEXT;
 	    leftmost_branch = false;
 	    break;
@@ -2682,8 +2683,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 		  unsigned size =
 		    first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
 		    : first_of_msgs[child_handler].size();
-		  sleep_trees[child_it.branch().spid] =
-		    {size, 0, std::set<std::list<Branch>>{std::move(explored_trail)}};
+		  sleep_trees.push_back({child_it.branch().spid, size, 0,
+					   std::set<std::list<Branch>>
+					 {std::move(explored_trail)}});
 		  leftmost_branch = false;
 		  skip = NEXT;
 		  break;
@@ -2720,8 +2722,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	      unsigned size =
 		first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
 		: first_of_msgs[child_handler].size();
-	      sleep_trees[child_it.branch().spid] =
-		{size, 0, std::set<std::list<Branch>>{std::move(explored_trail)}};
+	      sleep_trees.push_back({child_it.branch().spid, size, 0,
+				       std::set<std::list<Branch>>
+				     {std::move(explored_trail)}});
 	      leftmost_branch = false;
 	      skip = NEXT;
 	      break;
@@ -2746,8 +2749,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 		    unsigned size =
 		      first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
 		      : first_of_msgs[child_handler].size();
-		    sleep_trees[child_it.branch().spid] =
-		      {size, 0, std::set<std::list<Branch>>{std::move(explored_trail)}};
+		    sleep_trees.push_back({child_it.branch().spid, size, 0,
+					   std::set<std::list<Branch>>
+					   {std::move(explored_trail)}});
 		    leftmost_branch = false;
 		    skip = NEXT;
 		    break;
