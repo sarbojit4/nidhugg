@@ -290,7 +290,7 @@ bool EventTraceBuilder::sleepset_is_empty() const{
 
 bool EventTraceBuilder::check_for_cycles(){
   /* We need vector clocks for this check */
-  compute_vclocks(1);
+  compute_vclocks();
 
   IID<IPid> i_iid;
   if(!has_cycle(&i_iid)) return false;
@@ -323,10 +323,7 @@ Trace *EventTraceBuilder::get_trace() const{
 }
 
 bool EventTraceBuilder::reset(){
-  compute_vclocks(1);
-  compute_eom();
-  clear_vclocks();
-  compute_vclocks(2);
+  compute_vclocks();
   remove_nonreversible_races();
   // for(auto p : currtrace){
   //     llvm::dbgs()<<"("<<p.first<<","<<p.second<<")\n";
@@ -2009,14 +2006,13 @@ void EventTraceBuilder::clear_vclocks(){
   has_vclocks = false;
 }
 
-void EventTraceBuilder::compute_vclocks(int pass){
+void EventTraceBuilder::compute_vclocks(){
   /* Be idempotent */
   if (has_vclocks) return;
 
   /* The first event of a thread happens after the spawn event that
    * created it.
    */
-  if(pass == 1){
     for (const Thread &t : threads) {
       if (t.spawn_event >= 0 && t.event_indices.size() > 0){
         add_happens_after(t.event_indices[0], t.spawn_event);
@@ -2039,7 +2035,6 @@ void EventTraceBuilder::compute_vclocks(int pass){
       }
     }
     lock_fail_races = std::move(final_lock_fail_races);
-  }
 
   for (unsigned i = 0; i < prefix.len(); i++){
     IPid ipid = prefix[i].iid.get_pid();
@@ -2078,23 +2073,23 @@ void EventTraceBuilder::compute_vclocks(int pass){
     do {
       auto oldend = end;
       changed = false;
-      if(pass == 1){
         end = partition
           (first_pair, end,
            [this,i](const Race &r){
-	     return !prefix[r.first_event].clock.leq(prefix[i].clock);
+	     IPid fpid = prefix[r.first_event].iid.get_pid();
+	     IPid spid = prefix[i].iid.get_pid();
+	     return threads[fpid].handler_id == threads[spid].handler_id ||
+	       !prefix[r.first_event].clock.leq(prefix[i].clock);
            });
-      }
       for (auto it = end; it != oldend; ++it){
         if (it->kind == Race::LOCK_SUC){
           prefix[i].clock += prefix[it->unlock_event].clock;
-            changed = true;
+	  changed = true;
         }
       }
     } while (changed);
     /* Then filter out subsumed */
     auto fill = end;
-    if(pass == 1){
       fill = frontier_filter
 	(first_pair, end,
 	 [this](const Race &f, const Race &s){
@@ -2113,7 +2108,6 @@ void EventTraceBuilder::compute_vclocks(int pass){
 	   int se = s.kind == Race::LOCK_SUC ? s.unlock_event : s.first_event;
 	   return prefix[f.first_event].clock.leq(prefix[se].clock);
 	 });
-    }
     /* Add clocks of remaining (reversible) races */
     for (auto it = first_pair; it != fill; ++it){
       if (it->kind == Race::LOCK_SUC){
@@ -2127,12 +2121,23 @@ void EventTraceBuilder::compute_vclocks(int pass){
     /* Now delete the subsumed races. We delayed doing this to avoid
      * iterator invalidation. */
     races.resize(fill - races.begin(), races[0]);
-    if(pass == 2){
-      for (unsigned j : prefix[i].eom_before){
-        assert(j < i);
-        prefix[i].clock += prefix[j].clock;
+    //Compute eom and backtrack
+    if(threads[ipid].handler_id != -1 && i == threads[ipid].event_indices.back()){
+      for(IPid j = 2; j<threads.size(); j=j+2){
+	if(threads[ipid].handler_id != threads[j].handler_id) continue;
+	unsigned fev_i = threads[ipid].event_indices.front();
+	unsigned fev_j = threads[j].event_indices.front();
+	unsigned lev_j = threads[j].event_indices.back();
+	if(fev_j>=fev_i) continue;
+	if(prefix[fev_j].clock.lt(prefix[i].clock) &&
+	   !prefix[lev_j].clock.lt(prefix[fev_i].clock)){
+	  prefix[fev_i].clock += prefix[lev_j].clock;
+	  add_eom(fev_i,lev_j);
+	  i=fev_i;
+	}
       }
     }
+
   }
 
   has_vclocks = true;
@@ -3438,7 +3443,6 @@ recompute_clock_for_second(std::vector<VClock<IPid>> &clock_WS,
 			   unsigned i, unsigned k,
 			   std::vector<unsigned> last_event) const{
   IPid pid = prefix[k].iid.get_pid();
-  VClock<IPid> old_clock = clock_WS[k];
   if (prefix[k].iid.get_index() > 1) {
     unsigned last = find_process_event(pid,
 				       prefix[k].iid.get_index()-1);
@@ -3466,7 +3470,7 @@ recompute_clock_for_second(std::vector<VClock<IPid>> &clock_WS,
   }
 
   bool backtrack = false;
-  if(k == last_event[pid] && old_clock.lt(clock_WS[k])){
+  if(k == last_event[pid]){
     unsigned fev_k = threads[pid].event_indices.front();
     for (unsigned ei : prefix[fev_k].eom_before){
       assert(ei < k);

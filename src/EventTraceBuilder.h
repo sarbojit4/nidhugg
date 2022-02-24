@@ -707,7 +707,7 @@ protected:
   /* Computes the vector clocks of all events in a complete execution
    * sequence from happens_after and race edges.
    */
-  void compute_vclocks(int pass=1);
+  void compute_vclocks();
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
   /* Perform planning of future executions. Requires the trace to be
