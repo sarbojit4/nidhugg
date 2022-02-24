@@ -3379,12 +3379,14 @@ linearize_sequence(unsigned br_point, Branch second_br,
     }
     bool backtrack = recompute_clock_for_second(clock_WS,br_point,sorted_seq[i],last_event);
     if(backtrack){
-      for(unsigned j = i; j>0; j--){
+      for(unsigned j = i;; j--){
 	if(sorted_seq[j]<sorted_seq[i] &&
 	   threads[prefix[sorted_seq[i]].iid.get_pid()].event_indices.front() ==
 	   sorted_seq[j]){
-	  i = j-1;
+	  i = j;
+	  break;
 	}
+	if(j==0) break;
       }
     }
   }
@@ -3471,7 +3473,7 @@ recompute_clock_for_second(std::vector<VClock<IPid>> &clock_WS,
       unsigned fev_ei = threads[prefix[ei].iid.get_pid()].event_indices.front();
       if(prefix[ei].iid.get_pid() != prefix[i].iid.get_pid() &&
 	 clock_WS[fev_ei].lt(clock_WS[k]) &&
-	 clock_WS[ei].lt(clock_WS[fev_k])){
+	 !clock_WS[ei].lt(clock_WS[fev_k])){
 	clock_WS[fev_k] += clock_WS[ei];
 	backtrack = true;
       }
