@@ -2335,9 +2335,19 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
     	// TODO: Block according to the definition of the paper
     	slp_tree_it = sleep_trees.erase(slp_tree_it);
 	continue;
+	bool partial_msg = v[i].is_ret_stmt()? true : false;
+	if(first_of_msgs.find(handler) != first_of_msgs.end() &&
+	   partial_msg){
+	  for(const SymEv &symev : v[i].sym){
+	    if(symev.access_global()) slp_tree_it->start_index++;
+	  }
+	  slp_tree_it++;
+	}
+	continue;
       }
       Branch first_ev = slp_tree_it->msg_trails.begin()->front();
-      if(do_events_conflict(v[i].spid, v[i].sym, first_ev.spid, first_ev.sym)){
+      if(slp_tree_it->start_index == 0 && first_ev.index == 1 &&
+	 do_events_conflict(v[i].spid, v[i].sym, first_ev.spid, first_ev.sym)){
     	bool skip = false;
     	for(unsigned ei : clear_set[slp_tree_it->pid]){
     	  if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
@@ -2351,14 +2361,17 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
     	slp_tree_it++;
     	continue;
       }
-      for(auto fst : first_of_msgs.at(handler)){
-    	if(fst.first != slp_tree_it->pid && fst.second.leq(v[i].clock)){
+      for(unsigned k = slp_tree_it->i; k < first_of_msgs.at(handler).size(); k++){
+	if(first_of_msgs.at(handler)[k].first != slp_tree_it->pid &&
+	   first_of_msgs.at(handler)[k].second.leq(v[i].clock)){
     	  /* For events that happens after at least one of the messages in the same handler */
     	  for(auto seq_it = slp_tree_it->msg_trails.begin();
     	      seq_it != slp_tree_it->msg_trails.end(); seq_it++){
+	    unsigned ind = 0;
     	    bool conflict = false;
-    	    for(Branch br : (*seq_it)){
-    	      if(do_events_conflict(v[i].spid, v[i].sym, br.spid, br.sym)){
+    	    for(auto br_it = seq_it->begin();
+	        br_it != seq_it->end(); br_it++, ind++){
+    	      if(do_events_conflict(v[i].spid, v[i].sym, br_it->spid, br_it->sym)){
     		conflict = true;
     		break;
     	      }
