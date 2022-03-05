@@ -2078,7 +2078,8 @@ void EventTraceBuilder::compute_vclocks(){
            [this,i](const Race &r){
 	     IPid fpid = prefix[r.first_event].iid.get_pid();
 	     IPid spid = prefix[i].iid.get_pid();
-	     return threads[fpid].handler_id == threads[spid].handler_id ||
+	     return (threads[fpid].handler_id != -1 &&
+		     threads[fpid].handler_id == threads[spid].handler_id) ||
 	       !prefix[r.first_event].clock.leq(prefix[i].clock);
            });
       for (auto it = end; it != oldend; ++it){
