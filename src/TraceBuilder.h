@@ -117,6 +117,8 @@ public:
   virtual long double estimate_trace_count() const { return 1; };
   int branches;
   int max_branches;
+  int max_pending_WSs;
+  int no_of_pending_WSs;
 protected:
   const Configuration &conf;
   std::vector<Error*> errors;

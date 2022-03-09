@@ -22,6 +22,8 @@
 TraceBuilder::TraceBuilder(const Configuration &C) : conf(C) {
   branches = 0;
   max_branches = 0;
+  max_pending_WSs = 0;
+  no_of_pending_WSs = 0;
 }
 
 TraceBuilder::~TraceBuilder(){

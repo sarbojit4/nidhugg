@@ -352,6 +352,7 @@ bool EventTraceBuilder::reset(){
   }
 
   if(max_branches < branches) max_branches = branches;
+  if(max_pending_WSs < no_of_pending_WSs) max_pending_WSs = no_of_pending_WSs;
   branches--;
 #ifndef NDEBUG
   /* The if-statement is just so we can control which test cases need to
@@ -2452,6 +2453,8 @@ void EventTraceBuilder::do_race_detect() {
   for (unsigned i = 0; i < races.size(); ++i){
     // llvm::dbgs()<<i<<"\n";//////////////
     obs_sleep_add(sleep, sleeping_msgs, sleep_trees, first_of_msgs, prefix[i]);
+    no_of_pending_WSs -= prefix.branch(i).pending_WSs.size();
+
     /* Insert pending WSs */
     for(auto v_it = prefix.branch(i).pending_WSs.begin();
 	v_it != prefix.branch(i).pending_WSs.end();) {
@@ -2607,8 +2610,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	  if(!leftmost_branch &&
 	     threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
 	     ve.index == 1){
-	    child_it.branch().pending_WSs.insert(std::move(v));
+	    auto res = child_it.branch().pending_WSs.insert(std::move(v));
 	    // llvm::dbgs()<<child_it.branch().spid<<","<<child_it.branch().index<<"Parkq\n";//////////////
+	    if(res.second) no_of_pending_WSs++;
 	    return;
 	  }
 	  unsigned last_seen_msg_event = 0;
@@ -2715,8 +2719,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	      //   skip = NEXT;
 	      // }
 	    } else{
-	      child_it.branch().pending_WSs.insert(std::move(v));
+	      auto res = child_it.branch().pending_WSs.insert(std::move(v));
 	      // llvm::dbgs()<<child_it.branch().spid<<","<<child_it.branch().index<<"Park\n";//////////////
+	      if(res.second) no_of_pending_WSs++;
 	      return;
 	    }
 	  } else{

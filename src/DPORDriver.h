@@ -110,7 +110,8 @@ public:
   public:
     /* Empty result */
     Result() : trace_count(0), sleepset_blocked_trace_count(0),
-               assume_blocked_trace_count(0) {};
+               assume_blocked_trace_count(0), max_branches(0),
+	       max_pending_WSs(0) {};
     /* The number of explored (non-sleepset-blocked) traces */
     uint64_t trace_count;
     /* The number of explored sleepset-blocked traces */
@@ -119,6 +120,7 @@ public:
     uint64_t assume_blocked_trace_count;
     /* Maximum number of branches in the wakeup tree at some point of exploration */
     int max_branches;
+    int max_pending_WSs;
 
     bool has_errors() const { return error_trace && error_trace->has_errors(); };
   };

@@ -134,6 +134,7 @@ int main(int argc, char *argv[]){
         std::cout << "No errors were detected." << std::endl;
       }
       std::cout << "maximum branches in the wakeup tree: "<<res.max_branches<<"\n";
+      std::cout << "maximum pending WSs in the wakeup tree: "<<res.max_pending_WSs<<"\n";
 
       delete driver;
     }

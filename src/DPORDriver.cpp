@@ -469,6 +469,7 @@ DPORDriver::Result DPORDriver::run(){
   }
 
   res.max_branches = TB->max_branches;
+  res.max_pending_WSs = TB->max_pending_WSs;
   delete TB;
 
   return res;
