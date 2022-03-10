@@ -329,19 +329,19 @@ bool EventTraceBuilder::reset(){
   //     llvm::dbgs()<<"("<<p.first<<","<<p.second<<")\n";
   //   }
   /* Checking if current exploration is redundant */
-  auto trace_it = Traces.find(currtrace);
-  if(trace_it != Traces.end()){
-    llvm::dbgs() << "|| ERROR: Redundant exploration ================\n";
-    debug_print();
-    llvm::dbgs() << " =============================\n";
-    llvm::dbgs() << " Trace:=====> \n";
-    for(auto p : (*trace_it)){
-      llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
-		  <<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
-    }
-    return false;
-  }
-  Traces.insert(std::move(currtrace));
+  // auto trace_it = Traces.find(currtrace);
+  // if(trace_it != Traces.end()){
+  //   llvm::dbgs() << "|| ERROR: Redundant exploration ================\n";
+  //   debug_print();
+  //   llvm::dbgs() << " =============================\n";
+  //   llvm::dbgs() << " Trace:=====> \n";
+  //   for(auto p : (*trace_it)){
+  //     llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
+  // 		  <<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
+  //   }
+  //   return false;
+  // }
+  // Traces.insert(std::move(currtrace));
 
   do_race_detect();
   
