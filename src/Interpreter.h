@@ -661,7 +661,6 @@ private:
   void CheckAwaitWakeup(const GenericValue &Val, const void *ptr, const SymAddrSize &sas);
   bool isAnyAwait(Instruction &I, GenericValue **ptr, AwaitCond *cond,
                   const char *name_prefix, unsigned nargs);
->>>>>>> upstream/master
 };
 
 } // End llvm namespace
