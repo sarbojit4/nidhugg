@@ -91,7 +91,7 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       /* Before going to the next event, dry run the threads that are
        * being put to sleep.
        */
-      IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers];
+      IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers]);
       prefix[prefix_idx+1].sleep_evs.resize
         (prefix[prefix_idx+1].sleep.size());
       threads[pid].sleep_sym = &prefix[prefix_idx+1].sleep_evs[dry_sleepers];
@@ -864,7 +864,7 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     VecSet<SymAddr> &A = threads[pid].sleep_accesses_w;
     for(SymAddr b : ml){
       A.insert(b);
@@ -958,7 +958,7 @@ void EventTraceBuilder::do_load(const SymAddrSize &ml){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     VecSet<SymAddr> &A = threads[pid].sleep_accesses_r;
     for(SymAddr b : ml){
       A.insert(b);
@@ -1020,7 +1020,7 @@ bool EventTraceBuilder::full_memory_conflict(){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_full_memory_conflict = true;
     return true;
   }
@@ -1111,7 +1111,7 @@ bool EventTraceBuilder::mutex_lock(const SymAddrSize &ml){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1159,7 +1159,7 @@ bool EventTraceBuilder::mutex_trylock(const SymAddrSize &ml){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1186,7 +1186,7 @@ bool EventTraceBuilder::mutex_unlock(const SymAddrSize &ml){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1212,7 +1212,7 @@ bool EventTraceBuilder::mutex_init(const SymAddrSize &ml){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1229,7 +1229,7 @@ bool EventTraceBuilder::mutex_destroy(const SymAddrSize &ml){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1253,7 +1253,7 @@ bool EventTraceBuilder::cond_init(const SymAddrSize &ml){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1272,7 +1272,7 @@ bool EventTraceBuilder::cond_signal(const SymAddrSize &ml){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1318,7 +1318,7 @@ bool EventTraceBuilder::cond_broadcast(const SymAddrSize &ml){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return true;
   }
@@ -1373,7 +1373,7 @@ bool EventTraceBuilder::cond_wait(const SymAddrSize &cond_ml,
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_accesses_r.insert(cond_ml.addr);
     return true;
   }
@@ -1419,7 +1419,7 @@ int EventTraceBuilder::cond_destroy(const SymAddrSize &ml){
   if(dryrun){
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     threads[pid].sleep_accesses_w.insert(ml.addr);
     return 0;
   }
@@ -2139,7 +2139,6 @@ void EventTraceBuilder::compute_vclocks(){
 	}
       }
     }
-
   }
 
   has_vclocks = true;
@@ -2149,7 +2148,7 @@ bool EventTraceBuilder::record_symbolic(SymEv event){
   if(dryrun) {
     assert(prefix_idx+1 < int(prefix.len()));
     assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-    IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
+    IPid pid = SPS.get_pid(prefix[prefix_idx+1].sleep[dry_sleepers-1]);
     assert(threads[pid].sleep_sym);
     threads[pid].sleep_sym->push_back(event);
     return true;
