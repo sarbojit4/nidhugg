@@ -62,7 +62,8 @@ def res_to_string(tst, res):
         s = s + ' ' + ('Allow' if res['allow'] else 'Forbid')
 
     if tst['expected trace count'] != res['tracecount']:
-        return (s + bcolors.FAIL + ' FAILURE: not same trace as ' + str(tst['expected trace count']) + bcolors.ENDC, False)
+        return (s + bcolors.FAIL + ' FAILURE: expected ' + str(tst['expected trace count'])
+                + ' not ' + str(res['tracecount']) + ' traces' + bcolors.ENDC, False)
 
     return (s + bcolors.OKGREEN + ' OK ' + bcolors.ENDC + ' : ' + str(res['tracecount']), True)
 
@@ -142,7 +143,9 @@ def run_test(tst):
                                       stderr = subprocess.STDOUT).decode()
         lines = out.split("\n")
         res['tracecount'] = grep_count(lines, "Trace count: ") \
-            + grep_count(lines, "Assume-blocked trace count: ")
+            + grep_count(lines, "Assume-blocked trace count: ") \
+            + grep_count(lines, "Await-blocked trace count: ") \
+            + grep_count(lines, "Sleepset-blocked trace count: ")
         if out.find('No errors were detected') >= 0:
             res['allow'] = False
         else:
@@ -153,7 +156,7 @@ def run_test(tst):
     return res
 
 def look_for_extra_opts(srcfile):
-    with open(srcfile, 'r') as f:
+    with open(srcfile, 'r', encoding='UTF-8') as f:
         while True:
             line = f.readline()
             if not line: break
