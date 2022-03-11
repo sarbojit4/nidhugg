@@ -3,7 +3,10 @@ AUTOMAKE_OPTIONS = -Wno-override ## Make autotools quit complaining about explic
 noinst_LIBRARIES = libnidhugg.a
 libnidhugg_a_SOURCES = \
   AddLibPass.cpp AddLibPass.h \
+  AssumeAwaitPass.cpp AssumeAwaitPass.h \
+  AwaitCond.cpp AwaitCond.h \
   BVClock.cpp BVClock.h \
+  CastElimPass.cpp CastElimPass.h \
   CheckModule.cpp CheckModule.h \
   Configuration.cpp Configuration.h \
   CPid.cpp CPid.h \
@@ -23,6 +26,7 @@ libnidhugg_a_SOURCES = \
   MRef.cpp MRef.h \
   nregex.cpp nregex.h \
   Option.h \
+  PartialLoopPurityPass.h PartialLoopPurityPass.cpp \
   POWERExecution.cpp \
   POWERInterpreter.cpp POWERInterpreter.h \
   POWERARMTraceBuilder.cpp POWERARMTraceBuilder.tcc POWERARMTraceBuilder.h POWERARMTraceBuilder_decl.h \
