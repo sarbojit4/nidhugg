@@ -2543,6 +2543,7 @@ void EventTraceBuilder::race_detect_optimal
   }
   // for(Branch br:v1) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
   // llvm::dbgs()<<"\n";///////////
+  
   /* Do insertion into the wakeup tree */
   insert_WS(v1, i, isleep, sleep_trees, first_of_msgs);
 }
@@ -2681,8 +2682,6 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	  if(threads[SPS.get_pid(ve.spid)].handler_id == child_handler){//  &&
 	     // do_msgs_conflict(ve.spid,child_it.branch().spid)){
 	  /* This branch is incompatible, try the next */
-	  //TODO: Find if the message child_it.branch().spid is complete in the WS.
-	  //      Then decide if these messages are conflicting.
 	    if(leftmost_branch){
 	      if(ve.index == 1){
 	        clk_fst_of_msgs.push_back(v[j].clock);
@@ -3314,29 +3313,57 @@ linearize_sequence1(std::vector<Branch> &v,
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
 linearize_sequence(unsigned br_point, Branch second_br,
 		   IPid spid, std::vector<bool> &in_v) const{
-  std::vector<std::vector<unsigned>> trace(prefix.len());
-  std::vector<unsigned> last_msgs;
-  for(int i = br_point; i < prefix.len(); i++){
-    if(!in_v[i]) continue;
-    trace[i] = prefix[i].happens_after;
-    
-    for(int j = 0; j < prefix[i].eom_before.size(); j++){
-      if(prefix[i].iid.get_pid() != spid ||
-	 prefix[prefix[i].eom_before[j]].iid.get_pid() !=
-	 prefix[br_point].iid.get_pid()) {
-	trace[i].push_back(prefix[i].eom_before[j]);
+  std::vector<std::set<unsigned>> trace(prefix.len());
+  // Recompute vclocks
+  std::vector<Branch> linearized_ws;
+  std::vector<VClock<IPid>> clock_WS(prefix.len());
+  //bool changed = false;
+  std::vector<unsigned> last_event(threads.size());
+  unsigned k = find_process_event(SPS.get_pid(second_br.spid),second_br.index);
+  //TODO: compute vector clocks for other kinds of races
+  in_v[k] = true;
+  for(unsigned i = 0; i < br_point; i++)
+    clock_WS[i]=prefix[i].clock;
+  for(unsigned i = 0; i < prefix.len(); i++) last_event[prefix[i].iid.get_pid()] = i;
+  for(unsigned i = 0; i < prefix.len(); i++){
+    if(!in_v[i] && i != k) continue;
+    // if(!changed &&
+    //    prefix[i].iid.get_pid() == SPS.get_pid(second_br.spid)){
+    //   changed = true;
+    // }
+    // if(!changed){
+    //   clock_WS[i] = prefix[i].clock;
+    //   auto event_indices = threads[prefix[i].iid.get_pid()].event_indices;
+    //   if(prefix[i].iid.get_index() > 1){
+    // 	unsigned last_event = event_indices[prefix[i].iid.get_index()-2];
+    // 	trace[i].insert(last_event);
+    //   }
+    //   trace[i].insert(prefix[i].happens_after.begin(),prefix[i].happens_after.end());
+    //   /* include races in the trace except the race we are reversing */
+    //   for(auto race:prefix[i].races){
+    // 	trace[i].insert(race.first_event);
+    //   }
+    //   for(int j = 0; j < prefix[i].eom_before.size(); j++){
+    // 	  trace[i].insert(prefix[i].eom_before[j]);
+    // 	  // llvm::dbgs()<<prefix[prefix[i].eom_before[j]].iid
+    // 	  // 	      <<prefix[i].iid<<"--\n";/////////////
+    // 	}
+    //   }
+    //   continue;
+    // }
+    bool backtrack = recompute_clock_for_second(clock_WS,trace,br_point,i,last_event);
+    //llvm::dbgs()<<prefix[i].iid<<clock_WS[i]<<"\n";////////////////////
+    if(backtrack){
+      for(unsigned j = i; j>=0; j--){
+	if(threads[prefix[i].iid.get_pid()].event_indices.front() == j){
+	  i = j;
+	  break;
+	}
+	if(j==0) break;
       }
     }
-    auto event_indices = threads[prefix[i].iid.get_pid()].event_indices;
-    if(prefix[i].iid.get_index() > 1){
-      unsigned last_event = event_indices[prefix[i].iid.get_index()-2];
-      trace[i].push_back(last_event);
-    }
-    /* include races in the trace except the race we are reversing */
-    for(auto race:prefix[i].races){
-      trace[i].push_back(race.first_event);
-    }
   }
+  std::vector<unsigned> last_msgs;
   for(int i = 2; i < threads.size(); i+=2){
     if(threads[i].handler_id != -1 &&
        threads[i].event_indices.front() > br_point &&
@@ -3347,12 +3374,13 @@ linearize_sequence(unsigned br_point, Branch second_br,
 	if(i != j && threads[j].handler_id == threads[i].handler_id){
 	  if(in_v[threads[j].event_indices.back()]){
 	    trace[threads[i].event_indices.front()].
-	      push_back(threads[j].event_indices.back());
+	      insert(threads[j].event_indices.back());
 	  }
 	}
       }
     }
   }
+  in_v[k] = false;
   /* Do topological sort on the wakeup_sequence */
   std::vector<bool> visited(prefix.len(),false), visiting(prefix.len(),false);
   std::vector<unsigned> sorted_seq;
@@ -3381,51 +3409,19 @@ linearize_sequence(unsigned br_point, Branch second_br,
     }
   }
 
-  // Recompute vclocks
-  std::vector<Branch> linearized_ws;
-  std::vector<VClock<IPid>> clock_WS(prefix.len());
-  bool changed = false;
-  std::vector<unsigned> last_event(threads.size());
-  unsigned k = find_process_event(SPS.get_pid(second_br.spid),second_br.index);
-  sorted_seq.push_back(k);
-  for(unsigned i = 0; i < br_point; i++)
-    clock_WS[i]=prefix[i].clock;
-  for(unsigned i : sorted_seq) last_event[prefix[i].iid.get_pid()] = i;
-  for(unsigned i = 0; i < sorted_seq.size(); i++){
-    if(!changed &&
-       prefix[sorted_seq[i]].iid.get_pid() == SPS.get_pid(second_br.spid)){
-      changed = true;
-    }
-    if(!changed){
-      clock_WS[sorted_seq[i]] = prefix[sorted_seq[i]].clock;
-      continue;
-    }
-    bool backtrack = recompute_clock_for_second(clock_WS,br_point,sorted_seq[i],last_event);
-    if(backtrack){
-      for(unsigned j = i;; j--){
-	if(sorted_seq[j]<sorted_seq[i] &&
-	   threads[prefix[sorted_seq[i]].iid.get_pid()].event_indices.front() ==
-	   sorted_seq[j]){
-	  i = j;
-	  break;
-	}
-	if(j==0) break;
-      }
-    }
-  }
   for(unsigned i : sorted_seq){
     Branch br = branch_with_symbolic_data(i);
     br.clock = clock_WS[i];
     linearized_ws.push_back(br);
   }
-  second_br.clock = clock_WS[sorted_seq.back()];
-  linearized_ws.back() = second_br;
+  second_br.clock = clock_WS[k];
+  linearized_ws.push_back(second_br);
   return linearized_ws;
 }
 
 bool EventTraceBuilder::
 visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
-	    std::vector<std::vector<unsigned>> &trace,
+	    std::vector<std::set<unsigned>> &trace,
 	    std::vector<bool> &visiting, std::vector<bool> &visited,
 	    std::vector<unsigned> &sorted_seq) const{
   if(visiting[i] == true) return false;
@@ -3441,9 +3437,9 @@ visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
 	visiting[i] = false;
 	if((*it) <= i) return false;
 	else{// Is it always a message
-	  it = trace[i].erase(it);
 	  IPid pid = prefix[*it].iid.get_pid();
-	  in_v[*it] = false;
+	  in_v[threads[pid].event_indices.front()] = false;
+	  it = trace[i].erase(it);
 	  //TODO: Remove the whole message
 	}
       } else it++;
@@ -3458,12 +3454,14 @@ visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
 
 bool EventTraceBuilder::
 recompute_clock_for_second(std::vector<VClock<IPid>> &clock_WS,
+			   std::vector<std::set<unsigned>> &trace,
 			   unsigned i, unsigned k,
-			   std::vector<unsigned> last_event) const{
+			   const std::vector<unsigned> &last_event) const{
   IPid pid = prefix[k].iid.get_pid();
   if (prefix[k].iid.get_index() > 1) {
     unsigned last = find_process_event(pid,
 				       prefix[k].iid.get_index()-1);
+    trace[k].insert(last);
     clock_WS[k] = clock_WS[last];
   } else {
     clock_WS[k] = VClock<IPid>();
@@ -3471,6 +3469,7 @@ recompute_clock_for_second(std::vector<VClock<IPid>> &clock_WS,
   clock_WS[k][pid] = prefix[k].iid.get_index();
   for (unsigned ei : prefix[k].happens_after){
     assert(ei < k);
+    trace[k].insert(ei);
     clock_WS[k] += clock_WS[ei];
   }
   for (auto r : prefix[k].races){
@@ -3482,9 +3481,13 @@ recompute_clock_for_second(std::vector<VClock<IPid>> &clock_WS,
 			      prefix[rr.first_event].sym,
 			      pid,
 			      prefix[k].sym))
+	  trace[k].insert(rr.first_event);
 	  clock_WS[k] += clock_WS[rr.first_event];
       }
-    } else clock_WS[k] += clock_WS[r.first_event];
+    } else{
+      trace[k].insert(r.first_event);
+      clock_WS[k] += clock_WS[r.first_event];
+    }
   }
 
   bool backtrack = false;
@@ -3496,6 +3499,7 @@ recompute_clock_for_second(std::vector<VClock<IPid>> &clock_WS,
       if(prefix[ei].iid.get_pid() != prefix[i].iid.get_pid() &&
 	 clock_WS[fev_ei].lt(clock_WS[k]) &&
 	 !clock_WS[ei].lt(clock_WS[fev_k])){
+	trace[fev_k].insert(ei);
 	clock_WS[fev_k] += clock_WS[ei];
 	backtrack = true;
       }

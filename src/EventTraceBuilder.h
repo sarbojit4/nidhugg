@@ -816,12 +816,13 @@ protected:
   bool linearize_sequence1(std::vector<Branch> &v,
 			   std::map<IPid, std::vector<unsigned>> clear_set) const;
   bool visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
-		   std::vector<std::vector<unsigned>> &trace,
+		   std::vector<std::set<unsigned>> &trace,
 		   std::vector<bool> &visiting, std::vector<bool> &visited,
 		   std::vector<unsigned> &sorted_seq) const;
   bool recompute_clock_for_second(std::vector<VClock<IPid>> &clock_WS,
+				  std::vector<std::set<unsigned>> &trace,
 				  unsigned i, unsigned k,
-				  std::vector<unsigned> last_event) const;
+				  const std::vector<unsigned> &last_event) const;
   /* recompute branch for second event involved in a race */ 
   void recompute_second(const Race&, Branch &second_br, Event &second) const;
   /* Checks if a sequence of events will clear a sleep set. */
