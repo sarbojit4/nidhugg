@@ -325,9 +325,6 @@ Trace *EventTraceBuilder::get_trace() const{
 bool EventTraceBuilder::reset(){
   compute_vclocks();
   remove_nonreversible_races();
-  // for(auto p : currtrace){
-  //     llvm::dbgs()<<"("<<p.first<<","<<p.second<<")\n";
-  //   }
   /* Checking if current exploration is redundant */
   // auto trace_it = Traces.find(currtrace);
   // if(trace_it != Traces.end()){
@@ -344,7 +341,7 @@ bool EventTraceBuilder::reset(){
   // Traces.insert(std::move(currtrace));
 
   do_race_detect();
-  
+
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === EventTraceBuilder reset ===\n";
     debug_print();
@@ -2543,7 +2540,7 @@ void EventTraceBuilder::race_detect_optimal
   }
   // for(Branch br:v1) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
   // llvm::dbgs()<<"\n";///////////
-  
+
   /* Do insertion into the wakeup tree */
   insert_WS(v1, i, isleep, sleep_trees, first_of_msgs);
 }
@@ -2829,7 +2826,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
     if (old_size != v.size() &&
 	!sequence_clears_sleep(v, sleep, sleeping_msgs,
   			       sleep_trees, eoms, first_of_msgs)){
-      //llvm::dbgs()<<"Redundant\n";/////////////////
+      // llvm::dbgs()<<"Redundant\n";/////////////////
       return;
     }
     for (Branch &ve : v) {
@@ -2912,7 +2909,7 @@ conflict_with_rest_of_msg(unsigned j, Branch &child,
   // TODO: Branching case 
   if(partial_msg){
     unsigned last_index = v[last_seen_msg_event].index +
-      v[last_seen_msg_event].size - 1;
+      v[last_seen_msg_event].size - 2;
     for(unsigned k = v.size()-1; k > j; --k){
       if(v[k].spid != child.spid){
 	for(VClock<IPid> clk : first_of_msgs){
@@ -2920,10 +2917,10 @@ conflict_with_rest_of_msg(unsigned j, Branch &child,
 	    std::vector<unsigned> event_indices =
 	      threads[SPS.get_pid(child.spid)].event_indices;
 	    for(unsigned ei = last_index+1; ei < event_indices.size(); ei++){
-	      if(do_events_conflict(child.spid, child.sym,
-				    child.spid, prefix[ei].sym))
+	      if(do_events_conflict(v[k].spid, v[k].sym,
+				    child.spid, prefix[event_indices[ei]].sym)){
 		return true;
-
+	      }
 	    }
 	  }
 	}
@@ -3324,7 +3321,7 @@ linearize_sequence(unsigned br_point, Branch second_br,
   in_v[k] = true;
   for(unsigned i = 0; i < br_point; i++)
     clock_WS[i]=prefix[i].clock;
-  for(unsigned i = 0; i < prefix.len(); i++) last_event[prefix[i].iid.get_pid()] = i;
+  for(unsigned i = 0; i < prefix.len(); i++) if(in_v[i]) last_event[prefix[i].iid.get_pid()] = i;
   for(unsigned i = 0; i < prefix.len(); i++){
     if(!in_v[i] && i != k) continue;
     // if(!changed &&
@@ -3351,8 +3348,7 @@ linearize_sequence(unsigned br_point, Branch second_br,
     //   }
     //   continue;
     // }
-    bool backtrack = recompute_clock_for_second(clock_WS,trace,br_point,i,last_event);
-    //llvm::dbgs()<<prefix[i].iid<<clock_WS[i]<<"\n";////////////////////
+    bool backtrack = recompute_vclock(clock_WS,trace,br_point,i,last_event);
     if(backtrack){
       for(unsigned j = i; j>=0; j--){
 	if(threads[prefix[i].iid.get_pid()].event_indices.front() == j){
@@ -3453,10 +3449,10 @@ visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
 
 
 bool EventTraceBuilder::
-recompute_clock_for_second(std::vector<VClock<IPid>> &clock_WS,
-			   std::vector<std::set<unsigned>> &trace,
-			   unsigned i, unsigned k,
-			   const std::vector<unsigned> &last_event) const{
+recompute_vclock(std::vector<VClock<IPid>> &clock_WS,
+		std::vector<std::set<unsigned>> &trace,
+		unsigned i, unsigned k,
+		const std::vector<unsigned> &last_event) const{
   IPid pid = prefix[k].iid.get_pid();
   if (prefix[k].iid.get_index() > 1) {
     unsigned last = find_process_event(pid,

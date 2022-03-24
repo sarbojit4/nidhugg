@@ -512,7 +512,7 @@ protected:
    * events that are determined in advance to be executed.
    */
   WakeupTreeExplorationBuffer<Branch, Event> prefix;
-  //std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
+  std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
   std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
 
   /* The number of threads that have been dry run since the last
@@ -819,10 +819,10 @@ protected:
 		   std::vector<std::set<unsigned>> &trace,
 		   std::vector<bool> &visiting, std::vector<bool> &visited,
 		   std::vector<unsigned> &sorted_seq) const;
-  bool recompute_clock_for_second(std::vector<VClock<IPid>> &clock_WS,
-				  std::vector<std::set<unsigned>> &trace,
-				  unsigned i, unsigned k,
-				  const std::vector<unsigned> &last_event) const;
+  bool recompute_vclock(std::vector<VClock<IPid>> &clock_WS,
+			std::vector<std::set<unsigned>> &trace,
+			unsigned i, unsigned k,
+			const std::vector<unsigned> &last_event) const;
   /* recompute branch for second event involved in a race */ 
   void recompute_second(const Race&, Branch &second_br, Event &second) const;
   /* Checks if a sequence of events will clear a sleep set. */
