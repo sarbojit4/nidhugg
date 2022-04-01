@@ -381,10 +381,13 @@ protected:
       LOCK_SUC,
       /* A nondeterministic event that can be performed differently */
       NONDET,
+      MSG_REV
     };
     Kind kind;
     int first_event;
     int second_event;
+    int fst_conflict;
+    int snd_conflict;
     IID<IPid> second_process;
     union{
       const Mutex *mutex;
@@ -393,28 +396,34 @@ protected:
       int unlock_event;
     };
     static Race Nonblock(int first, int second) {
-      return Race(NONBLOCK, first, second, {-1,0}, nullptr);
+      return Race(NONBLOCK, first, second, -1, -1, {-1,0}, nullptr);
     };
     static Race Observed(int first, int second, int witness) {
-      return Race(OBSERVED, first, second, {-1,0}, witness);
+      return Race(OBSERVED, first, second, -1, -1, {-1,0}, witness);
     };
     static Race LockFail(int first, int second, IID<IPid> process,
                          const Mutex *mutex) {
       assert(mutex);
-      return Race(LOCK_FAIL, first, second, process, mutex);
+      return Race(LOCK_FAIL, first, second, -1, -1, process, mutex);
     };
     static Race LockSuc(int first, int second, int unlock) {
-      return Race(LOCK_SUC, first, second, {-1,0}, unlock);
+      return Race(LOCK_SUC, first, second, -1, -1, {-1,0}, unlock);
     };
     static Race Nondet(int event, int alt) {
-      return Race(NONDET, event, -1, {-1,0}, alt);
+      return Race(NONDET, event, -1, -1, -1, {-1,0}, alt);
+    };
+    static Race MsgRev(int first, int second,
+		       int fst_conflict, int snd_conflict) {
+      return Race(MSG_REV, first, second, fst_conflict,
+		  snd_conflict, {-1,0}, nullptr);
     };
   private:
-    Race(Kind k, int f, int s, IID<IPid> p, const Mutex *m) :
-      kind(k), first_event(f), second_event(s), second_process(p), mutex(m) {}
-    Race(Kind k, int f, int s, IID<IPid> p, int w) :
+    Race(Kind k, int f, int s, int fst_conf, int snd_conf, IID<IPid> p, const Mutex *m) :
       kind(k), first_event(f), second_event(s), second_process(p),
-      witness_event(w) {}
+      fst_conflict(fst_conf), snd_conflict(snd_conf), mutex(m) {}
+    Race(Kind k, int f, int s, int fst_conf, int snd_conf, IID<IPid> p, int w) :
+      kind(k), first_event(f), second_event(s), second_process(p),
+      fst_conflict(fst_conf), snd_conflict(snd_conf), witness_event(w) {}
   };
 
   /* Locations in the trace where a process is blocked waiting for a
@@ -634,6 +643,7 @@ protected:
    * the current event.
    */
   void add_observed_race(int first, int second);
+  void add_msgrev_race(int fst_conflict);
   /* Add a race between two successful mutex aquisitions (lock and the
    * current event). Unlock is the unlock event between them.
    */
