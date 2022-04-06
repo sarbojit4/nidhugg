@@ -381,7 +381,7 @@ protected:
       LOCK_SUC,
       /* A nondeterministic event that can be performed differently */
       NONDET,
-      MSG_REV
+      MSG_REV,
     };
     Kind kind;
     int first_event;
@@ -818,7 +818,7 @@ protected:
 		 struct obs_sleep sleep, sleep_trees_t sleep_trees,
 		 first_of_msgs_t first_of_msgs);
   /* Compute the wakeup sequence for reversing a race. */
-  std::pair<std::vector<bool>, Branch>
+  Branch
   wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms,
 		  unsigned br_point, std::vector<bool> &unfiltered_notdep) const;
   std::vector<Branch> linearize_sequence(unsigned br_point, Branch second_br,

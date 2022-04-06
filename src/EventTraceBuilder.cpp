@@ -2493,6 +2493,7 @@ void EventTraceBuilder::do_race_detect() {
       insert_WS(v, i, sleep, sleep_trees, first_of_msgs);
       v_it = prefix.branch(i).pending_WSs.erase(v_it);
     }
+    /* Reverese races */
     for (const Race *race : races[i]) {
       assert(race->first_event == int(i));
       race_detect_optimal(*race, (const struct obs_sleep&)sleep,
@@ -2520,58 +2521,21 @@ void EventTraceBuilder::race_detect_optimal
   // 	      <<","<<prefix[race.second_event].iid.get_index()<<")\n";/////////////
   std::map<IPid, std::vector<IPid>> eoms;
   std::vector<bool> unfiltered_notdep;
-  std::pair<std::vector<bool>,Branch> ws = wakeup_sequence(race, eoms, i, unfiltered_notdep);
-  // std::vector<Branch> v;
-  // for(unsigned j = i; j < prefix.len(); j++){
-  //   if(ws.first[j]){
-  //     v.push_back(branch_with_symbolic_data(j));
-  //     v.back().clock = prefix[j].clock;
-  //   }
-  // }
-  // v.push_back(ws.second);
-
-  // std::string line;
-  // line += " [";
-  // for(auto it = sleep_trees.begin(); it != sleep_trees.end(); it++){
-  //   line += std::to_string(it->first) + " -> {";
-  // const std::vector<std::list<Branch>> tails = it->second;
-  //   for(auto seq_it = tails.begin(); seq_it != tails.end(); seq_it++){
-  //     line += "<";
-  //     std::list<Branch> seq = *seq_it;
-  //     for(auto br : seq){
-  //   	line += events_to_string(br.sym) + ",";
-  //     }
-  //     line += ">";
-  //   }
-  //   line += "}, "; 
-  // }
-  // line += "]\n";
-  // llvm::dbgs()<<line;//////////////
-
-  /* Check if we have previously explored everything startable with v */
-  // if (!sequence_clears_sleep(v, isleep, sleeping_msgs,
-  // 			     sleep_trees, eoms, first_of_msgs)){
-  //   // llvm::dbgs()<<"Redundant\n";/////////////////
-  //   return;
-  // }
-  // v = linearize_sequence(i, prefix[race.second_event].iid.get_pid(), ws.first);
-  // v.push_back(ws.second);
-  // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
-  // llvm::dbgs()<<"\n";///////////
-  std::vector<Branch> v1 =
-    linearize_sequence(i, ws.second, prefix[race.second_event].iid.get_pid(),
+  Branch second_br = wakeup_sequence(race, eoms, i, unfiltered_notdep);
+  std::vector<Branch> v =
+    linearize_sequence(i, second_br, prefix[race.second_event].iid.get_pid(),
 		       unfiltered_notdep);
 
-  if (!sequence_clears_sleep(v1, isleep, sleeping_msgs,
+  if (!sequence_clears_sleep(v, isleep, sleeping_msgs,
   			     sleep_trees, eoms, first_of_msgs)){
     // llvm::dbgs()<<"Redundant\n";/////////////////
     return;
   }
-  // for(Branch br:v1) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
+  // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
   // llvm::dbgs()<<"\n";///////////
 
   /* Do insertion into the wakeup tree */
-  insert_WS(v1, i, isleep, sleep_trees, first_of_msgs);
+  insert_WS(v, i, isleep, sleep_trees, first_of_msgs);
 }
 
 void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
@@ -2959,7 +2923,7 @@ conflict_with_rest_of_msg(unsigned j, Branch &child,
   return false;
 }
 
-std::pair<std::vector<bool>, EventTraceBuilder::Branch>
+EventTraceBuilder::Branch
 EventTraceBuilder::wakeup_sequence(const Race &race,
 		                   std::map<IPid, std::vector<IPid>> &eoms,
 		                   unsigned br_point,
@@ -3113,7 +3077,7 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
     /* Recompute observed states on events in v */
     //recompute_observed(v);
   // }
-  return std::pair<std::vector<bool>, Branch>(in_notdep,second_br);
+  return second_br;
 }
 
 bool EventTraceBuilder::
@@ -3351,8 +3315,8 @@ recompute_vclock(const std::vector<bool> &in_v,
       if(prefix[r.first_event].iid.get_pid() == prefix[br_point].iid.get_pid()){
 	assert(r.first_event < i);
 	for(Race rr : prefix[r.first_event].races){
-	  unsigned rr_fst = rr.kind == Race::MSG_REV? rr.fst_conflict : rr.first_event;
-	  unsigned r_snd = rr.kind == Race::MSG_REV? r.snd_conflict : i;
+	  unsigned rr_fst = (rr.kind == Race::MSG_REV)? rr.fst_conflict : rr.first_event;
+	  unsigned r_snd = (r.kind == Race::MSG_REV)? r.snd_conflict : i;
 	  assert(rr_fst < r.first_event);
 	  if(do_events_conflict(prefix[rr_fst].iid.get_pid(),
 				prefix[rr_fst].sym,
