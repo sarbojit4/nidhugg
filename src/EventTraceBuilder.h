@@ -472,7 +472,7 @@ protected:
     /* Indices into prefix of events that happen before
      * this one because of eom.
      */
-    std::vector<unsigned> eom_before;
+    std::set<unsigned> eom_before;
     std::vector<unsigned> rsc_before;
     /* Possibly reversible races found in the current execution
      * involving this event as the main event.
@@ -829,10 +829,10 @@ protected:
 		   std::vector<std::set<unsigned>> &trace,
 		   std::vector<bool> &visiting, std::vector<bool> &visited,
 		   std::vector<unsigned> &sorted_seq) const;
-  bool recompute_vclock(std::vector<VClock<IPid>> &clock_WS,
+  void recompute_vclock(const std::vector<bool> &in_v,
+			std::vector<VClock<IPid>> &clock_WS,
 			std::vector<std::set<unsigned>> &trace,
-			unsigned i, unsigned k,
-			const std::vector<unsigned> &last_event) const;
+			unsigned br_point, unsigned second) const;
   /* recompute branch for second event involved in a race */ 
   void recompute_second(const Race&, Branch &second_br, Event &second) const;
   /* Checks if a sequence of events will clear a sleep set. */
