@@ -324,7 +324,12 @@ Trace *EventTraceBuilder::get_trace() const{
 
 bool EventTraceBuilder::reset(){
   compute_vclocks();
-  //remove_nonreversible_races();
+  remove_nonreversible_races();
+  // llvm::dbgs() << " Trace:=====> \n";
+  //   for(auto p : currtrace){
+  //     llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
+  // 		  <<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
+  //   }
   /* Checking if current exploration is redundant */
   // auto trace_it = Traces.find(currtrace);
   // if(trace_it != Traces.end()){
@@ -1456,9 +1461,6 @@ void EventTraceBuilder::obs_sleep_add(struct obs_sleep &sleep,
   for (int k = 0; k < e.sleep.size(); ++k){
     sleep.sleep.push_back({e.sleep[k], &e.sleep_evs[k], nullptr});
   }
-  // for(IPid spid : e.done_msgs){
-  //   sleeping_msgs.push_back(spid);
-  // }
   for(auto p : e.sleep_trees){
     IPid handler = threads[SPS.get_pid(p.first)].handler_id;
     unsigned size = (first_of_msgs.find(handler) != first_of_msgs.end())?
@@ -1511,45 +1513,6 @@ EventTraceBuilder::obs_wake_res EventTraceBuilder::
 obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
 	       unsigned index, VClock<IPid> clock, const sym_ty &sym,
 	       const first_of_msgs_t &first_of_msgs) const{
-  if (conf.dpor_algorithm == Configuration::OBSERVERS) {
-    for (const SymEv &e : sym) {
-      /* Now check for readers */
-      if (e.kind == SymEv::FULLMEM) {
-        /* Reads all; observes all */
-        sleep.must_read.clear();
-      } else if (symev_does_load(e)) {
-        const SymAddrSize &esas = e.addr();
-        for (int i = 0; i < int(sleep.must_read.size());) {
-          if (sleep.must_read[i].overlaps(esas)) {
-            unordered_vector_delete(sleep.must_read, i);
-          } else {
-            ++i;
-          }
-        }
-      }
-      if (symev_is_store(e)) {
-        /* Now check for shadowing of needed observations */
-        const SymAddrSize &esas = e.addr();
-        if (std::any_of(sleep.must_read.begin(), sleep.must_read.end(),
-                        [&esas](const SymAddrSize &ssas) {
-                          return ssas.subsetof(esas);
-                        })) {
-          return obs_wake_res::BLOCK;
-        }
-        /* Now handle write-write races by moving the sleepers to sleep_if */
-        for (auto it = sleep.sleep.begin(); it != sleep.sleep.end(); ++it) {
-          if (std::any_of(it->sym->begin(), it->sym->end(),
-                          [&esas](const SymEv &f) {
-                            return symev_is_store(f) && f.addr() == esas;
-                          })) {
-            assert(!it->not_if_read || *it->not_if_read == esas);
-            it->not_if_read = esas;
-          }
-        }
-      }
-    }
-  }
-
   for (unsigned i = 0; i < sleep.sleep.size();) {
     const auto &s = sleep.sleep[i];
     if (s.spid == p) {
@@ -1565,17 +1528,6 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       ++i;
     }
   }
-
-  // for(auto s_it = sleeping_msgs.begin(); s_it < sleeping_msgs.end();){
-  //   if(*s_it == p){
-  //     return obs_wake_res::BLOCK;
-  //   }
-  //   unsigned fst_of_sleep = threads[SPS.get_pid(*s_it)].event_indices.front();
-  //   if(do_msgs_conflict(*s_it, p, eoms) ||
-  //     do_events_conflict(p, sym, *s_it, prefix[fst_of_sleep].sym)){
-  //     s_it = sleeping_msgs.erase(s_it);
-  //   } else s_it++;
-  // }
 
   for(auto slp_tree_it = sleep_trees.begin(); slp_tree_it != sleep_trees.end();){
     unsigned handler = threads[SPS.get_pid(slp_tree_it->pid)].handler_id;
@@ -2433,9 +2385,6 @@ void EventTraceBuilder::do_race_detect() {
   std::map<IPid, std::vector<IPid>> eoms;
   for (const Race &r : lock_fail_races) races[r.first_event].push_back(&r);
   for (unsigned i = 0; i < prefix.len(); ++i){
-    // for(unsigned ei : prefix[i].eom_before){
-    //   eoms[prefix[i].iid.get_pid()].push_back(prefix[ei].iid.get_pid());
-    // }
     auto special_case1 = [this](IPid handler, unsigned fst, unsigned sec){
 			  for(unsigned k = fst+1; k < sec; k++){
 			    IPid pid = prefix[k].iid.get_pid();
@@ -2525,7 +2474,6 @@ void EventTraceBuilder::race_detect_optimal
   std::vector<Branch> v =
     linearize_sequence(i, second_br, prefix[race.second_event].iid.get_pid(),
 		       unfiltered_notdep);
-
   if (!sequence_clears_sleep(v, isleep, sleeping_msgs,
   			     sleep_trees, eoms, first_of_msgs)){
     // llvm::dbgs()<<"Redundant\n";/////////////////
@@ -3314,24 +3262,46 @@ recompute_vclock(const std::vector<bool> &in_v,
       assert(r.first_event < i);
       if(prefix[r.first_event].iid.get_pid() == prefix[br_point].iid.get_pid()){
 	assert(r.first_event < i);
+	if(r.kind == Race::MSG_REV){
+	  for(Race rr : prefix[r.fst_conflict].races){
+	    unsigned rr_fst = (rr.kind == Race::MSG_REV)? rr.fst_conflict : rr.first_event;
+	    assert(rr_fst < r.first_event);
+	    if(do_events_conflict(prefix[rr_fst].iid.get_pid(),
+				  prefix[rr_fst].sym,
+				  prefix[r.snd_conflict].iid.get_pid(),
+				  prefix[r.snd_conflict].sym)){
+	      unsigned rr_bef = (rr.kind == Race::MSG_REV)?
+		threads[prefix[rr.first_event].iid.get_pid()].
+		event_indices.back() : rr.first_event;
+	      trace[i].insert(rr_bef);
+	      clock_WS[i] += clock_WS[rr_bef];
+	    }
+	  }
+	}
 	for(Race rr : prefix[r.first_event].races){
 	  unsigned rr_fst = (rr.kind == Race::MSG_REV)? rr.fst_conflict : rr.first_event;
-	  unsigned r_snd = (r.kind == Race::MSG_REV)? r.snd_conflict : i;
 	  assert(rr_fst < r.first_event);
 	  if(do_events_conflict(prefix[rr_fst].iid.get_pid(),
 				prefix[rr_fst].sym,
-				prefix[r_snd].iid.get_pid(),
-				prefix[r_snd].sym)){
-	    unsigned rr_bef = (r.kind == Race::MSG_REV)?
+				prefix[i].iid.get_pid(),
+				prefix[i].sym)){
+	    bool msg_rev = r.kind != Race::MSG_REV &&
+	      threads[prefix[i].iid.get_pid()].handler_id != -1 &&
+	      threads[prefix[i].iid.get_pid()].handler_id ==
+	      threads[prefix[rr.first_event].iid.get_pid()].handler_id;
+	    unsigned rr_bef = msg_rev?
 	      threads[prefix[rr.first_event].iid.get_pid()].
-	      event_indices.back() : r.first_event;
+	      event_indices.back() : rr.first_event;
 	    trace[i].insert(rr_bef);
 	    clock_WS[i] += clock_WS[rr_bef];
 	  }
 	}
       } else{
-	trace[i].insert(r.first_event);
-	clock_WS[i] += clock_WS[r.first_event];
+	unsigned r_bef = (r.kind == Race::MSG_REV)?
+	  threads[prefix[r.first_event].iid.get_pid()].
+	  event_indices.back() : r.first_event;
+	trace[i].insert(r_bef);
+	clock_WS[i] += clock_WS[r_bef];
       }
     }
     if(i == last_event[pid]){
