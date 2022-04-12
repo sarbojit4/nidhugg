@@ -2102,7 +2102,7 @@ void EventTraceBuilder::compute_vclocks(){
     if(threads[ipid].handler_id != -1 && i == threads[ipid].event_indices.back()){
       bool backtrack=false;
       unsigned fev_i = threads[ipid].event_indices.front();
-      for(IPid j = 2; j<ipid; j=j+2){
+      for(IPid j = 2; j<threads.size(); j=j+2){
 	if(threads[ipid].handler_id != threads[j].handler_id) continue;
 	unsigned fev_j = threads[j].event_indices.front();
 	unsigned lev_j = threads[j].event_indices.back();
@@ -2977,6 +2977,7 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
 	    threads[spid].handler_id &&
 	    threads[spid].event_indices.front() > br_point))
 	  in_notdep[k] = true;
+	else in_notdep[k] = false;
       }
       else {
 	in_notdep[k] = false;
