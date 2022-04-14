@@ -2517,21 +2517,6 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
         const Branch &ve = *vei;
         if (child_it.branch() == ve) {
 	  branch_found = true;
-          // if (child_sym != ve.sym) {
-          //   /* This can happen due to observer effects. We must now make sure
-          //    * ve.second->sym does not have any conflicts with any previous
-          //    * event in v; i.e. wether it actually is a weak initial of v.
-          //    */
-          //   for (auto pei = v.begin(); skip == NO && pei != vei; ++pei){
-          //     const Branch &pe = *pei;
-          //     if (do_events_conflict(ve.spid, ve.sym,
-          //                            pe.spid, pe.sym)){
-	  // 	leftmost_branch = false;
-          //       skip = NEXT;
-          //     }
-          //   }
-          //   if (skip == NEXT) break;
-          // }
 
           if (v.size() == 1) {
             /* v is about to run out, which means that we had already
@@ -2975,7 +2960,9 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
 	    prefix[br_point].iid.get_index() == 1) ||
 	   (threads[ipid].handler_id ==
 	    threads[spid].handler_id &&
-	    threads[spid].event_indices.front() > br_point))
+	    (threads[spid].event_indices.front() > br_point ||
+	     !prefix[br_point].clock.
+	     leq(prefix[threads[ipid].event_indices.back()].clock))))
 	  in_notdep[k] = true;
 	else in_notdep[k] = false;
       }
@@ -3043,12 +3030,20 @@ linearize_sequence1(std::vector<Branch> &v,
   for(unsigned k = 0; k < v.size(); k++){//collect partial msgs and first_of_msgs
     if(threads[SPS.get_pid(v[k].spid)].handler_id != -1){
       if(first_of_msgs[v[k].spid] == -1) first_of_msgs[v[k].spid] = k;
-      if(v[k].index == 1)
-        partial_msg[v[k].spid] = true;
+      //if(v[k].index == 1)
+      partial_msg[v[k].spid] = true;
     }
     if(v[k].is_ret_stmt()){
       partial_msg[v[k].spid] = false;
     }
+  }
+  /* Make the already started partial message as last messasge in the handler*/
+  /* Make the second racing message as the last message in the handler */
+  for(int k = 0; k < int(threads.size()); k+=2){
+    if((partial_msg[k] && v[first_of_msgs[k]].index!=1) ||
+       (v.back().spid == k &&
+	threads[SPS.get_pid(v.back().spid)].handler_id != -1))
+      last_msg[threads[SPS.get_pid(k)].handler_id] = k;
   }
   
   for(auto evts = clear_set.begin(); evts != clear_set.end();){
@@ -3056,7 +3051,8 @@ linearize_sequence1(std::vector<Branch> &v,
     bool flag = false;
     for(unsigned ei : evts->second){
       for(int k = 0; k < int(threads.size()); k+=2){
-      	if(partial_msg[k] && first_of_msgs[k] != -1 &&
+      	if(partial_msg[k] && v[first_of_msgs[k]].index==1 &&
+	   first_of_msgs[k] != -1 &&
       	   v[first_of_msgs[k]].clock.lt(v[ei].clock))
       	  flag = true;
       }
@@ -3067,8 +3063,7 @@ linearize_sequence1(std::vector<Branch> &v,
     } else evts++;
   }
   
-  //Make the already started partial msg as last msg
-  
+  /* Last message in the handler is one happenning before an event in the clear_set */
   std::map<IPid, unsigned> guess;
   for(auto evts : clear_set) guess[evts.first] = 0;
   bool next = false;
@@ -3101,15 +3096,12 @@ linearize_sequence1(std::vector<Branch> &v,
       //}
     // else g++;
   }
-  //if(clear_set.empty()){
+  /* Choosing last message for rest of the handler */
   for(int k = 0; k < int(threads.size()); k+=2){
     if(partial_msg[k] && last_msg.find(threads[SPS.get_pid(k)].handler_id) == last_msg.end()){
 	last_msg[threads[SPS.get_pid(k)].handler_id] = k;
     }
   }
-    //}
-  if(threads[SPS.get_pid(v.back().spid)].handler_id != -1)
-    last_msg[threads[SPS.get_pid(v.back().spid)].handler_id]=v.back().spid;
 
   VClock<IPid> clk_first_of_msgs[threads.size()];
   for(unsigned k = 0; k<int(threads.size()); k+=2){
