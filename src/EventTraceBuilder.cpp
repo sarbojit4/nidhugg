@@ -2530,39 +2530,47 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	  /* After finding first event of the message match the whole message */
 	  /* if there is messages from the same handler before(clk_fst_of_msgs) */ 
 	  /* and the message has more than one event */
-	  if(!leftmost_branch &&
-	     threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
-	     ve.index == 1){
-	    auto res = child_it.branch().pending_WSs.insert(std::move(v));
-	    // llvm::dbgs()<<child_it.branch().spid<<","<<child_it.branch().index<<"Parkq\n";//////////////
-	    if(res.second) no_of_pending_WSs++;
-	    return;
-	  }
 	  unsigned last_seen_msg_event = 0;
 	  bool partial_msg = v[j].is_ret_stmt()? false : true;
-	  if(child_handler != -1 && child_it.branch().index == 1 &&
-	     !clk_fst_of_msgs.empty() && partial_msg &&
-	     conflict_with_rest_of_msg(j, child_it.branch(), v, clk_fst_of_msgs,
-				       last_seen_msg_event, partial_msg)){
-	    //put the message in the sleep_trees
-	    std::list<Branch> explored_trail;
-	    for(auto eit = threads[SPS.get_pid(child_it.branch().spid)].
-		           event_indices.begin();
-		eit != threads[SPS.get_pid(child_it.branch().spid)].
-		       event_indices.end();){
-	      if(prefix.branch(*eit).access_global())
-	        explored_trail.push_back(branch_with_symbolic_data(*eit));
-	      eit += prefix.branch(*eit).size;
+	  if(threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
+	     ve.index == 1){
+	    for(unsigned k = v.size()-1; k > j; --k){
+	      if(v[k].spid == child_it.branch().spid && last_seen_msg_event == 0){
+		last_seen_msg_event = k;
+		if(v[k].is_ret_stmt()) partial_msg = false;
+		break;
+	      }
 	    }
-	    unsigned size =
-	      first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
-	      : first_of_msgs[child_handler].size();
-	    sleep_trees.push_back({child_it.branch().spid, size, 0,
-				   std::set<std::list<Branch>>
-				   {std::move(explored_trail)}});
-	    skip = NEXT;
-	    leftmost_branch = false;
-	    break;
+	    if(!clk_fst_of_msgs.empty() && !v[j].is_ret_stmt()){
+	      if(partial_msg || !leftmost_branch){
+		auto res = child_it.branch().pending_WSs.insert(std::move(v));
+		//llvm::dbgs()<<child_it.branch().spid<<","<<child_it.branch().index<<"Parkq\n";//////////////
+		if(res.second) no_of_pending_WSs++;
+		return;
+	      }
+	      else if(conflict_with_rest_of_msg(j, child_it.branch(), v, clk_fst_of_msgs,
+					 last_seen_msg_event, partial_msg)){
+		//put the message in the sleep_trees
+		std::list<Branch> explored_trail;
+		for(auto eit = threads[SPS.get_pid(child_it.branch().spid)].
+		      event_indices.begin();
+		    eit != threads[SPS.get_pid(child_it.branch().spid)].
+		      event_indices.end();){
+		  if(prefix.branch(*eit).access_global())
+		    explored_trail.push_back(branch_with_symbolic_data(*eit));
+		  eit += prefix.branch(*eit).size;
+		}
+		unsigned size =
+		  first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
+		  : first_of_msgs[child_handler].size();
+		sleep_trees.push_back({child_it.branch().spid, size, 0,
+				       std::set<std::list<Branch>>
+				       {std::move(explored_trail)}});
+		skip = NEXT;
+		leftmost_branch = false;
+		break;
+	      }
+	    }
 	  }
 	  VClock<IPid> clk_lst_msg_event = v[last_seen_msg_event].clock;
 	  
@@ -2602,8 +2610,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	  }
           break;
         } else if (child_handler != -1 && child_it.branch().index == 1){
-	  if(threads[SPS.get_pid(ve.spid)].handler_id == child_handler){//  &&
-	     // do_msgs_conflict(ve.spid,child_it.branch().spid)){
+	  if(threads[SPS.get_pid(ve.spid)].handler_id == child_handler){
 	  /* This branch is incompatible, try the next */
 	    if(leftmost_branch){
 	      if(ve.index == 1){
@@ -2635,13 +2642,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 		  break;
 		}
 	      }
-	      // if(do_msgs_conflict(ve.spid,child_it.branch().spid)){
-	      //   leftmost_branch = false;
-	      //   skip = NEXT;
-	      // }
 	    } else{
 	      auto res = child_it.branch().pending_WSs.insert(std::move(v));
-	      // llvm::dbgs()<<child_it.branch().spid<<","<<child_it.branch().index<<"Park\n";//////////////
+	      // llvm::dbgs()<<child_it.branch().spid<<","<<child_it.branch().index<<" Park\n";//////////////
 	      if(res.second) no_of_pending_WSs++;
 	      return;
 	    }
@@ -2813,14 +2816,6 @@ conflict_with_rest_of_msg(unsigned j, Branch &child,
   /* After finding first event of the message match the whole message */
   /* if there is messages from the same handler before(first_of_msgs) */
   /* and the message has more than one event */
-
-  for(unsigned k = v.size()-1; k > j; --k){
-    if(v[k].spid == child.spid && last_seen_msg_event == 0){
-      last_seen_msg_event = k;
-      if(v[k].is_ret_stmt()) partial_msg = false;
-      break;
-    }
-  }
 
   /* check if events from the message occuring in WS are conflicting */
   if(last_seen_msg_event > 0){
