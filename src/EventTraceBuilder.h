@@ -521,7 +521,7 @@ protected:
    * events that are determined in advance to be executed.
    */
   WakeupTreeExplorationBuffer<Branch, Event> prefix;
-  std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
+  //std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
   std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
 
   /* The number of threads that have been dry run since the last

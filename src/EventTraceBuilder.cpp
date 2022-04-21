@@ -745,7 +745,7 @@ void EventTraceBuilder::debug_print() const {
     llvm::dbgs() << rpad("",2+ipid*2)
                  << rpad(iid_string(i),iid_offs-ipid*2)
                  << " " << rpad(events_to_string(prefix[i].sym),symev_offs)
-      //<< " " << prefix[i].clock/////////////
+      // << " " << prefix[i].clock/////////////
                  << lines[i] << "\n";
   }
   for (unsigned i = prefix.len(); i < lines.size(); ++i){
@@ -2048,9 +2048,9 @@ void EventTraceBuilder::compute_vclocks(){
 	  changed = true;
         }
 	if (it->kind == Race::MSG_REV){
-	  int last_of_sec = threads[prefix[it->second_event].iid.get_pid()].
+	  int last_of_fst = threads[prefix[it->first_event].iid.get_pid()].
 	    event_indices.back();
-          prefix[i].clock += prefix[last_of_sec].clock;
+          prefix[i].clock += prefix[last_of_fst].clock;
 	  changed = true;
         }
       }
