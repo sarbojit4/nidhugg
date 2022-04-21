@@ -2513,6 +2513,16 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       unsigned j = 0;
       IPid child_handler =
 	threads[SPS.get_pid(child_it.branch().spid)].handler_id;
+      unsigned last_seen_msg_event = 0;
+      bool partial_msg = true;
+      for(unsigned k = v.size()-1; k > j; --k){
+	if(v[k].spid == child_it.branch().spid && last_seen_msg_event == 0){
+	  last_seen_msg_event = k;
+	  if(v[k].is_ret_stmt()) partial_msg = false;
+	  break;
+	}
+      }
+      VClock<IPid> clk_lst_msg_event = v[last_seen_msg_event].clock;
       for (auto vei = v.begin(); skip == NO && vei != v.end(); ++vei, ++j) {
         const Branch &ve = *vei;
         if (child_it.branch() == ve) {
@@ -2530,17 +2540,8 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	  /* After finding first event of the message match the whole message */
 	  /* if there is messages from the same handler before(clk_fst_of_msgs) */ 
 	  /* and the message has more than one event */
-	  unsigned last_seen_msg_event = 0;
-	  bool partial_msg = v[j].is_ret_stmt()? false : true;
 	  if(threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
 	     ve.index == 1){
-	    for(unsigned k = v.size()-1; k > j; --k){
-	      if(v[k].spid == child_it.branch().spid && last_seen_msg_event == 0){
-		last_seen_msg_event = k;
-		if(v[k].is_ret_stmt()) partial_msg = false;
-		break;
-	      }
-	    }
 	    if(!clk_fst_of_msgs.empty() && !v[j].is_ret_stmt()){
 	      if(partial_msg || !leftmost_branch){
 		auto res = child_it.branch().pending_WSs.insert(std::move(v));
@@ -2571,9 +2572,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 		break;
 	      }
 	    }
-	  }
-	  VClock<IPid> clk_lst_msg_event = v[last_seen_msg_event].clock;
-	  
+	  }	  
           /* We will recurse into this node. To do that we first need to
            * drop all events in child_it.branch() from v.
            */
@@ -2612,7 +2611,29 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
         } else if (child_handler != -1 && child_it.branch().index == 1){
 	  if(threads[SPS.get_pid(ve.spid)].handler_id == child_handler){
 	  /* This branch is incompatible, try the next */
-	    if(leftmost_branch){
+	    if(!partial_msg){
+	      if(ve.clock.lt(clk_lst_msg_event)){
+		//put the message in the sleep trees
+		std::list<Branch> explored_trail;
+		for(auto eit = threads[SPS.get_pid(child_it.branch().spid)].
+		      event_indices.begin();
+		    eit != threads[SPS.get_pid(child_it.branch().spid)].
+		      event_indices.end();){
+		  if(prefix.branch(*eit).access_global())
+		    explored_trail.push_back(branch_with_symbolic_data(*eit));
+		  eit += prefix.branch(*eit).size;
+		}
+		unsigned size =
+		  first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
+		  : first_of_msgs[child_handler].size();
+		sleep_trees.push_back({child_it.branch().spid, size, 0,
+				       std::set<std::list<Branch>>
+				       {std::move(explored_trail)}});
+	    	leftmost_branch = false;
+	    	skip = NEXT;
+	    	break;
+	      }
+	    } else if(leftmost_branch){
 	      if(ve.index == 1){
 	        clk_fst_of_msgs.push_back(v[j].clock);
 	      }
