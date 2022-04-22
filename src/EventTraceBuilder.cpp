@@ -2551,22 +2551,6 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	      }
 	      else if(conflict_with_rest_of_msg(j, child_it.branch(), v, clk_fst_of_msgs,
 					 last_seen_msg_event, partial_msg)){
-		//put the message in the sleep_trees
-		std::list<Branch> explored_trail;
-		for(auto eit = threads[SPS.get_pid(child_it.branch().spid)].
-		      event_indices.begin();
-		    eit != threads[SPS.get_pid(child_it.branch().spid)].
-		      event_indices.end();){
-		  if(prefix.branch(*eit).access_global())
-		    explored_trail.push_back(branch_with_symbolic_data(*eit));
-		  eit += prefix.branch(*eit).size;
-		}
-		unsigned size =
-		  first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
-		  : first_of_msgs[child_handler].size();
-		sleep_trees.push_back({child_it.branch().spid, size, 0,
-				       std::set<std::list<Branch>>
-				       {std::move(explored_trail)}});
 		skip = NEXT;
 		leftmost_branch = false;
 		break;
@@ -2613,22 +2597,6 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	  /* This branch is incompatible, try the next */
 	    if(!partial_msg){
 	      if(ve.clock.lt(clk_lst_msg_event)){
-		//put the message in the sleep trees
-		std::list<Branch> explored_trail;
-		for(auto eit = threads[SPS.get_pid(child_it.branch().spid)].
-		      event_indices.begin();
-		    eit != threads[SPS.get_pid(child_it.branch().spid)].
-		      event_indices.end();){
-		  if(prefix.branch(*eit).access_global())
-		    explored_trail.push_back(branch_with_symbolic_data(*eit));
-		  eit += prefix.branch(*eit).size;
-		}
-		unsigned size =
-		  first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
-		  : first_of_msgs[child_handler].size();
-		sleep_trees.push_back({child_it.branch().spid, size, 0,
-				       std::set<std::list<Branch>>
-				       {std::move(explored_trail)}});
 	    	leftmost_branch = false;
 	    	skip = NEXT;
 	    	break;
@@ -2678,22 +2646,6 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	    if(vei->clock.lt(prefix[last_ev].clock)) u.push_back(j);
 	    if(do_events_conflict(ve.spid, ve.sym,
 				  child_it.branch().spid, child_sym)){
-	      //put messgae in the sleep trees
-	      std::list<Branch> explored_trail;
-	      for(auto eit = threads[SPS.get_pid(child_it.branch().spid)].
-		             event_indices.begin();
-		  eit != threads[SPS.get_pid(child_it.branch().spid)].
-		         event_indices.end();){
-		if(prefix.branch(*eit).access_global())
-		  explored_trail.push_back(branch_with_symbolic_data(*eit));
-		eit += prefix.branch(*eit).size;
-	      }
-	      unsigned size =
-		first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
-		: first_of_msgs[child_handler].size();
-	      sleep_trees.push_back({child_it.branch().spid, size, 0,
-				       std::set<std::list<Branch>>
-				     {std::move(explored_trail)}});
 	      leftmost_branch = false;
 	      skip = NEXT;
 	      break;
@@ -2704,23 +2656,6 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	        for(unsigned ei : threads[child_pid].event_indices){
 		  if(do_events_conflict(ve.spid, ve.sym,
 				        child_it.branch().spid, prefix[ei].sym)){
-		    //put message in the sleep trees
-		    std::list<Branch> explored_trail;
-		    for(auto eit = threads[SPS.get_pid(child_it.branch().spid)].
-			           event_indices.begin();
-			eit != threads[SPS.get_pid(child_it.branch().spid)].
-			       event_indices.end();){
-		      if(prefix.branch(*eit).access_global())
-		        explored_trail.
-			  push_back(branch_with_symbolic_data(*eit));
-		      eit += prefix.branch(*eit).size;
-		    }
-		    unsigned size =
-		      first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
-		      : first_of_msgs[child_handler].size();
-		    sleep_trees.push_back({child_it.branch().spid, size, 0,
-					   std::set<std::list<Branch>>
-					   {std::move(explored_trail)}});
 		    leftmost_branch = false;
 		    skip = NEXT;
 		    break;
@@ -2730,18 +2665,37 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	      }
 	    }
 	  }
-	  // skip = NEXT;
 	} else if (do_events_conflict(ve.spid, ve.sym,
 				      child_it.branch().spid,
 				      child_sym)) {
-	  //put the event in the sleep set
-	  sleep.sleep.push_back({child_it.branch().spid, &child_sym, nullptr});
           /* This branch is incompatible, try the next */
 	  leftmost_branch = false;
           skip = NEXT;
         }
       }
-      if (skip == NEXT) { skip = NO; continue; }
+      if (skip == NEXT) {
+	//Update sleep trees and sleepset
+	if (child_handler != -1 && child_it.branch().index == 1){
+	std::list<Branch> explored_trail;
+	for(auto eit = threads[SPS.get_pid(child_it.branch().spid)].
+	      event_indices.begin();
+	    eit != threads[SPS.get_pid(child_it.branch().spid)].
+	      event_indices.end();){
+	  if(prefix.branch(*eit).access_global())
+	    explored_trail.
+	      push_back(branch_with_symbolic_data(*eit));
+	  eit += prefix.branch(*eit).size;
+	}
+	unsigned size =
+	  first_of_msgs.find(child_handler) == first_of_msgs.end() ? 0
+	  : first_of_msgs[child_handler].size();
+	sleep_trees.push_back({child_it.branch().spid, size, 0,
+			       std::set<std::list<Branch>>
+			       {std::move(explored_trail)}});
+	} else
+	  sleep.sleep.push_back({child_it.branch().spid, &child_sym, nullptr});
+	skip = NO; continue;
+      }
 
       /* The child is compatible with v, recurse into it. */
       if(leftmost_branch && end_of_ws == i) return;
