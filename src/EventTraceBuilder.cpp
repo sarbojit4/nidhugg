@@ -324,7 +324,6 @@ Trace *EventTraceBuilder::get_trace() const{
 
 bool EventTraceBuilder::reset(){
   compute_vclocks();
-  //remove_nonreversible_races();
   // llvm::dbgs() << " Trace:=====> \n";
   //   for(auto p : currtrace){
   //     llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
@@ -1546,6 +1545,7 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
 	continue;
       }
       else{
+	//TODO: saturation method
 	return obs_wake_res::BLOCK;
       }
     }
@@ -1901,65 +1901,6 @@ void EventTraceBuilder::compute_eom(){
       if(prefix[fev_i].clock.lt(prefix[lev_j].clock)){
         add_eom(fev_j,lev_i);
       }
-    }
-  }
-}
-
-void EventTraceBuilder::remove_nonreversible_races(){
-  for(IPid i = 2; i<threads.size(); i=i+2){
-    if(threads[i].handler_id == -1) continue;
-    for(IPid j = 2; j<threads.size(); j=j+2){
-      if(threads[i].handler_id != threads[j].handler_id) continue;
-      if(i == j) continue;
-      if(threads[i].event_indices.front() > threads[j].event_indices.front())
-	continue;
-      bool direct_race = false;
-      bool indirect_dep = false;
-      unsigned last = 0;
-      for(unsigned k : threads[j].event_indices){
-	if(last == k) continue;
-	else last = k;
-	std::vector<Race> &races = prefix[k].races;
-	for(Race r : races){
-	  if(r.first_event > threads[i].event_indices.front() &&
-	     prefix[r.first_event].iid.get_pid() != i &&
-	     prefix[r.first_event].iid.get_pid() != j &&
-	     prefix[threads[i].event_indices.front()].clock.lt
-	     (prefix[r.first_event].clock)){
-	    indirect_dep = true;
-	  }
-	}
-	for(unsigned ei : prefix[k].happens_after){
-	  if(ei > threads[i].event_indices.front() &&
-	     prefix[ei].iid.get_pid() != i &&
-	     prefix[ei].iid.get_pid() != j &&
-	     prefix[threads[i].event_indices.front()].clock.lt
-	     (prefix[ei].clock)){
-	    indirect_dep = true;
-	  }
-	}
-      }
-      //last = 0;
-      /* keep only the first race between two messeges */
-      //for(unsigned k : threads[j].event_indices){
-      //if(last == k) continue;
-      //else last = k;
-      unsigned k = threads[j].event_indices.front();
-	std::vector<Race> &races = prefix[k].races;
-	auto end = partition
-	  (races.begin(), races.end(),
-	   [this, &direct_race, indirect_dep, i](const Race &r){
-	     if(prefix[r.first_event].iid.get_pid() == i){
-	       if(!indirect_dep && !direct_race){
-		 direct_race = true;
-		 return true;
-	       } else return false;
-	     } else{
-	       return true;
-	     }
-	   });
-	races.resize(end - races.begin(),races[0]);
-	//}
     }
   }
 }
@@ -2553,6 +2494,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 				  first_of_msgs_t first_of_msgs){
   WakeupTreeRef<Branch> node = prefix.parent_at(i);
   bool leftmost_branch = true;
+  VClock<IPid> second_br_clock = v.back().clock;
   while(1) {
     if (!node.size()) {
       /* node is a leaf. That means that an execution that will explore the
@@ -2603,21 +2545,30 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	  /* and the message has more than one event */
 	  if(threads[SPS.get_pid(ve.spid)].handler_id != -1 &&
 	     ve.index == 1){
-	    if(!clk_fst_of_msgs.empty() && !v[j].is_ret_stmt()){
-	      if(partial_msg || !leftmost_branch){
-		auto res = child_it.branch().pending_WSs.insert(std::move(v));
-		//llvm::dbgs()<<child_it.branch().spid<<","<<child_it.branch().index<<"Parkq\n";//////////////
-		if(res.second) no_of_pending_WSs++;
-		return;
+	    if(!clk_fst_of_msgs.empty()){
+	      if(!v[j].is_ret_stmt()){
+		if(partial_msg || !leftmost_branch){
+		  auto res = child_it.branch().pending_WSs.insert(std::move(v));
+		  //llvm::dbgs()<<child_it.branch().spid<<","<<child_it.branch().index<<"Parkq\n";//////////////
+		  if(res.second) no_of_pending_WSs++;
+		  return;
+		}
+		else if(conflict_with_rest_of_msg(j, child_it.branch(), v, clk_fst_of_msgs,
+						  last_seen_msg_event, partial_msg)){
+		  skip = NEXT;
+		  leftmost_branch = false;
+		  break;
+		}
 	      }
-	      else if(conflict_with_rest_of_msg(j, child_it.branch(), v, clk_fst_of_msgs,
-					 last_seen_msg_event, partial_msg)){
-		skip = NEXT;
-		leftmost_branch = false;
-		break;
+	    } else{
+	      // TODO: saturation method
+	      if(!reordering_possible(v,j,clk_fst_of_msgs)){
+	      	skip = NEXT;
+	        leftmost_branch = false;
+	      	break;
 	      }
 	    }
-	  }	  
+	  }
           /* We will recurse into this node. To do that we first need to
            * drop all events in child_it.branch() from v.
            */
@@ -2782,7 +2733,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       mark_sleepset_clearing_events(v, sleep,
       				    sleep_trees, first_of_msgs);
     unsigned old_size = v.size();
-    if(!linearize_sequence1(v, clear_set)){
+    if(!linearize_sequence1(v ,second_br_clock, clear_set)){
       //llvm::dbgs()<<"PROBLEM------\n";///////////////
       return;
     }
@@ -2804,6 +2755,8 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
     return;
   }
 }
+
+
 
 void EventTraceBuilder::
   delete_matching_events(std::vector<Branch> &v, unsigned child_size,
@@ -2831,9 +2784,7 @@ void EventTraceBuilder::
     }
   }
   } else if (ve.size > child_size) {
-    /* ve is larger than child_it.branch(). Delete the common
-     * prefix from ve.
-     */
+    /* ve is larger than child_it.branch(). Delete the common prefix from ve. */
     vei->size -= child_size;
     vei->sym.clear();
     vei->alt = 0;
@@ -2841,6 +2792,12 @@ void EventTraceBuilder::
     /* Drop ve from v. */
     v.erase(vei);
   }
+}
+
+bool EventTraceBuilder::
+reordering_possible(std::vector<Branch> &v, unsigned last_event,
+		    std::vector<VClock<IPid>> clk_fst_of_msgs){
+  return true;
 }
 
 bool EventTraceBuilder::
@@ -3049,6 +3006,7 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
 
 bool EventTraceBuilder::
 linearize_sequence1(std::vector<Branch> &v,
+		    const VClock<IPid> &second_br_clock,
 		    std::map<IPid, std::vector<unsigned>> clear_set) const{
   /* partial_msg[k] = true iff k is partial in v */ 
   bool partial_msg[threads.size()];
@@ -3135,6 +3093,7 @@ linearize_sequence1(std::vector<Branch> &v,
   }
 
   VClock<IPid> clk_first_of_msgs[threads.size()];
+  bool reversible_race = true;
   for(unsigned k = 0; k<int(threads.size()); k+=2){
     if(first_of_msgs[k] != -1) clk_first_of_msgs[k] = v[first_of_msgs[k]].clock;
   }
@@ -3143,12 +3102,38 @@ linearize_sequence1(std::vector<Branch> &v,
        last_msg.find(threads[SPS.get_pid(k)].handler_id) != last_msg.end() &&
        last_msg[threads[SPS.get_pid(k)].handler_id] != k){
       for(auto v_it = v.begin(); v_it != v.end();){
-  	if(clk_first_of_msgs[k].leq(v_it->clock))
+  	if(clk_first_of_msgs[k].leq(v_it->clock)){
+	  if(v_it->clock.leq(second_br_clock)){
+	    reversible_race = false;
+	    break;
+	  }
 	  v_it = v.erase(v_it);
+	}
   	else v_it++;
       }
+      if(!reversible_race) break;
     }
-  }  
+  }
+  if(!reversible_race) v.clear();
+  bool linearized = true;
+  std::vector<unsigned> curr_msg(threads.size(),0);
+  for(unsigned k = 0; k < v.size(); k++){//collect partial msgs and first_of_msgs
+    if(threads[SPS.get_pid(v[k].spid)].handler_id != -1){
+      if(curr_msg[threads[SPS.get_pid(v[k].spid)].handler_id] != 0 &&
+	 curr_msg[threads[SPS.get_pid(v[k].spid)].handler_id] != v[k].spid){
+  	linearized = false;
+  	break;
+      }
+      curr_msg[threads[SPS.get_pid(v[k].spid)].handler_id] = v[k].spid;
+    }
+    if(v[k].is_ret_stmt()){
+      curr_msg[threads[SPS.get_pid(v[k].spid)].handler_id] = 0;
+    }
+  }
+  if(!linearized){
+    linearize_sequence1(v, second_br_clock, clear_set);
+    llvm::dbgs()<<"Hello\n";///////////
+  }
   return true;
 }
 

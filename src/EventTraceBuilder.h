@@ -711,7 +711,6 @@ protected:
   void add_eom(unsigned second, unsigned first);
   /* Compute eom */
   void compute_eom();
-  void remove_nonreversible_races();
   /* Clear all vector clocks */
   void clear_vclocks();
   /* Computes the vector clocks of all events in a complete execution
@@ -808,15 +807,17 @@ protected:
 			   first_of_msgs_t, unsigned);
   void delete_matching_events(std::vector<Branch> &v, unsigned child_size,
 			      std::vector<Branch>::iterator vei);
+
+  void insert_WS(std::vector<Branch> &v, unsigned i,
+		 struct obs_sleep sleep, sleep_trees_t sleep_trees,
+		 first_of_msgs_t first_of_msgs);
+  bool reordering_possible(std::vector<Branch> &v, unsigned last_event,
+			   std::vector<VClock<IPid>> clk_fst_of_msgs);
   bool conflict_with_rest_of_msg(unsigned j, Branch &child,
                                  const std::vector<Branch> &v,
                                  const std::vector<VClock<IPid>> &first_of_msgs,
                                  unsigned &last_seen_msg_event,
                                  bool &partial_msg) const;
-
-  void insert_WS(std::vector<Branch> &v, unsigned i,
-		 struct obs_sleep sleep, sleep_trees_t sleep_trees,
-		 first_of_msgs_t first_of_msgs);
   /* Compute the wakeup sequence for reversing a race. */
   Branch
   wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms,
@@ -824,6 +825,7 @@ protected:
   std::vector<Branch> linearize_sequence(unsigned br_point, Branch second_br,
 					 IPid spid, std::vector<bool> &in_v) const;
   bool linearize_sequence1(std::vector<Branch> &v,
+			   const VClock<IPid> &second_br_clock,
 			   std::map<IPid, std::vector<unsigned>> clear_set) const;
   bool visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
 		   std::vector<std::set<unsigned>> &trace,
