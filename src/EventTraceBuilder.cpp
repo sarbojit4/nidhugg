@@ -223,7 +223,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
     }
   }
 
-
   return false; // No available threads
 }
 
@@ -1970,6 +1969,7 @@ void EventTraceBuilder::compute_vclocks(){
       bool backtrack=false;
       unsigned fev_i = threads[ipid].event_indices.front();
       for(IPid j = 2; j<threads.size(); j=j+2){
+	if(threads[j].event_indices.empty()) continue;
 	if(threads[ipid].handler_id != threads[j].handler_id) continue;
 	unsigned fev_j = threads[j].event_indices.front();
 	unsigned lev_j = threads[j].event_indices.back();
@@ -3017,7 +3017,8 @@ linearize_sequence1(std::vector<Branch> &v,
   }
   std::map<IPid, IPid> last_msg;
   for(unsigned k = 0; k < v.size(); k++){//collect partial msgs and first_of_msgs
-    if(threads[SPS.get_pid(v[k].spid)].handler_id != -1){
+    if(!partial_msg[v[k].spid] &&
+       threads[SPS.get_pid(v[k].spid)].handler_id != -1){
       if(first_of_msgs[v[k].spid] == -1) first_of_msgs[v[k].spid] = k;
       //if(v[k].index == 1)
       partial_msg[v[k].spid] = true;
@@ -3132,7 +3133,6 @@ linearize_sequence1(std::vector<Branch> &v,
   }
   if(!linearized){
     linearize_sequence1(v, second_br_clock, clear_set);
-    llvm::dbgs()<<"Hello\n";///////////
   }
   return true;
 }
@@ -3150,16 +3150,17 @@ linearize_sequence(unsigned br_point, Branch second_br,
   std::vector<unsigned> last_msgs;
   for(int i = 2; i < threads.size(); i+=2){
     if(threads[i].handler_id != -1 &&
+       !threads[i].event_indices.empty() &&
        threads[i].event_indices.front() > br_point &&
        in_v[threads[i].event_indices.front()] &&
        !in_v[threads[i].event_indices.back()]){
       IPid handler = threads[i].handler_id;
       for(int j = 2; j < threads.size(); j = j+2){
-	if(i != j && threads[j].handler_id == threads[i].handler_id){
-	  if(in_v[threads[j].event_indices.back()]){
-	    trace[threads[i].event_indices.front()].
-	      insert(threads[j].event_indices.back());
-	  }
+	if(i != j && threads[j].handler_id == threads[i].handler_id &&
+	   !threads[j].event_indices.empty() &&
+	   in_v[threads[j].event_indices.back()]){
+	  trace[threads[i].event_indices.front()].
+	    insert(threads[j].event_indices.back());
 	}
       }
     }
