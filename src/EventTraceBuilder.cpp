@@ -2939,18 +2939,13 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
       }
       else if(!prefix[br_point].clock.leq(prefix[k].clock)){
 	if(threads[ipid].handler_id == -1 || ipid == spid ||
-	   (threads[ipid].handler_id !=
-	    threads[fpid].handler_id &&
-	    threads[ipid].handler_id !=
-	    threads[spid].handler_id) ||
-	   (threads[ipid].handler_id ==
-	    threads[fpid].handler_id &&
-	    prefix[br_point].iid.get_index() == 1) ||
-	   (threads[ipid].handler_id ==
-	    threads[spid].handler_id &&
-	    (threads[spid].event_indices.front() > br_point ||
-	     !prefix[br_point].clock.
-	     leq(prefix[threads[ipid].event_indices.back()].clock))))
+	   (threads[ipid].handler_id != threads[fpid].handler_id &&
+	    threads[ipid].handler_id != threads[spid].handler_id)   ||
+	   (threads[ipid].handler_id == threads[fpid].handler_id &&
+	    prefix[br_point].iid.get_index() == 1)                  ||
+	   (threads[ipid].handler_id == threads[spid].handler_id &&
+	    !prefix[br_point].clock.
+	     leq(prefix[threads[ipid].event_indices.back()].clock)))
 	  in_notdep[k] = true;
 	else in_notdep[k] = false;
       }
@@ -3268,6 +3263,7 @@ recompute_vclock(const std::vector<bool> &in_v,
       trace[i].insert(ei);
       clock_WS[i] += clock_WS[ei];
     }
+    /* Recompute MSG_REV races */ 
     bool backtrack = false;
     for (auto r : prefix[i].races){//needs to be fixed
       assert(r.first_event < i);
