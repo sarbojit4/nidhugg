@@ -5,23 +5,19 @@
 
 //12 traces
 qthread_t handler;
+atomic_int x,y;
 
-atomic_int x;
-atomic_int y;
-void *m1(void *j){
+void m1(void *j){
   atomic_store_explicit(&x, 1, memory_order_seq_cst);
-  return 0;
 }
 
-void *m2(void *j){
+void m2(void *j){
   atomic_store_explicit(&x, 2, memory_order_seq_cst);
-  return 0;
 }
 
-void *m3(void *j){
+void m3(void *j){
   atomic_store_explicit(&y, 1, memory_order_seq_cst);
   atomic_store_explicit(&x, 3, memory_order_seq_cst);
-  return 0;
 }
 
 void *t1(void *i){
@@ -36,13 +32,14 @@ void *t3(void *i){
   qthread_post_event(handler, &m3, i); 
   return 0;
 }
+
 void *t4(void *i){
   atomic_store_explicit(&y, 2, memory_order_seq_cst);
   return 0;
 }
 
 void *handler_func(void *i){ 
-  int quit = qthread_exec();
+  qthread_exec();
   return 0;
 }
 
@@ -58,5 +55,4 @@ int main(){
   }
   pthread_create(&t[3], NULL, &t4, NULL);
   pthread_join(t[3], NULL);
-  qthread_wait(handler, NULL);
 }

@@ -6,33 +6,30 @@
 //3 traces
 
 qthread_t handler;
+atomic_int x,y;
 
-atomic_int x;
-atomic_int y;
-void *m1(void *j){
+void mes1(void *j){
   atomic_store_explicit(&y, 2, memory_order_seq_cst);
-  return 0;
 }
-void *m2(void *j){
+void mes2(void *j){
   atomic_int a = atomic_load_explicit(&x, memory_order_seq_cst);
   if(a == 0){
     atomic_int b = atomic_load_explicit(&y, memory_order_seq_cst);
   }
-  return 0;
 }
 
-void *p(void *i){
-  qthread_post_event(handler, &m1, i); 
+void *th_post1(void *i){
+  qthread_post_event(handler, &mes1, i); 
   atomic_store_explicit(&x, 1, memory_order_seq_cst);
   return 0;
 }
-void *q(void *i){
-  qthread_post_event(handler, &m2, i); 
+void *th_post2(void *i){
+  qthread_post_event(handler, &mes2, i); 
   return 0;
 }
 
 void *handler_func(void *i){ 
-  int quit = qthread_exec();
+  qthread_exec();
   return 0;
 }
 
@@ -41,9 +38,8 @@ int main(){
 
   qthread_create(&handler, &handler_func, NULL);
   qthread_start(handler);
-  pthread_create(&t[0], NULL, &p, 0);
-  pthread_create(&t[1], NULL, &q, 0);
+  pthread_create(&t[0], NULL, &th_post1, NULL);
+  pthread_create(&t[1], NULL, &th_post2, NULL);
   pthread_join(t[0], NULL);
   pthread_join(t[1], NULL);
-  qthread_wait(handler, NULL);
 }
