@@ -10,14 +10,12 @@
 
 atomic_int g;
 qthread_t handler;
-void *mes1(void *j){
+void mes1(void *j){
   atomic_store_explicit(&g, 1, memory_order_seq_cst);
-  return 0;
 }
 
-void *mes2(void *j){
+void mes2(void *j){
   atomic_int a = atomic_load_explicit(&g, memory_order_seq_cst);
-  return 0;
 }
 
 void *th_post1(void *i){
@@ -48,6 +46,5 @@ int main() {
   for (int i = 0; i < 2*N-1; i++){
     pthread_join(t[i], NULL);
   }
-  qthread_wait(handler, NULL);
   return 0;
 }

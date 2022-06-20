@@ -2,7 +2,7 @@
 typedef pthread_mutex_t *qthread_t;
 
 typedef struct{
-  void *(*func)(void *);
+  void (*func)(void *);
   void *arg;
   qthread_t tid;
 } msg_arg_t;
@@ -14,12 +14,12 @@ int qthread_create(qthread_t *tid, void *(*func)(void *), void * arg){
   return ret;
 }
 void qthread_wait(qthread_t tid, void *ret_val){
-  free(tid);
+  //free(tid);
 }
 void qthread_start(qthread_t tid){}
 void *msg_func(void *_msg_arg){
   msg_arg_t *msg_arg = (msg_arg_t *)_msg_arg;
-  void *(*func)(void *) = msg_arg->func;
+  void (*func)(void *) = msg_arg->func;
   void *arg = msg_arg->arg;
   qthread_t tid = msg_arg->tid;
   pthread_mutex_lock(tid);
@@ -28,7 +28,7 @@ void *msg_func(void *_msg_arg){
   free(msg_arg);
   return NULL;
 }
-void qthread_post_event(qthread_t tid, void *(*func)(void *), void *arg){
+void qthread_post_event(qthread_t tid, void (*func)(void *), void *arg){
   pthread_t msg;
   msg_arg_t *msg_arg = malloc(sizeof(msg_arg_t));
   msg_arg->func = func;
@@ -37,3 +37,4 @@ void qthread_post_event(qthread_t tid, void *(*func)(void *), void *arg){
   pthread_create(&msg,NULL,&msg_func,msg_arg);
 }
 int qthread_exec(){return 0;}
+
