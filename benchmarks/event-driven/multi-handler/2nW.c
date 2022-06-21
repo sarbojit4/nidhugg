@@ -10,13 +10,11 @@
 #  define N 3
 #endif
 
-qthread_t handler1;
-qthread_t handler2;
-
+qthread_t handler1,handler2;
 atomic_int x,y;
-void *mes(void *j){
+
+void mes(void *j){
   atomic_store_explicit(&x, 2, memory_order_seq_cst);
-  return 0;
 }
 
 void *th_post1(void *i){
@@ -30,7 +28,7 @@ void *th_post2(void *i){
 }
 
 void *handler_func(void *i){ 
-  int quit = qthread_exec();
+  qthread_exec();
   return 0;
 }
 
@@ -49,6 +47,4 @@ int main(){
     pthread_join(t1[i], NULL);
     pthread_join(t2[i], NULL);
   }
-  qthread_wait(handler1, NULL);
-  qthread_wait(handler2, NULL);
 }

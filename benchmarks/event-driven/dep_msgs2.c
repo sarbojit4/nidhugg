@@ -13,14 +13,12 @@
 atomic_int g1,g2;
 qthread_t handler;
 
-void *mes1(void *j){
-  atomic_store_explicit(&g1, *(atomic_int *)j, memory_order_seq_cst);
-  return 0;
+void mes1(void *j){
+  atomic_store_explicit(&g1, 2, memory_order_seq_cst);
 }
 
-void *mes2(void *j){
-  atomic_store_explicit(&g2, *(atomic_int *)j, memory_order_seq_cst);
-  return 0;
+void mes2(void *j){
+  atomic_store_explicit(&g2, 2, memory_order_seq_cst);
 }
 
 void *th_post1(void *i){
@@ -39,19 +37,15 @@ void *handler_func(void *i){
 
 int main() {
   pthread_t t[2*N];
-  int a[2*N];
   qthread_create(&handler, &handler_func, NULL);
   for (int i = 0; i < 2*N; i++){
-    a[i] = i+1;
-    pthread_create(&t[i], NULL, &th_post1, &a[i]);
+    pthread_create(&t[i], NULL, &th_post1, NULL);
     i++;
-    a[i] = i+1;
-    pthread_create(&t[i], NULL, &th_post2, &a[i]);
+    pthread_create(&t[i], NULL, &th_post2, NULL);
   }
   for (int i = 0; i < 2*N; i++){
     pthread_join(t[i], NULL);
   }
   qthread_start(handler);
-  qthread_wait(handler, NULL);
   return 0;
 }

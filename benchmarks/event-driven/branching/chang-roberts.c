@@ -17,18 +17,19 @@ qthread_t nodes[N];
 
 atomic_int ids[N];
 atomic_int decision[N];
+int a = 0;
 
-void *announce(void *par) {
+void announce(void *par) {
   param p = *(param *)par;
   
   // write the index of the leader node
   atomic_store_explicit(&decision[p.own], p.new, memory_order_seq_cst);
 }
 
-void *msg(void *par) {
+void msg(void *par) {
   param p = *(param *)par;
   
-  if (p.own = p.new) {
+  if (p.own == p.new) {
     // if a node receives its own id then it will announce to all nodes it is the leader
     for (int i = 0; i < N; i++) {
       param p2;
@@ -51,7 +52,7 @@ void *msg(void *par) {
 }
 
 // initial message to make all nodes start sending messages
-void *init_msg(void *par) {
+void init_msg(void *par) {
   int i = *(int *)par;
   param p;
   p.own = (i + 1) % N;
@@ -64,6 +65,7 @@ void *init(void *par) {
   for (int i = 0; i < N; i++) {
     qthread_post_event(nodes[i], &init_msg, &i);
   }
+  return 0;
 }
 
 void *handler_func(void *i){ 
@@ -80,8 +82,6 @@ int main() {
   }
   
   pthread_t t;
-  
-  int a = 0;
   
   pthread_create(&t, NULL, &init, &a);
   

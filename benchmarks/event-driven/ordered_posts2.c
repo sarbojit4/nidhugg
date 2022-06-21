@@ -6,12 +6,10 @@
 // 4 traces
 
 qthread_t handler;
+atomic_int x,y;
 
-atomic_int x;
-atomic_int y;
-void *mes(void *j){
+void mes(void *j){
   atomic_store_explicit(&y, 2, memory_order_seq_cst);
-  return 0;
 }
 
 void *th_post1(void *i){
@@ -26,7 +24,7 @@ void *th_post2(void *i){
 }
 
 void *handler_func(void *i){ 
-  int quit = qthread_exec();
+  qthread_exec();
   return 0;
 }
 
@@ -34,10 +32,8 @@ int main(){
   pthread_t t[2];
   qthread_create(&handler, &handler_func, NULL);
   qthread_start(handler);
-  int i = 1;
-  pthread_create(&t[0], NULL, &th_post1, &i);
-  pthread_create(&t[1], NULL, &th_post2, &i);
+  pthread_create(&t[0], NULL, &th_post1, NULL);
+  pthread_create(&t[1], NULL, &th_post2, NULL);
   pthread_join(t[0], NULL);
   pthread_join(t[1], NULL);
-  qthread_wait(handler, NULL);
 }

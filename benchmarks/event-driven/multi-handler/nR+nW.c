@@ -5,22 +5,20 @@
 
 //((N+1)^N)*(N!) traces
 #ifndef N
-#  warning "N was not defined; defining it as 2"
+#  warning "N was not defined; defining it as 3"
 #  define N 3
 #endif
 
 qthread_t handler1;
 qthread_t handler2;
-
 atomic_int x;
-void *mes1(void *j){
+
+void mes1(void *j){
   atomic_store_explicit(&x, 2, memory_order_seq_cst);
-  return 0;
 }
 
-void *mes2(void *j){
+void mes2(void *j){
   atomic_int a = atomic_load_explicit(&x, memory_order_seq_cst);
-  return 0;
 }
 
 void *th_post1(void *i){
@@ -34,7 +32,7 @@ void *th_post2(void *i){
 }
 
 void *handler_func(void *i){ 
-  int quit = qthread_exec();
+  qthread_exec();
   return 0;
 }
 
@@ -55,6 +53,4 @@ int main(){
     pthread_join(t1[i], NULL);
   }
   pthread_join(t2[0], NULL);
-  qthread_wait(handler1, NULL);
-  qthread_wait(handler2, NULL);
 }
