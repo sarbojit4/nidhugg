@@ -131,6 +131,7 @@ public:
   typedef typename std::vector<T>::const_iterator const_iterator;
   const_iterator begin() const { return vec.cbegin(); }
   const_iterator end() const { return vec.cend(); }
+  const std::vector<T> &get_vector() const & { return vec; }
   std::vector<T> get_vector() && { return std::exchange(vec, {}); }
   bool operator==(const VecSet &s) const { return seq_eq(vec, s.vec); }
   bool operator<(const VecSet &s) const { return seq_lt(vec, s.vec); }
