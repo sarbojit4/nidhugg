@@ -18,23 +18,23 @@ qthread_t collectors[N];
 atomic_int decision[N];
 atomic_int value[N];
 atomic_int a[N];
+param p[N][N];
 
 void send_value(void *par) {
   atomic_int val = atomic_load_explicit(&value[(*(param *)par).j], memory_order_seq_cst);
   if (val > decision[(*(param *)par).i]) {
     decision[(*(param *)par).i] = val;
   }
-  return 0;
 }
 
-void *broadcast(void *j) {
-  atomic_store_explicit(&value[*(atomic_int *)j], *(atomic_int *)j, memory_order_seq_cst);
+void *broadcast(void *_j) {
+  atomic_int j = atomic_load_explicit((atomic_int *)_j, memory_order_seq_cst);
+  atomic_store_explicit(&value[j], j, memory_order_seq_cst);
   
   for (int i = 0; i < N; i++) {
-    param p;
-    p.i = i;
-    p.j = *(int *)j;
-    qthread_post_event(collectors[i], &send_value, &p);
+    p[i][j].i = i;
+    p[i][j].j = j;
+    qthread_post_event(collectors[i], &send_value, &p[i][j]);
   }
   return 0;
 }

@@ -46,6 +46,5 @@ int main() {
   for (int i = 0; i < 2*N-1; i++){
     pthread_join(t[i], NULL);
   }
-  qthread_wait(handler, NULL);
   return 0;
 }
