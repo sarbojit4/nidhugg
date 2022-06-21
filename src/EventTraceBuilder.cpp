@@ -2009,7 +2009,8 @@ void EventTraceBuilder::compute_vclocks(){
 	  std::vector<std::set<unsigned>> msgs_hbef_i(threads.size());
 	  std::vector<bool> msg_aftj_n_befi(threads.size(),false);
 	  for(IPid k = 2; k<threads.size(); k=k+2){
-	    if(threads[k].handler_id == -1 || k==i || k==j) continue; 
+	    if(threads[k].handler_id == -1 || k==i || k==j ||
+	       threads[k].event_indices.empty()) continue;
 	    unsigned fev_k = threads[k].event_indices.front();
 	    unsigned lev_k = threads[k].event_indices.back();
 	    bool after_j=false,before_i=false;
