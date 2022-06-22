@@ -60,7 +60,7 @@ public:
   /* Does not implement the full iterator API, for now. */
   class iterator {
   public:
-    const Branch &branch() { return iter->first; };
+    //const Branch &branch() { return iter->first; };
     Branch &branch() { return iter->first; };
     
     WakeupTreeRef<Branch> node() { return {*iter->second}; }

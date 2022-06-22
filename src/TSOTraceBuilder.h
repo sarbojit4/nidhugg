@@ -66,7 +66,6 @@ public:
   NODISCARD bool xchg_await(const SymData &ml, AwaitCond cond) override;
   NODISCARD bool xchg_await_fail(const SymData &ml, AwaitCond cond) override;
 
-  virtual NODISCARD bool compare_exchange
   NODISCARD bool compare_exchange
   (const SymData &sd, const SymData::block_type expected, bool success) override;
   NODISCARD bool load(const SymAddrSize &ml) override;

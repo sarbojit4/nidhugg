@@ -68,7 +68,7 @@ public:
   NODISCARD bool spawn() override;
   NODISCARD bool store(const SymData &ml) override;
   NODISCARD bool atomic_store(const SymData &ml) override;
-  NODISCARD bool atomic_store(const SymData &ml) override;
+  NODISCARD bool atomic_rmw(const SymData &ml, RmwAction action) override;
   NODISCARD bool compare_exchange
   (const SymData &sd, const SymData::block_type expected, bool success) override;
   NODISCARD bool load(const SymAddrSize &ml) override;
