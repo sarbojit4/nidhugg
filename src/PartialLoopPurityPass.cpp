@@ -19,24 +19,31 @@
 
 #include <config.h>
 
-#include "CheckModule.h"
 #include "PartialLoopPurityPass.h"
-#include "SpinAssumePass.h"
+
+#include "CheckModule.h"
 #include "Debug.h"
+#include "Option.h"
+#include "SpinAssumePass.h"
 #include "vecset.h"
 
-#include <llvm/Pass.h>
+#include <llvm/Analysis/CallGraph.h>
 #include <llvm/Analysis/LoopPass.h>
+#include <llvm/Analysis/ValueTracking.h>
 #if defined(HAVE_LLVM_IR_DOMINATORS_H)
 #include <llvm/IR/Dominators.h>
 #elif defined(HAVE_LLVM_ANALYSIS_DOMINATORS_H)
 #include <llvm/Analysis/Dominators.h>
 #endif
+#include <llvm/Config/llvm-config.h>
 #if defined(HAVE_LLVM_IR_FUNCTION_H)
 #include <llvm/IR/Function.h>
 #elif defined(HAVE_LLVM_FUNCTION_H)
 #include <llvm/Function.h>
 #endif
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/InlineAsm.h>
+#include <llvm/IR/Verifier.h>
 #if defined(HAVE_LLVM_IR_INSTRUCTIONS_H)
 #include <llvm/IR/Instructions.h>
 #elif defined(HAVE_LLVM_INSTRUCTIONS_H)
@@ -57,16 +64,21 @@
 #elif defined(HAVE_LLVM_IR_CALLSITE_H)
 #include <llvm/IR/CallSite.h>
 #endif
+#include <llvm/Pass.h>
+#include <llvm/Support/Debug.h>
+#include <llvm/Support/FormattedStream.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 #include <llvm/Transforms/Utils/Cloning.h>
-#include <llvm/Analysis/ValueTracking.h>
-#include <llvm/Analysis/CallGraph.h>
-#include <llvm/IR/Verifier.h>
-#include <llvm/IR/Constants.h>
-#include <llvm/Support/Debug.h>
 
-#include <unordered_map>
+#include <algorithm>
+#include <map>
+#include <set>
 #include <sstream>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #ifdef LLVM_HAS_TERMINATORINST
 typedef llvm::TerminatorInst TerminatorInst;
@@ -75,6 +87,9 @@ typedef llvm::Instruction TerminatorInst;
 #endif
 
 namespace {
+  const int MAX_CONJUNCTION_TERMS = 5;
+  const int MAX_DISJUNCTION_TERMS = 10;
+
   /* Not reentrant */
   static const llvm::DominatorTree *DominatorTree;
   static const std::unordered_map<llvm::Function *, bool> *may_inline;
@@ -99,26 +114,31 @@ namespace {
     }
   }
 
-  llvm::CmpInst::Predicate bits_to_icmpop(std::uint_fast8_t bits) {
+  llvm::CmpInst::Predicate bits_to_icmpop(std::uint_fast8_t bits, bool &ua) {
     using llvm::CmpInst;
     if ((bits & 0b01110) == 0b01110) return CmpInst::FCMP_TRUE; // Not expected to happen
     if ((bits & 0b10101) == 0b10101) return CmpInst::FCMP_TRUE; // Not expected to happen
-    if ((bits & 0b01100) == 0b01100) return CmpInst::ICMP_SLE;
-    if ((bits & 0b00110) == 0b00110) return CmpInst::ICMP_SGE;
-    if ((bits & 0b10100) == 0b10100) return CmpInst::ICMP_ULE;
-    if ((bits & 0b00101) == 0b00101) return CmpInst::ICMP_UGE;
-    if ((bits & 0b01000) == 0b01000) return CmpInst::ICMP_SLT;
-    if ((bits & 0b00010) == 0b00010) return CmpInst::ICMP_SGT;
-    if ((bits & 0b10000) == 0b10000) return CmpInst::ICMP_ULT;
-    if ((bits & 0b00001) == 0b00001) return CmpInst::ICMP_UGT;
-    if ((bits & 0b01010) == 0b01010) return CmpInst::ICMP_NE;
-    if ((bits & 0b10001) == 0b10001) return CmpInst::ICMP_NE;
-    if ((bits & 0b00100) == 0b00100) return CmpInst::ICMP_EQ;
+    if ((bits & 0b01100) == 0b01100) { ua |= bits != 0b01100; return CmpInst::ICMP_SLE; }
+    if ((bits & 0b00110) == 0b00110) { ua |= bits != 0b00110; return CmpInst::ICMP_SGE; }
+    if ((bits & 0b10100) == 0b10100) { ua |= bits != 0b10100; return CmpInst::ICMP_ULE; }
+    if ((bits & 0b00101) == 0b00101) { ua |= bits != 0b00101; return CmpInst::ICMP_UGE; }
+    if ((bits & 0b01000) == 0b01000) { ua |= bits != 0b01000; return CmpInst::ICMP_SLT; }
+    if ((bits & 0b00010) == 0b00010) { ua |= bits != 0b00010; return CmpInst::ICMP_SGT; }
+    if ((bits & 0b10000) == 0b10000) { ua |= bits != 0b10000; return CmpInst::ICMP_ULT; }
+    if ((bits & 0b00001) == 0b00001) { ua |= bits != 0b00001; return CmpInst::ICMP_UGT; }
+    if ((bits & 0b01010) == 0b01010) { ua |= bits != 0b01010; return CmpInst::ICMP_NE; }
+    if ((bits & 0b10001) == 0b10001) { ua |= bits != 0b10001; return CmpInst::ICMP_NE; }
+    if ((bits & 0b00100) == 0b00100) { ua |= bits != 0b00100; return CmpInst::ICMP_EQ; }
+    ua |= bits != 0;
     return CmpInst::FCMP_FALSE;
   }
 
   llvm::CmpInst::Predicate icmpop_invert_strictness(llvm::CmpInst::Predicate pred) {
-    return bits_to_icmpop(0b00100 ^ icmpop_to_bits(pred));
+    bool underapprox = false;
+    llvm::CmpInst::Predicate res = bits_to_icmpop(0b00100 ^ icmpop_to_bits(pred),
+                                                  underapprox);
+    assert(!underapprox);
+    return res;
   }
 
   bool check_predicate_satisfaction(const llvm::APInt &lhs,
@@ -142,269 +162,372 @@ namespace {
     }
   }
 
-  struct BinaryPredLoc {
-    struct BinaryPredicate {
-      llvm::Value *lhs = nullptr, *rhs = nullptr;
-      /* FCMP_TRUE and FCMP_FALSE are used as special values indicating
-       * unconditional purity
-       */
-      llvm::CmpInst::Predicate op = llvm::CmpInst::FCMP_TRUE;
+  struct BinaryPredicate {
+    llvm::Value *lhs = nullptr, *rhs = nullptr;
+    /* FCMP_TRUE and FCMP_FALSE are used as special values indicating
+     * unconditional purity
+     */
+    llvm::CmpInst::Predicate op = llvm::CmpInst::FCMP_FALSE;
 
-      BinaryPredicate() {}
-      BinaryPredicate(bool static_value) {
-        op = static_value ? llvm::CmpInst::FCMP_TRUE : llvm::CmpInst::FCMP_FALSE;
-      }
-      BinaryPredicate(llvm::CmpInst::Predicate op, llvm::Value *lhs,
-                      llvm::Value *rhs)
-        : lhs(lhs), rhs(rhs), op(op) {
-        assert(!(is_true() || is_false()) || (lhs == nullptr && rhs == nullptr));
-      }
+    BinaryPredicate() {}
+    BinaryPredicate(bool static_value) {
+      op = static_value ? llvm::CmpInst::FCMP_TRUE : llvm::CmpInst::FCMP_FALSE;
+    }
+    BinaryPredicate(llvm::CmpInst::Predicate op, llvm::Value *lhs,
+                    llvm::Value *rhs)
+      : lhs(lhs), rhs(rhs), op(op) {
+      assert(!(is_true() || is_false()) || (lhs == nullptr && rhs == nullptr));
+    }
 
-      /* A BinaryPredicate must be normalised after direct modification of its members. */
-      void normalise() {
-        if (op == llvm::CmpInst::FCMP_TRUE || op == llvm::CmpInst::FCMP_FALSE) {
-          lhs = rhs = nullptr;
-        } else {
-          assert(lhs && rhs);
-        }
-      }
-
-      bool is_true() const {
-        assert(!(op == llvm::CmpInst::FCMP_TRUE && (lhs || rhs)));
-        return op == llvm::CmpInst::FCMP_TRUE;
-      }
-      bool is_false() const {
-        assert(!(op == llvm::CmpInst::FCMP_FALSE && (lhs || rhs)));
-        return op == llvm::CmpInst::FCMP_FALSE;
-      }
-
-      BinaryPredicate negate() const {
-        return {llvm::CmpInst::getInversePredicate(op), lhs, rhs};
-      }
-
-      BinaryPredicate swap() const {
-        return {llvm::CmpInst::getSwappedPredicate(op), rhs, lhs};
-      }
-
-      // IDEA: Use operator| for join (and operator& for meet, if needed),
-      // unless it's confusing
-      BinaryPredicate operator&(const BinaryPredicate &other) const {
-        if (other.is_true() || *this == other) return *this;
-        if (is_true()) return other;
-
-        using llvm::CmpInst;
-        BinaryPredicate res = *this;
-        BinaryPredicate o(other);
-        if (res.rhs == o.lhs || res.rhs == o.rhs) res = swap();
-        if (res.lhs == o.lhs || res.lhs == o.rhs) {
-          if (res.lhs != o.lhs) o = o.swap();
-          if (res.rhs == o.rhs) {
-            if (llvm::CmpInst::isFPPredicate(res.op)
-                && llvm::CmpInst::isFPPredicate(o.op)) {
-              res.op = CmpInst::Predicate(res.op & o.op);
-            } else if (llvm::CmpInst::isIntPredicate(res.op)
-                       && llvm::CmpInst::isIntPredicate(o.op)) {
-              res.op = bits_to_icmpop(icmpop_to_bits(res.op) & icmpop_to_bits(o.op));
-            } else {
-              return false; // Mixing fp and int predicates
-            }
-            res.normalise();
-            return res;
-          }
-          if (llvm::isa<llvm::ConstantInt>(res.rhs) && llvm::isa<llvm::ConstantInt>(o.rhs)) {
-            assert((llvm::cast<llvm::ConstantInt>(res.rhs)->getValue()
-                    != llvm::cast<llvm::ConstantInt>(o.rhs)->getValue()));
-            if (res.op == CmpInst::ICMP_EQ || o.op == CmpInst::ICMP_EQ) {
-              if (res.op != CmpInst::ICMP_EQ) std::swap(o, res);
-              const llvm::APInt &RR = llvm::cast<llvm::ConstantInt>(res.rhs)->getValue();
-              const llvm::APInt &OR = llvm::cast<llvm::ConstantInt>(o.rhs)->getValue();
-              if (check_predicate_satisfaction(RR, o.op, OR)) {
-                return res;
-              } else {
-                return false;
-              }
-            }
-            if (res.op == CmpInst::ICMP_NE || o.op == CmpInst::ICMP_NE) {
-              if (o.op != CmpInst::ICMP_NE) std::swap(o, res);
-              const llvm::APInt &RR = llvm::cast<llvm::ConstantInt>(res.rhs)->getValue();
-              const llvm::APInt &OR = llvm::cast<llvm::ConstantInt>(o.rhs)->getValue();
-              if (check_predicate_satisfaction(OR, res.op, RR)) {
-                return false; /* Possible to refine: we'd have to
-                               * exclude OR from res somehow */
-              } else {
-                return res;
-              }
-            }
-            {
-              const llvm::APInt &RR = llvm::cast<llvm::ConstantInt>(res.rhs)->getValue();
-              const llvm::APInt &OR = llvm::cast<llvm::ConstantInt>(o.rhs)->getValue();
-              assert(res.op != CmpInst::ICMP_EQ && res.op != CmpInst::ICMP_NE);
-              if (CmpInst::isIntPredicate(res.op)
-                  && (o.op == res.op || o.op == icmpop_invert_strictness(res.op))) {
-                  if ((check_predicate_satisfaction(RR, res.op, OR))) return o;
-                  else return res;
-              }
-            }
-          }
-        }
-
-        return false;
-      }
-      BinaryPredicate &operator&=(const BinaryPredicate &other) {
-        return *this = (*this & other);
-      }
-
-      bool operator!=(const BinaryPredicate &other) const { return !(*this == other); }
-      bool operator==(const BinaryPredicate &other) const {
-        assert(!(is_true() || is_false()) || (lhs == nullptr && rhs == nullptr));
-        return lhs == other.lhs && rhs == other.rhs && op == other.op;
-      }
-      bool operator<(const BinaryPredicate &other) const {
-        if (other.is_true() && !is_true()) return true;
-        if (is_false() && !other.is_false()) return true;
-        return false;
-      }
-      bool operator<=(const BinaryPredicate &other) const {
-        return *this == other || *this < other;
-      }
-    } pred;
-
-    /* Earliest location that can support an insertion. nullptr means
-     * that any location is fine. */
-    llvm::Instruction *insertion_point = nullptr;
-
-    BinaryPredLoc() {}
-    BinaryPredLoc(bool static_pred, llvm::Instruction *insertion_point = nullptr)
-      : pred(static_pred), insertion_point(static_pred ? insertion_point : nullptr) {}
-    BinaryPredLoc(BinaryPredicate pred, llvm::Instruction *insertion_point = nullptr)
-      : pred(std::move(pred)), insertion_point(pred.is_false() ? nullptr : insertion_point) {}
-    BinaryPredLoc(llvm::CmpInst::Predicate op, llvm::Value *lhs,
-                    llvm::Value *rhs) : pred(op, lhs, rhs) {}
-    // BinaryPredLoc(BinaryPredicate pred, llvm::Instruction *insertion_point)
-    //   : pred(std::move(pred)), insertion_point(insertion_point) {}
-
-    /* A BinaryPredLoc must be normalised after direct modification of its members. */
+    /* A BinaryPredicate must be normalised after direct modification of its members. */
     void normalise() {
-      pred.normalise();
-      if (pred.is_false()) insertion_point = nullptr;
-    }
-
-    bool is_true() const { return pred.is_true() && !insertion_point; }
-    bool is_false() const {
-      assert(!(pred.is_false() && insertion_point));
-      return pred.is_false();
-    }
-    BinaryPredLoc negate() const {
-      BinaryPredLoc res = *this;
-      res.pred = pred.negate();
-      return res;
-    }
-
-    // IDEA: Use operator| for join (and operator& for meet, if needed),
-    // unless it's confusing
-    BinaryPredLoc operator&(const BinaryPredLoc &other) const {
-      BinaryPredLoc res;
-      if (!insertion_point) res.insertion_point = other.insertion_point;
-      else if (!other.insertion_point) res.insertion_point = insertion_point;
-      else if (insertion_point == other.insertion_point) res.insertion_point = insertion_point;
-      else if (DominatorTree->dominates(insertion_point, other.insertion_point)) {
-        res.insertion_point = other.insertion_point;
-      } else if (DominatorTree->dominates(other.insertion_point, insertion_point)) {
-        res.insertion_point = insertion_point;
+      if (op == llvm::CmpInst::FCMP_TRUE || op == llvm::CmpInst::FCMP_FALSE) {
+        lhs = rhs = nullptr;
       } else {
-        /* TODO: We have to find the least common denominator */
-        llvm::dbgs() << "Meeting insertion points general case not implemented:\n";
-        llvm::dbgs() << "    " << *insertion_point << "\n"
-                     << " and" << *other.insertion_point << "\n";
-        // assert(false);
-        return false; // Underapproximating for now
+        assert(lhs && rhs);
+      }
+    }
+
+    bool is_true() const {
+      assert(!(op == llvm::CmpInst::FCMP_TRUE && (lhs || rhs)));
+      return op == llvm::CmpInst::FCMP_TRUE;
+    }
+    bool is_false() const {
+      assert(!(op == llvm::CmpInst::FCMP_FALSE && (lhs || rhs)));
+      return op == llvm::CmpInst::FCMP_FALSE;
+    }
+
+    BinaryPredicate negate() const {
+      return {llvm::CmpInst::getInversePredicate(op), lhs, rhs};
+    }
+
+    BinaryPredicate swap() const {
+      return {llvm::CmpInst::getSwappedPredicate(op), rhs, lhs};
+    }
+
+    /* Returns the conjunction of *this and other. Assigns true to
+     * underapprox if the result is an underapproximation. */
+    BinaryPredicate meet(const BinaryPredicate &other,
+                         bool &underapprox) const {
+      if (other.is_true() || *this == other) return *this;
+      if (is_true()) return other;
+
+      using llvm::CmpInst;
+      BinaryPredicate res = *this;
+      BinaryPredicate o(other);
+      if (res.rhs == o.lhs || res.rhs == o.rhs) res = swap();
+      if (res.lhs == o.lhs || res.lhs == o.rhs) {
+        if (res.lhs != o.lhs) o = o.swap();
+        if (res.rhs == o.rhs) {
+          if (llvm::CmpInst::isFPPredicate(res.op)
+              && llvm::CmpInst::isFPPredicate(o.op)) {
+            res.op = CmpInst::Predicate(res.op & o.op);
+          } else if (llvm::CmpInst::isIntPredicate(res.op)
+                     && llvm::CmpInst::isIntPredicate(o.op)) {
+            res.op = bits_to_icmpop(icmpop_to_bits(res.op) & icmpop_to_bits(o.op),
+                                    underapprox);
+          } else {
+            underapprox = true;
+            return false; // Mixing fp and int predicates
+          }
+          res.normalise();
+          return res;
+        }
+        if (llvm::isa<llvm::ConstantInt>(res.rhs) && llvm::isa<llvm::ConstantInt>(o.rhs)) {
+          assert((llvm::cast<llvm::ConstantInt>(res.rhs)->getValue()
+                  != llvm::cast<llvm::ConstantInt>(o.rhs)->getValue()));
+          if (res.op == CmpInst::ICMP_EQ || o.op == CmpInst::ICMP_EQ) {
+            if (res.op != CmpInst::ICMP_EQ) std::swap(o, res);
+            const llvm::APInt &RR = llvm::cast<llvm::ConstantInt>(res.rhs)->getValue();
+            const llvm::APInt &OR = llvm::cast<llvm::ConstantInt>(o.rhs)->getValue();
+            if (check_predicate_satisfaction(RR, o.op, OR)) {
+              return res;
+            } else {
+              return false;
+            }
+          }
+          if (res.op == CmpInst::ICMP_NE || o.op == CmpInst::ICMP_NE) {
+            if (o.op != CmpInst::ICMP_NE) std::swap(o, res);
+            const llvm::APInt &RR = llvm::cast<llvm::ConstantInt>(res.rhs)->getValue();
+            const llvm::APInt &OR = llvm::cast<llvm::ConstantInt>(o.rhs)->getValue();
+            if (check_predicate_satisfaction(OR, res.op, RR)) {
+              underapprox = true;
+              return false; // Possible to refine: we'd have to
+                            // exclude OR from res somehow
+            } else {
+              return res;
+            }
+          }
+          {
+            const llvm::APInt &RR = llvm::cast<llvm::ConstantInt>(res.rhs)->getValue();
+            const llvm::APInt &OR = llvm::cast<llvm::ConstantInt>(o.rhs)->getValue();
+            assert(res.op != CmpInst::ICMP_EQ && res.op != CmpInst::ICMP_NE);
+            if (CmpInst::isIntPredicate(res.op)
+                && (o.op == res.op || o.op == icmpop_invert_strictness(res.op))) {
+              underapprox = true; /* Maybe not always? */
+              return ((check_predicate_satisfaction(RR, res.op, OR))) ? o : res;
+            }
+          }
+        }
       }
 
-      res.pred = pred & other.pred;
-      if (res.pred.is_false()) res.insertion_point = nullptr; // consistency
-      return res;
+      if (!other.is_false()) underapprox = true;
+      return false;
     }
-    BinaryPredLoc &operator&=(const BinaryPredLoc &other) {
+
+    BinaryPredicate operator&(const BinaryPredicate &other) const {
+      bool underapprox = false;
+      return meet(other, underapprox);
+    }
+    BinaryPredicate &operator&=(const BinaryPredicate &other) {
       return *this = (*this & other);
     }
 
-  private:
-    llvm::Instruction *join_insertion_points(llvm::Instruction *other) const {
-      llvm::Instruction *me = this->insertion_point;
-      if (!me || !other) return nullptr;
-      if (DominatorTree->dominates(other, me)) {
-        assert(other != me);
-        return other;
-      }
-      return me;
+    bool operator!=(const BinaryPredicate &other) const { return !(*this == other); }
+    bool operator==(const BinaryPredicate &other) const {
+      assert(!(is_true() || is_false()) || (lhs == nullptr && rhs == nullptr));
+      return lhs == other.lhs && rhs == other.rhs && op == other.op;
     }
-  protected:
-    friend struct PurityCondition;
-    BinaryPredLoc operator|(const BinaryPredLoc &other) const {
-      if (other.is_false()) return *this;
-      if (is_false()) return other;
-      if (pred.lhs == other.pred.lhs && pred.rhs == other.pred.rhs) {
-        /* Maybe this can be made more precise. F.ex. <= | >= is also
-         * true. There might be such a check in LLVM already. */
-        if (llvm::CmpInst::getInversePredicate(pred.op) == other.pred.op) {
-          return BinaryPredLoc(true, join_insertion_points(other.insertion_point));
-        } else if (pred == other.pred) {
-          BinaryPredLoc res = *this;
-          res.insertion_point = join_insertion_points(other.insertion_point);
-          return res;
-        }
-      }
-      /* XXX: We have to underapproximate :( */
-      if (*this < other) return other;
-      else return *this;
+    bool operator<=(const BinaryPredicate &other) const {
+      // Special case optimisations, should not be needed
+      if (other.is_true() || is_false()) return true;
+      if (*this == other) return true;
+      bool underapprox = false;
+      BinaryPredicate m = meet(other, underapprox);
+      return m == *this;
     }
-    BinaryPredLoc &operator|=(const BinaryPredLoc &other) {
-      return *this = (*this | other);
+    bool operator<(const BinaryPredicate &other) const {
+      return *this != other && *this <= other;
     }
-
-  public:
-    bool operator!=(const BinaryPredLoc &other) const { return !(*this == other); }
-    bool operator==(const BinaryPredLoc &other) const {
-      return pred == other.pred && insertion_point == other.insertion_point;
-    }
-    bool operator<(const BinaryPredLoc &other) const {
-      if (is_false()) return !other.is_false();
-      else if (!other.insertion_point && insertion_point /* < */) return pred <= other.pred;
-      else if (!insertion_point && other.insertion_point /* > */) return false;
-      else if (insertion_point == other.insertion_point /* == */) return pred < other.pred;
-      else if (insertion_point && other.insertion_point) {
-        if (DominatorTree->dominates(other.insertion_point, insertion_point) /* < */) {
-          return pred <= other.pred;
-        }
-        return false; /* Incomparable */
-      }
-
-      llvm_unreachable("All cases of insertion_point comparision covered above");
-    }
-
   };
 
-  struct PurityCondition {
-    PurityCondition(BinaryPredLoc cond = true) {
-      if (!cond.is_false()) condset.insert_gt(cond);
-    }
-    PurityCondition(bool b){
-      if (b) condset.insert_gt(b);
+  /* Encodes a restriction on where an assume may be inserted. There is
+   * no bottom value, instead, operator& (which is the only operation
+   * that may return bottom) uses Option<InsertionPoint>. */
+  struct InsertionPoint {
+    /* Earliest location that can support an insertion. nullptr means
+     * that any location is fine. */
+    llvm::Instruction *earliest = nullptr;
+
+    InsertionPoint(llvm::Instruction *earliest = nullptr) : earliest(earliest) {}
+
+    /* Reset to default value (no insertion point requirement) */
+    void clear() { earliest = nullptr; }
+    operator bool() const { return earliest; }
+    bool is_true() const { return *this; }
+    bool is_false() const { return !*this; }
+
+    Option<InsertionPoint> operator&(InsertionPoint other) const {
+      InsertionPoint res;
+      if (!earliest) res.earliest = other.earliest;
+      else if (!other.earliest) res.earliest = earliest;
+      else if (earliest == other.earliest) res.earliest = earliest;
+      else if (DominatorTree->dominates(earliest, other.earliest)) {
+        res.earliest = other.earliest;
+      } else if (DominatorTree->dominates(other.earliest, earliest)) {
+        res.earliest = earliest;
+      } else {
+        /* TODO: We have to find the least common denominator */
+        llvm::dbgs() << "Meeting insertion points general case not implemented:\n";
+        llvm::dbgs() << "    " << *earliest << "\n"
+                     << " and" << *other.earliest << "\n";
+        // assert(false);
+        return {}; // Underapproximating for now
+      }
+      return res;
     }
 
-    bool is_true() const { return condset.size() == 1 && condset[0].is_true(); }
-    bool is_false() const { return condset.empty(); }
-    auto begin() const { return condset.begin(); }
-    auto end() const { return condset.end(); }
-    bool operator!=(const PurityCondition &other) { return !(*this == other); }
-    bool operator==(const PurityCondition &other) {
-      return condset == other.condset;
+    /* WARNING: Dangerous semantics, should we really do this?
+     * Meets *this with other. If the result is bottom, returns false
+     * and sets *this to top (sic!)
+     */
+    bool operator &=(InsertionPoint other) {
+      if (auto res = *this & other) {
+        *this = *res;
+        return true;
+      } else {
+        clear();
+        return false;
+      }
     }
-    bool operator<(const PurityCondition &other) const {
-      bool found_smaller = condset.size() < other.condset.size();
-      for (const BinaryPredLoc &c : condset) {
+
+    InsertionPoint operator|(InsertionPoint other) const {
+      return *this <= other ? other : *this;
+    }
+    InsertionPoint &operator|=(InsertionPoint other) {
+      return *this = *this | other;
+    }
+
+    bool operator==(InsertionPoint other) const { return earliest == other.earliest; }
+    bool operator!=(InsertionPoint other) const { return !(*this == other); }
+    bool operator<=(InsertionPoint other) const {
+      if (!earliest && other.earliest) return false;
+      if (!other.earliest) return true;
+      if (earliest == other.earliest) return true;
+      return DominatorTree->dominates(other.earliest, earliest);
+    }
+    bool operator<(InsertionPoint other) const {
+      return *this != other && *this <= other;
+    }
+  };
+
+  llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const struct ConjunctionLoc &cond);
+  llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const struct Disjunction &cond);
+
+  struct ConjunctionLoc {
+    ConjunctionLoc(bool static_pred, InsertionPoint insertion_point = nullptr)
+      : insertion_point(static_pred ? insertion_point : nullptr)
+    { addConjunct(static_pred); }
+    ConjunctionLoc(BinaryPredicate pred, InsertionPoint insertion_point = nullptr)
+      : insertion_point(pred.is_false() ? nullptr : insertion_point)
+    { addConjunct(pred); }
+    ConjunctionLoc(InsertionPoint insertion_point)
+      : insertion_point(insertion_point) {}
+
+    ConjunctionLoc operator&(const ConjunctionLoc &other) const {
+      ConjunctionLoc res = *this;
+      if (!(res.insertion_point &= other.insertion_point)) return false;
+
+      res.addConjuncts(other.conjuncts);
+      if (res.conjuncts.size() > MAX_CONJUNCTION_TERMS) {
+        Debug::warn("plp:conjunct_limit")
+          << "Notice: PLP: Bounding size of conjunction " << *this <<"\n"
+          << "This does not affect correctness, but might slow down verification or\n"
+          << "cause it to require loop bounding to terminate.\n";
+        res = false; // It's unlikely we can do better
+      }
+      if (res.is_false()) res.insertion_point.clear(); // normalise
+      return res;
+    }
+    ConjunctionLoc &operator&=(const ConjunctionLoc &other) {
+      return *this = (*this & other);
+    }
+
+    bool implies(const ConjunctionLoc &other) const {
+      if (!(insertion_point <= other.insertion_point)) return false;
+
+      /* Every conjunct in other must be implied by some in this */
+      for (const BinaryPredicate &o : other.conjuncts) {
+        bool implied = false;
+        for (const BinaryPredicate &t : conjuncts) {
+          if (o <= t /* t.implies(o) */) {
+            implied = true;
+            break;
+          }
+        }
+        if (!implied) return false;
+      }
+      return true;
+    }
+
+    bool operator!=(const ConjunctionLoc &other) const { return !(*this == other); }
+    bool operator==(const ConjunctionLoc &other) const {
+      return conjuncts == other.conjuncts && insertion_point == other.insertion_point;
+    }
+    bool operator<=(const ConjunctionLoc &other) const {
+      return implies(other);
+    }
+    bool operator<(const ConjunctionLoc &other) const {
+      return *this != other && *this <= other;
+    }
+
+    /* A ConjunctionLoc must be normalised after direct modification of its members. */
+    void normalise() {
+      auto terms = std::move(conjuncts).get_vector();
+      conjuncts.clear();
+      for (BinaryPredicate &p : terms) p.normalise();
+      addConjuncts({std::move(terms)});
+      if (is_false()) insertion_point = nullptr;
+    }
+    bool has_conjuncts() const { return !conjuncts.empty(); }
+    bool is_true() const { return !has_conjuncts() && !insertion_point; }
+    bool is_false() const { return conjuncts.size() == 1 && conjuncts[0].is_false(); }
+    auto begin() const { return conjuncts.begin(); }
+    auto end() const { return conjuncts.end(); }
+
+    ConjunctionLoc map(std::function<BinaryPredicate(const BinaryPredicate &)> f) const {
+      auto vec = conjuncts.get_vector();
+      for (BinaryPredicate &term : vec)
+        term = f(term);
+
+      ConjunctionLoc res(true);
+      for (BinaryPredicate &term : vec)
+        res.addConjunct(std::move(term));
+      return res;
+    }
+
+    /* Earliest location that can support an insertion. */
+    InsertionPoint insertion_point;
+
+  private:
+    struct LexicalCompare {
+      auto tupleit(const BinaryPredicate &p) const {
+        return std::make_tuple(p.lhs, p.op, p.rhs);
+      }
+      bool operator()(const BinaryPredicate &a, const BinaryPredicate &b) const {
+        return tupleit(a) < tupleit(b);
+      }
+    };
+
+    // &=, if you will
+    void addConjunct(BinaryPredicate cond) {
+      if (cond.is_true()) return; /* Keep it normalised */
+      std::vector<BinaryPredicate> newset;
+      for (const BinaryPredicate &c : conjuncts) {
+        bool underapprox = false;
+        BinaryPredicate m = c.meet(cond, underapprox);
+        if (m == c) return;
+        if (m == cond) continue;
+        if (underapprox) {
+          newset.push_back(c); /* Have to keep both */
+        } else {
+          // Start the loop over!
+#ifndef NDEBUG
+          /* We're going to meet c with m again, so ensure that meet
+           * recognizes that c implies m */
+          bool ua2 = false;
+          BinaryPredicate m2 = c.meet(m, ua2);
+          assert(m2 == m && !ua2);
+#endif
+          return addConjunct(m);
+        }
+      }
+      conjuncts = std::move(newset);
+      conjuncts.insert(cond);
+    }
+    void addConjuncts(const VecSet<BinaryPredicate, LexicalCompare> &conds) {
+      for(const BinaryPredicate &cond : conds)
+        addConjunct(cond); /* Can be more efficient */
+    }
+
+    VecSet<BinaryPredicate, LexicalCompare> conjuncts;
+
+    friend struct Disjunction;
+  };
+
+  struct Disjunction {
+    Disjunction(InsertionPoint ip) { disjuncts.insert_gt(ip); }
+    Disjunction(bool b = false){ if (b) disjuncts.insert_gt(b); }
+    Disjunction(BinaryPredicate cond) {
+      if (!cond.is_false()) disjuncts.insert_gt(cond);
+    }
+    Disjunction(ConjunctionLoc cond) {
+      if (!cond.is_false()) disjuncts.insert_gt(cond);
+    }
+
+    bool is_true() const { return disjuncts.size() == 1 && disjuncts[0].is_true(); }
+    bool is_false() const { return disjuncts.empty(); }
+    auto begin() const { return disjuncts.begin(); }
+    auto end() const { return disjuncts.end(); }
+    bool operator!=(const Disjunction &other) { return !(*this == other); }
+    bool operator==(const Disjunction &other) {
+      return disjuncts == other.disjuncts;
+    }
+    bool operator<(const Disjunction &other) const {
+      bool found_smaller = disjuncts.size() < other.disjuncts.size();
+      for (const Elem &c : disjuncts) {
         bool found_leq = false;
-        for (const BinaryPredLoc &r : other.condset) {
+        for (const Elem &r : other.disjuncts) {
           if (r < c) return false;
           if (c < r) {
             found_smaller = found_leq = true;
@@ -420,110 +543,116 @@ namespace {
       return found_smaller;
     }
 
-    PurityCondition operator|(const PurityCondition &other) const {
-      PurityCondition res = *this;
-      res.addConds(other.condset);
+    Disjunction operator|(const Disjunction &other) const {
+      Disjunction res = *this;
+      res.addConds(other.disjuncts);
+      res.bound();
       return res;
     }
 
-    PurityCondition operator&(const PurityCondition &other) const {
-      /* Oh god */
-
-      /* Step one, pick out common conditions */
-      auto lhs = condset;
-      auto rhs = other.condset;
-      PurityCondition res(false);
+    Disjunction operator&(const Disjunction &other) const {
+      /* Step one: pick out common terms */
+      auto lhs = disjuncts;
+      auto rhs = other.disjuncts;
+      Disjunction res(false);
       assert(!res.is_true() && res.is_false());
       for (unsigned l = 0; l < unsigned(lhs.size());) {
-        if (rhs.erase(lhs[l]) // || erase_greater(rhs, lhs[l])
-            ) {
+        if (rhs.erase(lhs[l])) {
           res.addCond(lhs[l]);
           lhs.erase_at(l);
         } else {
           ++l;
         }
       }
-      // for (unsigned r = 0; r < unsigned(rhs.size());) {
-      //   if (erase_greater(lhs, rhs[r])) {
-      //     res.addCond(rhs[r]);
-      //     rhs.erase_at(r);
-      //   } else {
-      //     ++r;
-      //   }
-      // }
 
-      /* If either is now false, we can short-circuit */
-      if (lhs.empty() || rhs.empty()) return res;
-
-      if (lhs.size() == 1) {
-        for (const BinaryPredLoc &r : rhs)
-          res.addCond(r & lhs[0]);
-      } else {
-        /* TODO: Improve step 2 */
-        BinaryPredLoc rhsdisj = false;
-        for (const BinaryPredLoc &r : rhs) rhsdisj |= r;
-        for (const BinaryPredLoc &l : lhs)
-          res.addCond(l & rhsdisj);
+      /* Step two: distribute over the remaining terms */
+      for (const Elem &r : rhs) {
+        for (const Elem &l : lhs) {
+          res.addCond(r & l);
+        }
       }
 
+      res.bound();
       return res;
     }
 
-    PurityCondition &operator&=(const PurityCondition &other) {
+    Disjunction &operator&=(const Disjunction &other) {
       return *this = (*this & other);
     }
 
+    Disjunction map(std::function<BinaryPredicate(const BinaryPredicate &)> f) const {
+      auto vec = disjuncts.get_vector();
+      for (Elem &term : vec)
+        term = term.map(f);
 
-    PurityCondition map(std::function<BinaryPredLoc(const BinaryPredLoc &)> f) const {
-      auto vec = condset.get_vector();
-      for (BinaryPredLoc &term : vec)
-        term = f(term);
-
-      PurityCondition res(false);
-      for (BinaryPredLoc &term : vec)
+      Disjunction res(false);
+      for (Elem &term : vec)
         res.addCond(std::move(term));
       return res;
-    };
+    }
 
   private:
-    struct LexicalCompare {
-      auto tupleit(const BinaryPredLoc &p) const {
-        return std::make_tuple(p.insertion_point, p.pred.lhs, p.pred.op, p.pred.rhs);
+    using Elem = ConjunctionLoc;
+
+    void bound() {
+      if (disjuncts.size() > MAX_DISJUNCTION_TERMS) {
+        Debug::warn("plp:disjunct_bound")
+          << "Notice: PLP: Bounding size of disjunction " << *this << "\n"
+          << "This does not affect correctness, but might slow down verification or\n"
+          << "cause it to require loop bounding to terminate.\n";
+        // Delete the terms with the largest number of conjuncts (least
+        // likely to be useful)
+        auto vec = std::move(disjuncts).get_vector();
+        std::sort(vec.begin(), vec.end(), [](const Elem &a, const Elem &b) {
+          return a.conjuncts.size() < b.conjuncts.size();
+        });
+        vec.resize(MAX_DISJUNCTION_TERMS, vec[0]);
+        std::sort(vec.begin(), vec.end(), LexicalCompare());
+        disjuncts = vec;
       }
-      bool operator()(const BinaryPredLoc &a, const BinaryPredLoc &b) const {
+    }
+
+    struct LexicalCompare {
+      auto tupleit(const Elem &p) const {
+        return std::make_tuple(p.insertion_point, p.conjuncts);
+      }
+      bool operator()(const Elem &a, const Elem &b) const {
         return tupleit(a) < tupleit(b);
-      };
+      }
     };
 
-    void addCond(const BinaryPredLoc &cond) {
+    void addCond(const Elem &cond) {
       if (cond.is_false()) return; /* Keep it normalised */
-      std::vector<BinaryPredLoc> newset;
-      for (const BinaryPredLoc &c : condset) {
+      std::vector<Elem> newset;
+      for (const Elem &c : disjuncts) {
         if (cond < c) return;
         if (!(c < cond)) newset.push_back(c);
       }
-      condset = std::move(newset);
-      condset.insert(cond);
-    };
-    void addConds(const VecSet<BinaryPredLoc, LexicalCompare> &conds) {
-      for(const BinaryPredLoc &cond : conds)
+      disjuncts = std::move(newset);
+      disjuncts.insert(cond);
+    }
+    void addConds(const VecSet<Elem, LexicalCompare> &conds) {
+      for(const Elem &cond : conds)
         addCond(cond); /* Can be more efficient */
-    };
+    }
 
-    static bool erase_greater(VecSet<BinaryPredLoc, LexicalCompare> &set,
-                             const BinaryPredLoc &c) {
+    static bool erase_greater(VecSet<Elem, LexicalCompare> &set,
+                             const Elem &c) {
       bool erased = false;
       for (unsigned i = 0; i < unsigned(set.size());) {
         if (c < set[i]) {
           set.erase_at(i);
           erased = true;
-        } else ++i;
+        } else {
+          ++i;
+        }
       }
       return erased;
     }
 
-    VecSet<BinaryPredLoc, LexicalCompare> condset;
+    VecSet<Elem, LexicalCompare> disjuncts;
   };
+  using PurityCondition = Disjunction;
   typedef std::unordered_map<const llvm::BasicBlock*,PurityCondition> PurityConditions;
 
   const char *getPredicateName(llvm::CmpInst::Predicate pred) {
@@ -586,23 +715,40 @@ namespace {
     assert(false && "unknown predicate"); abort();
   }
 
-  llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const BinaryPredLoc &cond) {
-    if (cond.pred.is_true()) os << "true";
-    else if (cond.pred.is_false()) os << "false";
-    else {
-      cond.pred.lhs->printAsOperand(os);
-      os << " " << getPredicateName(cond.pred.op) << " ";
-      cond.pred.rhs->printAsOperand(os);
-    }
-    if (cond.insertion_point) {
-      os << " before " << *cond.insertion_point;
+  llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const BinaryPredicate &pred) {
+    if (pred.is_true()) {
+      os << "true";
+    } else if (pred.is_false()) {
+      os << "false";
+    } else {
+      pred.lhs->printAsOperand(os);
+      os << " " << getPredicateName(pred.op) << " ";
+      pred.rhs->printAsOperand(os);
     }
     return os;
   }
+  llvm::raw_ostream &operator<<(llvm::raw_ostream &os, InsertionPoint ip) {
+    if (ip.earliest) {
+      os << " before " << *ip.earliest;
+    }
+    return os;
+  }
+  llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const ConjunctionLoc &cond) {
+    if (!cond.has_conjuncts()) {
+      os << "true";
+    } else {
+      for (auto it = cond.begin(); it != cond.end(); ++it) {
+        if (it != cond.begin()) os << " && ";
+        os << *it;
+      }
+    }
+    return os << cond.insertion_point;
+  }
   llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const PurityCondition &cond) {
-    if (cond.is_false()) os << "false";
-    else {
-      for (auto it = cond.begin(); it != cond.end();++it) {
+    if (cond.is_false()) {
+      os << "false";
+    } else {
+      for (auto it = cond.begin(); it != cond.end(); ++it) {
         if (it != cond.begin()) os << " || ";
         os << *it;
       }
@@ -625,23 +771,19 @@ namespace {
     V = N->getIncomingValueForBlock(From);
   }
 
-  void collapseTautologies(BinaryPredLoc &cond) {
-    if (cond.pred.is_true() || cond.pred.is_false()) return;
-    if (cond.pred.rhs == cond.pred.lhs) {
-      if (llvm::CmpInst::isFalseWhenEqual(cond.pred.op)) cond.pred = false;
-      if (llvm::CmpInst::isTrueWhenEqual(cond.pred.op))  cond.pred = true;
+  BinaryPredicate collapseTautologies(const BinaryPredicate &cond) {
+    if (cond.is_true() || cond.is_false()) return cond;
+    if (cond.rhs == cond.lhs) {
+      if (llvm::CmpInst::isFalseWhenEqual(cond.op)) return false;
+      if (llvm::CmpInst::isTrueWhenEqual(cond.op))  return true;
     }
-    if (llvm::ConstantInt *LHS = llvm::dyn_cast_or_null<llvm::ConstantInt>(cond.pred.lhs)) {
-      if (llvm::ConstantInt *RHS = llvm::dyn_cast_or_null<llvm::ConstantInt>(cond.pred.rhs)) {
-        if (check_predicate_satisfaction(LHS->getValue(), cond.pred.op, RHS->getValue())) {
-          cond.pred = true;
-        } else  {
-          cond = false;
-        }
+    if (llvm::ConstantInt *LHS = llvm::dyn_cast_or_null<llvm::ConstantInt>(cond.lhs)) {
+      if (llvm::ConstantInt *RHS = llvm::dyn_cast_or_null<llvm::ConstantInt>(cond.rhs)) {
+        return check_predicate_satisfaction(LHS->getValue(), cond.op, RHS->getValue());
       }
     }
 
-    cond.normalise();
+    return cond;
   }
 
   llvm::Value *maybeGetExtractValueAggregate
@@ -717,7 +859,46 @@ namespace {
     return true;
   }
 
+  struct RPO {
+    std::vector<llvm::BasicBlock *> blocks;
+    std::set<std::pair<const llvm::BasicBlock *, const llvm::BasicBlock *>> backedges;
+    RPO(std::size_t capacity) { blocks.reserve(capacity); }
+  };
+
+  void RPOVisit(llvm::Loop* L, RPO &rpo,
+                std::unordered_set<llvm::BasicBlock *> &visited,
+                std::unordered_map<llvm::BasicBlock *, unsigned> &poorder,
+                llvm::BasicBlock *BB) {
+    if (!visited.insert(BB).second) return;
+    for (llvm::BasicBlock *Succ : llvm::successors(BB)) {
+      if (!L->contains(Succ)) continue;
+      RPOVisit(L, rpo, visited, poorder, Succ);
+    }
+    poorder[BB] = rpo.blocks.size();
+    rpo.blocks.push_back(BB);
+  }
+
+  RPO getLoopRPO(llvm::Loop *L) {
+    RPO ret(L->getNumBlocks());
+    std::unordered_set<llvm::BasicBlock *> visited(L->getNumBlocks());
+    std::unordered_map<llvm::BasicBlock *, unsigned> poorder(L->getNumBlocks());
+    RPOVisit(L, ret, visited, poorder, L->getHeader());
+    std::reverse(ret.blocks.begin(), ret.blocks.end());
+    assert(ret.blocks.size() == L->getNumBlocks());
+    /* Compute backedges */
+    for (llvm::BasicBlock *BB : ret.blocks) {
+      unsigned BBi = poorder.at(BB);
+      for (llvm::BasicBlock *Succ : llvm::successors(BB)) {
+        if (!L->contains(Succ)) continue;
+        unsigned Succi = poorder.at(Succ);
+        if (Succi >= BBi) ret.backedges.emplace(BB, Succ);
+      }
+    }
+    return ret;
+  }
+
   PurityCondition getIn(const llvm::Loop *L, PurityConditions &conds,
+                        const RPO &rpo,
                         const llvm::BasicBlock *From,
                         const llvm::BasicBlock *To) {
     if (To == L->getHeader()) {
@@ -745,22 +926,22 @@ namespace {
       return true;
     }
     if (!L->contains(To)) return false;
-    PurityCondition in = conds[To].map([From, To](BinaryPredLoc term) {
-      maybeResolvePhi(term.pred.rhs, From, To);
-      maybeResolvePhi(term.pred.lhs, From, To);
+    if (rpo.backedges.count({From, To})) return false;
+    PurityCondition in = conds[To].map([From, To](BinaryPredicate term) {
+      maybeResolvePhi(term.rhs, From, To);
+      maybeResolvePhi(term.lhs, From, To);
       term.normalise();
-      collapseTautologies(term);
-      return term;
+      return collapseTautologies(term);
     });
     return in;
   }
 
-  BinaryPredLoc getBranchCondition(llvm::Value *cond) {
+  BinaryPredicate getBranchCondition(llvm::Value *cond) {
     assert(cond && llvm::isa<llvm::IntegerType>(cond->getType())
            && llvm::cast<llvm::IntegerType>(cond->getType())->getBitWidth() == 1);
     if (auto *cmp = llvm::dyn_cast<llvm::CmpInst>(cond)) {
-        return BinaryPredLoc(cmp->getPredicate(), cmp->getOperand(0),
-                             cmp->getOperand(1));
+        return BinaryPredicate(cmp->getPredicate(), cmp->getOperand(0),
+                               cmp->getOperand(1));
     } else if (auto *bop = llvm::dyn_cast<llvm::BinaryOperator>(cond)) {
       if (bop->getOpcode() == llvm::Instruction::Xor) {
         llvm::Value *lhs = bop->getOperand(0), *rhs = bop->getOperand(1);
@@ -776,33 +957,33 @@ namespace {
         }
       }
     }
-    return BinaryPredLoc(llvm::CmpInst::ICMP_EQ, cond,
-                         llvm::ConstantInt::getTrue(cond->getContext()));
+    return BinaryPredicate(llvm::CmpInst::ICMP_EQ, cond,
+                           llvm::ConstantInt::getTrue(cond->getContext()));
   }
 
   PurityCondition computeOut(const llvm::Loop *L, PurityConditions &conds,
-                             const llvm::BasicBlock *BB) {
+                             const RPO &rpo, const llvm::BasicBlock *BB) {
     if (auto *branch = llvm::dyn_cast<llvm::BranchInst>(BB->getTerminator())) {
       if (branch->isConditional()) {
         llvm::BasicBlock *trueSucc = branch->getSuccessor(0);
         llvm::BasicBlock *falseSucc = branch->getSuccessor(1);
-        PurityCondition trueIn = getIn(L, conds, BB, trueSucc);
-        PurityCondition falseIn = getIn(L, conds, BB, falseSucc);
+        PurityCondition trueIn = getIn(L, conds, rpo, BB, trueSucc);
+        PurityCondition falseIn = getIn(L, conds, rpo, BB, falseSucc);
         if (trueIn == falseIn) return trueIn;
         // If the operands are in the loop, we can check them for
         // purity; if not, the condition should just be false. That way,
         // we won't waste good conditions in the overapproximations
-        BinaryPredLoc brCond = getBranchCondition(branch->getCondition());
-        collapseTautologies(brCond);
+        BinaryPredicate brCond = getBranchCondition(branch->getCondition());
+        brCond = collapseTautologies(brCond);
         if (!L->contains(trueSucc)) {
           assert(trueIn.is_false());
           if (falseIn.is_true()) return brCond.negate();
-          return falseIn & BinaryPredLoc(true, &*falseSucc->getFirstInsertionPt());
+          return falseIn & InsertionPoint(&*falseSucc->getFirstInsertionPt());
         }
         if (!L->contains(falseSucc)) {
           assert(falseIn.is_false());
           if (trueIn.is_true()) return brCond;
-          return trueIn & BinaryPredLoc(true, &*trueSucc->getFirstInsertionPt());
+          return trueIn & InsertionPoint(&*trueSucc->getFirstInsertionPt());
         }
         // if (trueIn.is_true()) return falseIn | brCond;
         // if (falseIn.is_true()) return trueIn | brCond.negate();
@@ -816,9 +997,9 @@ namespace {
     }
 
     /* Generic implementation; no concern for branch conditions */
-    PurityCondition cond;
+    PurityCondition cond(true);
     for (const llvm::BasicBlock *s : llvm::successors(BB)) {
-      cond &= getIn(L, conds, BB, s);
+      cond &= getIn(L, conds, rpo, BB, s);
     }
     return cond;
   }
@@ -839,7 +1020,7 @@ namespace {
       if (isSafeToLoadFromPointer(Ld->getPointerOperand())) {
         return true;
       } else {
-        return BinaryPredLoc(true, I.getNextNode());
+        return InsertionPoint(I.getNextNode());
       }
     }
     if (!I.mayWriteToMemory()) {
@@ -847,11 +1028,11 @@ namespace {
         llvm::dbgs() << "Wow, a safe-to-speculate loading inst: " << I << "\n";
         return true;
       } else {
-        return BinaryPredLoc(true, I.getNextNode());
+        return InsertionPoint(I.getNextNode());
       }
     }
     if (llvm::AtomicRMWInst *RMW = llvm::dyn_cast<llvm::AtomicRMWInst>(&I)) {
-      BinaryPredLoc::BinaryPredicate pred(false);
+      BinaryPredicate pred(false);
       llvm::Value *arg = RMW->getValOperand();
       switch (RMW->getOperation()) {
       case llvm::AtomicRMWInst::BinOp::Add:
@@ -874,13 +1055,11 @@ namespace {
         pred = {llvm::CmpInst::ICMP_EQ, &I, arg};
         break;
       }
-      BinaryPredLoc ret;
-      if (isSafeToLoadFromPointer(RMW->getPointerOperand())) {
-        ret = BinaryPredLoc(pred);
-      } else {
-        ret = BinaryPredLoc(pred, I.getNextNode());
+      PurityCondition ret(pred);
+      if (!isSafeToLoadFromPointer(RMW->getPointerOperand())) {
+        ret &= InsertionPoint(I.getNextNode());
       }
-      collapseTautologies(ret);
+      ret = ret.map(collapseTautologies);
       return ret;
     }
 
@@ -898,19 +1077,37 @@ namespace {
         }
       }
       if (success) {
-        BinaryPredLoc::BinaryPredicate pred
+        BinaryPredicate pred
           (llvm::CmpInst::ICMP_EQ, success,
            llvm::ConstantInt::getFalse(CX->getContext()));
         if (isSafeToLoadFromPointer(CX->getPointerOperand())) {
-          return BinaryPredLoc(pred);
+          return pred;
         } else {
-          return BinaryPredLoc(pred, I.getNextNode());
+          return PurityCondition(pred) & InsertionPoint(I.getNextNode());
         }
       }
     }
 
     if (llvm::CallInst *CI = llvm::dyn_cast<llvm::CallInst>(&I)) {
-      if (CI->getCalledFunction()->getName() == "__VERIFIER_assume") return true;
+      if (CI->getCalledFunction() &&
+          CI->getCalledFunction()->getName() == "__VERIFIER_assume") return true;
+      llvm::Value *CalledValue;
+      /* llvm::CallBase::getCalledValue() was renamed to
+       * getCalledOperand() in llvm 8, but the old function remained at
+       * least until llvm 10
+       */
+#if LLVM_VERSION_MAJOR > 8
+      CalledValue = CI->getCalledOperand();
+#else
+      CalledValue = CI->getCalledValue();
+#endif
+
+      if (llvm::InlineAsm *IA = llvm::dyn_cast<llvm::InlineAsm>(CalledValue)) {
+        /* Inline assembly is pure iff the string is empty; i.e., if
+         * it's used as a compiler barrier
+         */
+        return (IA->getAsmString() == "");
+      }
       if (may_inline) {
         auto it = may_inline->find(CI->getCalledFunction());
         if (it != may_inline->end() && it->second) {
@@ -926,36 +1123,78 @@ namespace {
     return false;
   }
 
+  void debugPrintInstructionPCs(llvm::Loop *L, PurityConditions &conds) {
+    RPO rpo = getLoopRPO(L);
+    llvm::dbgs() << "Results of analysing " << L->getHeader()->getParent()->getName()
+                 << ":" << *L;
+    std::map<llvm::Instruction*,PurityCondition> iconds;
+    for (llvm::BasicBlock *BB : rpo.blocks) {
+      PurityCondition cond = computeOut(L, conds, rpo, BB);
+      iconds[BB->getTerminator()] = cond;
+      for (auto it = BB->rbegin(); ++it != BB->rend();) {
+        iconds[&*it] = cond &= instructionPurity(L, *it);
+      }
+    }
+    llvm::formatted_raw_ostream os(llvm::errs());
+    std::string indent(2, ' ');
+    for (llvm::BasicBlock *BB : rpo.blocks) {
+      os << indent << BB->getName() << ":";
+      os.PadToColumn(30+indent.size());
+      os.changeColor(llvm::raw_ostream::YELLOW, false, false)
+        << " ; preds = ";
+      for (auto it = pred_begin(BB); it != pred_end(BB); ++it) {
+        if (it != pred_begin(BB)) os << ", ";
+        os << "%" << (*it)->getName();
+      }
+      os.resetColor() << "\n";
+      for (llvm::Instruction &I : *BB) {
+        I.print(os << indent, true);
+        os.PadToColumn(70+indent.size());
+        os.changeColor(llvm::raw_ostream::BLUE, false, false)
+          << " ; " << iconds[&I];
+        os.resetColor() << "\n";
+      }
+      os << "\n";
+    }
+  }
+
   PurityConditions analyseLoop(llvm::Loop *L) {
     PurityConditions conds;
-    const auto &blocks = L->getBlocks();
-    bool changed;
-    unsigned count = 0;
-    // llvm::dbgs() << "Analysing " << *L;
-    do {
-      changed = false;
-      // Assume it's in reverse postorder, or some suitable order
-      for (auto it = blocks.rbegin(); it != blocks.rend(); ++it) {
-        llvm::BasicBlock *BB = *it;
-        PurityCondition cond = computeOut(L, conds, BB);
-        // llvm::dbgs() << "  out of " << BB->getName() << ": " << cond << "\n";
-        /* Skip the terminator */
-        for (auto it = BB->rbegin(); ++it != BB->rend();) {
-          cond &= instructionPurity(L, *it);
-        }
-        if (conds[BB] != cond) {
-          // llvm::dbgs() << " " << BB->getName() << ": " << cond << "\n";
-          changed = true;
-          conds[BB] = cond;
-        }
+    RPO rpo = getLoopRPO(L);
+    // llvm::dbgs() << "Analysing " << L->getHeader()->getParent()->getName()
+    //              << ":" << *L;
+#ifndef NDEBUG
+    std::set<llvm::BasicBlock*> visited;
+#endif
+    for (auto it = rpo.blocks.rbegin(); it != rpo.blocks.rend(); ++it) {
+      llvm::BasicBlock *BB = *it;
+#ifndef NDEBUG
+      for (llvm::BasicBlock *S : llvm::successors(BB)) {
+        assert(visited.count(S) || L->getHeader() == S || !L->contains(S)
+               || rpo.backedges.count({BB, S}));
       }
-      if (++count > 1000) {
-        llvm::dbgs() << "Analysis of loop in "
-                     << L->getHeader()->getParent()->getName()
-                     << " did not terminate after 1000 iterations\n";
-        abort();
+      visited.insert(BB);
+#endif
+      PurityCondition cond = computeOut(L, conds, rpo, BB);
+      // llvm::dbgs() << "  out of " << BB->getName() << ": " << cond << "\n";
+      /* Skip the terminator */
+      for (auto it = BB->rbegin(); ++it != BB->rend();) {
+        cond &= instructionPurity(L, *it);
       }
-    } while(changed);
+      if (conds[BB] != cond) {
+        // llvm::dbgs() << " " << BB->getName() << ": " << cond << "\n";
+        conds[BB] = cond;
+      }
+    }
+#ifndef NDEBUG
+    /* Check that a second pass would not change anything */
+    for (llvm::BasicBlock *BB : rpo.blocks) {
+      PurityCondition cond = computeOut(L, conds, rpo, BB);
+      for (auto it = BB->rbegin(); ++it != BB->rend();)
+        cond &= instructionPurity(L, *it);
+      assert(conds.at(BB) == cond);
+    }
+#endif
     return conds;
   }
 
@@ -972,7 +1211,7 @@ namespace {
 
     std::function<bool(llvm::Function*)> visit
       = [&](llvm::Function *F) -> bool {
-        if (F->empty())return false;
+        if (F->empty()) return false;
         if (std::count(stack.begin(), stack.end(), F) != 0) {
           return false; /* Circular references aren't allowed */
         }
@@ -984,7 +1223,8 @@ namespace {
           ~ppg() { assert(S.back() == F); S.pop_back(); }
         } push_pop_guard(F, stack);
         for (llvm::CallGraphNode::CallRecord &callee : *CG[F]) {
-          if (!visit(callee.second->getFunction())) {
+          if (callee.second == CG.getCallsExternalNode()
+              || !visit(callee.second->getFunction())) {
             return local_may_inline[F] = false;
           }
         }
@@ -1018,10 +1258,10 @@ namespace {
 
   bool recurseLoops(llvm::Loop *L, const std::function<bool(llvm::Loop*)> &f) {
     bool changed = false;
+    changed |= f(L);
     for (auto it = L->begin(); it != L->end(); ++it) {
       changed |= recurseLoops(*it, f);
     }
-    changed |= f(L);
     return changed;
   }
 
@@ -1070,62 +1310,22 @@ namespace {
     return !calls.empty();
   }
 
-  bool dominates_or_equals(const llvm::DominatorTree &DT,
-                           llvm::Instruction *Def, llvm::Instruction *User) {
-    return Def == User || DT.dominates(Def, User);
-  }
-
   llvm::Instruction *findInsertionPoint(llvm::Loop *L,
-                                        const llvm::DominatorTree &DT,
-                                        const BinaryPredLoc &cond) {
-    if (llvm::Instruction *IPT = cond.insertion_point) {
+                                        const ConjunctionLoc &cond) {
+    InsertionPoint IPT(&*L->getHeader()->getFirstInsertionPt());
+    if (!(IPT &= cond.insertion_point)) abort(); // Not possible
+    for (const BinaryPredicate &term : cond) {
       if (llvm::Instruction *LHS = maybeFindUserLocationOrNull
-          (llvm::dyn_cast_or_null<llvm::User>(cond.pred.lhs))) {
-        if (llvm::Instruction *RHS = maybeFindUserLocationOrNull
-            (llvm::dyn_cast_or_null<llvm::User>(cond.pred.rhs))) {
-          if (DT.dominates(LHS, IPT) &&
-              DT.dominates(RHS, IPT)) return IPT;
-          if (dominates_or_equals(DT, IPT, RHS->getNextNode()) &&
-              dominates_or_equals(DT, LHS, RHS)) return RHS->getNextNode();
-          if (dominates_or_equals(DT, IPT, LHS->getNextNode()) &&
-              dominates_or_equals(DT, RHS, LHS)) return LHS->getNextNode();
-          /* uh oh, hard case */
-          assert(false && "Implement me"); abort();
-        } else {
-          if (DT.dominates(LHS, IPT)) return IPT;
-          if (dominates_or_equals(DT, IPT, LHS->getNextNode())) return LHS->getNextNode();
-          /* uh oh, hard case */
-          assert(false && "Implement me"); abort();
-        }
-      } else if (llvm::Instruction *RHS = maybeFindUserLocationOrNull
-            (llvm::dyn_cast_or_null<llvm::User>(cond.pred.rhs))) {
-          if (DT.dominates(LHS, IPT)) return IPT;
-          if (dominates_or_equals(DT, IPT, LHS->getNextNode())) return LHS->getNextNode();
-          /* uh oh, hard case */
-          assert(false && "Implement me"); abort();
-      } else {
-        return IPT;
+          (llvm::dyn_cast_or_null<llvm::User>(term.lhs))) {
+        if (!(IPT &= LHS->getNextNode())) return nullptr;
       }
-    } else {
-      if (llvm::Instruction *LHS = maybeFindUserLocationOrNull
-          (llvm::dyn_cast_or_null<llvm::User>(cond.pred.lhs))) {
-        if (llvm::Instruction *RHS = maybeFindUserLocationOrNull
-            (llvm::dyn_cast_or_null<llvm::User>(cond.pred.rhs))) {
-          if (dominates_or_equals(DT, LHS, RHS)) return RHS->getNextNode();
-          if (dominates_or_equals(DT, RHS, LHS)) return LHS->getNextNode();
-          /* uh oh, hard case */
-          assert(false && "Implement me"); abort();
-        } else {
-          return LHS->getNextNode();
-        }
-      } else if (llvm::Instruction *RHS = maybeFindUserLocationOrNull
-                 (llvm::dyn_cast_or_null<llvm::User>(cond.pred.rhs))) {
-        return RHS->getNextNode();
-      } else {
-        return &*L->getHeader()->getFirstInsertionPt();
+      if (llvm::Instruction *RHS = maybeFindUserLocationOrNull
+          (llvm::dyn_cast_or_null<llvm::User>(term.rhs))) {
+        if (!(IPT &= RHS->getNextNode())) return nullptr;
       }
     }
-    llvm_unreachable("All cases covered in findInsertionPoint");
+    assert(IPT.earliest);
+    return IPT.earliest;
   }
 
   bool runOnLoop(llvm::Loop *L) {
@@ -1135,6 +1335,7 @@ namespace {
     assert(!may_inline);
     assert(!inlining_needed);
     PurityConditions conditions = analyseLoop(L);
+    // debugPrintInstructionPCs(L, conditions);
     PurityCondition headerCond = conditions[L->getHeader()];
     assert(!inlining_needed);
     if (headerCond.is_false()) {
@@ -1148,17 +1349,28 @@ namespace {
       // llvm::dbgs() << " Purity condition: " << headerCond << "\n";
     }
 
-    for (const BinaryPredLoc &term : headerCond) {
-      llvm::Instruction *I = findInsertionPoint(L, *DominatorTree, term);
+    for (const ConjunctionLoc &conj : headerCond) {
+      llvm::Instruction *I = findInsertionPoint(L, conj);
+      if (!I) {
+        // llvm::dbgs() << "Not elimiating loop purity: No valid insertion location found\n";
+        continue;
+      }
       //llvm::dbgs() << " Insertion point: " << *I << "\n";
-      llvm::Value *Cond;
-      if (term.pred.is_true()) {
+      llvm::Value *Cond = nullptr;
+      if (conj.is_true()) {
         Cond = llvm::ConstantInt::getTrue(L->getHeader()->getContext());
       } else {
-        Cond = llvm::ICmpInst::Create
-          (getPredicateOpcode(term.pred.op),
-           llvm::CmpInst::getInversePredicate(term.pred.op),
-           term.pred.lhs, term.pred.rhs, "negated.pp.cond", I);
+        for (const BinaryPredicate &term : conj) {
+          llvm::Value *TermCond = llvm::ICmpInst::Create
+            (getPredicateOpcode(term.op),
+             llvm::CmpInst::getInversePredicate(term.op),
+             term.lhs, term.rhs, "pp.term.negated", I);
+          if (!Cond) Cond = TermCond;
+          else
+            Cond = llvm::BinaryOperator::Create
+              (llvm::BinaryOperator::BinaryOps::Or, Cond, TermCond,
+               "pp.conj.negated", I);
+        }
       }
       llvm::Function *F_assume = L->getHeader()->getParent()->getParent()
         ->getFunction("__VERIFIER_assume");
@@ -1173,11 +1385,11 @@ namespace {
     }
 
     // llvm::dbgs() << "Rewritten:\n";
-    // llvm::dbgs() << *L->getHeader()->getParent();;
+    // llvm::dbgs() << *L->getHeader()->getParent();
 
     return true;
   }
-}
+}  // namespace
 
 void PartialLoopPurityPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const{
   AU.addRequired<DeclareAssumePass>();

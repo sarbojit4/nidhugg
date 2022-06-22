@@ -105,7 +105,6 @@ create(Module *M, TSOPSOTraceBuilder &TB, const Configuration &C,
 Interpreter::Interpreter(Module *M, TSOPSOTraceBuilder &TB,
                          const Configuration &C)
   : DPORInterpreter(M), TD(M), TB(TB), conf(C) {
-
   Threads.push_back(Thread());
   Threads.back().cpid = CPid();
   CurrentThread = 0;
@@ -129,7 +128,7 @@ Interpreter::Interpreter(Module *M, TSOPSOTraceBuilder &TB,
       const DataLayout &DL = getDataLayout();
 #endif
       size_t GVSize = (size_t)(DL.getTypeAllocSize
-                               (gv->getType()->getElementType()));
+                               (gv->getType()->getPointerElementType()));
       void *GVPtr = getPointerToGlobal(gv);
       SymMBlock mb = SymMBlock::Global(++glbl_ctr);
       AllocatedMem.emplace(GVPtr, SymMBlockSize(std::move(mb), GVSize));

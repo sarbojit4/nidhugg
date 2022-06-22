@@ -26,6 +26,7 @@
 #include "AssumeAwaitPass.h"
 #include "StrModule.h"
 #include "Transform.h"
+#include "llvm/IR/LLVMContext.h"
 
 #if defined(HAVE_LLVM_ANALYSIS_VERIFIER_H)
 #include <llvm/Analysis/Verifier.h>
@@ -52,13 +53,15 @@
 namespace Transform {
 
   std::string transform(const std::string &src, const Configuration &conf){
-    llvm::Module *mod = StrModule::read_module_src(src);
+    llvm::LLVMContext context;
+    llvm::Module *mod = StrModule::read_module_src(src, context);
     transform(*mod,conf);
     return StrModule::write_module_str(mod);
   }
 
   void transform(std::string infile, std::string outfile, const Configuration &conf){
-    llvm::Module *mod = StrModule::read_module(infile);
+    llvm::LLVMContext context;
+    llvm::Module *mod = StrModule::read_module(infile, context);
 
     transform(*mod,conf);
 
@@ -78,7 +81,7 @@ namespace Transform {
       }
     };
     char ClearOptnonePass::ID = 0;
-  }
+  }  // namespace
 
   bool transform(llvm::Module &mod, const Configuration &conf){
     llvm::PassRegistry &Registry = *llvm::PassRegistry::getPassRegistry();
@@ -133,4 +136,4 @@ namespace Transform {
     return modified;
   }
 
-}
+}  // namespace Transform
