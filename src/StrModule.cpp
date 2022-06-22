@@ -45,7 +45,9 @@
 #if defined(HAVE_LLVM_SUPPORT_ERROROR_H)
 #include <llvm/Support/ErrorOr.h>
 #endif
+#include <llvm/Pass.h>
 
+#include <memory>
 #include <stdexcept>
 
 namespace StrModule {
@@ -188,5 +190,5 @@ namespace StrModule {
 #endif
     return s;
   }
-}
+}  // namespace StrModule
 

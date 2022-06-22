@@ -34,7 +34,7 @@
  * exploration of an execution, various methods of the TraceBuilder
  * should be called in order to register events that affect the
  * chronological trace, such as memory accesses, fences, thread
- * creation etc. When the explored execution terminates,
+ * creation, etc. When the explored execution terminates,
  * TraceBuilder::reset should be called to initiate scheduling and
  * building for the next trace.
  */
@@ -58,7 +58,7 @@ public:
    */
   virtual bool check_for_cycles() = 0;
   /* Have any errors been discovered in the current trace? */
-  virtual bool has_error() const { return errors.size(); };
+  virtual bool has_error() const { return errors.size(); }
   /* Compute the Trace of the current execution. */
   virtual Trace *get_trace() const = 0;
   /* Notify the TraceBuilder that the current execution has terminated.
@@ -74,7 +74,7 @@ public:
   /* Return the IID of the currently scheduled event. */
   virtual IID<CPid> get_iid() const = 0;
 
-  virtual void debug_print() const {};
+  virtual void debug_print() const {}
 
   /* Notify the TraceBuilder that an assertion has failed.
    *
@@ -123,6 +123,7 @@ public:
   int max_branches;
   int max_pending_WSs;
   int no_of_pending_WSs;
+
 protected:
   const Configuration &conf;
   std::vector<Error*> errors;

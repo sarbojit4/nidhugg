@@ -22,12 +22,13 @@
 #ifndef __CPID_H__
 #define __CPID_H__
 
+#include <llvm/Support/raw_ostream.h>
+
 #include <initializer_list>
 #include <map>
 #include <ostream>
+#include <string>
 #include <vector>
-
-#include <llvm/Support/raw_ostream.h>
 
 /* A CPid is a "complex process identifier". For real processes, it is
  * an integer sequence <p0.....pn> where p0 = 0, The first process of
@@ -74,12 +75,13 @@ public:
   std::string to_string() const;
 
   /* Comparison implements a total order over CPids. */
-  bool operator==(const CPid &c) const { return compare(c) == 0; };
-  bool operator!=(const CPid &c) const { return compare(c) != 0; };
-  bool operator<(const CPid &c) const { return compare(c) < 0; };
-  bool operator<=(const CPid &c) const { return compare(c) <= 0; };
-  bool operator>(const CPid &c) const { return compare(c) > 0; };
-  bool operator>=(const CPid &c) const { return compare(c) >= 0; };
+  bool operator==(const CPid &c) const { return compare(c) == 0; }
+  bool operator!=(const CPid &c) const { return compare(c) != 0; }
+  bool operator<(const CPid &c) const { return compare(c) < 0; }
+  bool operator<=(const CPid &c) const { return compare(c) <= 0; }
+  bool operator>(const CPid &c) const { return compare(c) > 0; }
+  bool operator>=(const CPid &c) const { return compare(c) >= 0; }
+
 private:
   /* For a CPid <p0.p1.....pn> or <p0.p1.....pn/i>, the vector
    * proc_seq is [p1,...,pn]. */

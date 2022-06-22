@@ -28,13 +28,21 @@
 #include "DPORInterpreter.h"
 #include "GlobalContext.h"
 
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
 #if defined(HAVE_LLVM_IR_MODULE_H)
 #include <llvm/IR/Module.h>
 #elif defined(HAVE_LLVM_MODULE_H)
 #include <llvm/Module.h>
 #endif
-
-#include <string>
+#if defined(HAVE_LLVM_IR_LLVMCONTEXT_H)
+#include <llvm/IR/LLVMContext.h>
+#elif defined(HAVE_LLVM_LLVMCONTEXT_H)
+#include <llvm/LLVMContext.h>
+#endif
 
 namespace llvm{
   class ExecutionEngine;
@@ -65,7 +73,7 @@ private:
    * constructors and operators for all fields.
    */
   struct ResultBase {
-    ResultBase() : error_trace(nullptr) {};
+    ResultBase() : error_trace(nullptr) {}
     ~ResultBase(){
       if(all_traces.empty()){ // Otherwise error_trace also appears in all_traces.
         delete error_trace;
@@ -73,7 +81,7 @@ private:
       for(Trace *t : all_traces){
         delete t;
       }
-    };
+    }
     ResultBase(const ResultBase&) = delete;
     ResultBase(ResultBase &&other)
       : error_trace(std::exchange(other.error_trace, nullptr)),
@@ -102,6 +110,7 @@ private:
      */
     std::vector<Trace*> all_traces;
   };
+
 public:
   /* A Result object describes the result of exploring the traces of
    * some module.
@@ -112,6 +121,7 @@ public:
     Result() : trace_count(0), sleepset_blocked_trace_count(0),
 	       assume_blocked_trace_count(0), await_blocked_trace_count(0),
 	       max_branches(0), max_pending_WSs(0) {};
+               assume_blocked_trace_count(0), await_blocked_trace_count(0) {}
     /* The number of explored (non-sleepset-blocked) traces */
     uint64_t trace_count;
     /* The number of explored sleepset-blocked traces */
@@ -124,12 +134,13 @@ public:
     int max_branches;
     int max_pending_WSs;
 
-    bool has_errors() const { return error_trace && error_trace->has_errors(); };
+    bool has_errors() const { return error_trace && error_trace->has_errors(); }
   };
 
   /* Explore the traces of the given module, and return the result.
    */
   Result run();
+
 private:
   /* Configuration */
   const Configuration &conf;
@@ -144,8 +155,8 @@ private:
    * optionally checking validity (should be done the first time) */
   enum ParseOptions { PARSE_ONLY, PARSE_AND_CHECK };
   std::unique_ptr<llvm::Module> parse
-  (ParseOptions opts = PARSE_ONLY,
-   llvm::LLVMContext &context = GlobalContext::get());
+  (ParseOptions opts,
+   llvm::LLVMContext &context);
   /* Opens and reads the file filename. Stores the entire content in
    * tgt. Throws an exception on failure.
    */
@@ -168,11 +179,17 @@ private:
    * where eash thread will explore the execution tree concurrently.
    */
   Result run_rfsc_parallel();
-  /* As rfsc explores asyncronosly with a threadpool,
+  /* As RFSC explores asynchronously with a threadpool,
    * an alternate function is given without overhead
    * if it should be run strictly sequential.
    */
   Result run_rfsc_sequential();
+  /* Make sure memory does not accumulate indefinately in the module or
+   * context. May destroy and reallocate both (invalidates all llvm
+   * pointers derived from them). */
+  void clear_memory_use(uint64_t trace_number,
+                        std::unique_ptr<llvm::LLVMContext> &context,
+                        std::unique_ptr<llvm::Module> &module);
 };
 
 #endif

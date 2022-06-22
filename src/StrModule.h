@@ -24,6 +24,8 @@
 
 #include "GlobalContext.h"
 
+#include <string>
+
 #if defined(HAVE_LLVM_IR_MODULE_H)
 #include <llvm/IR/Module.h>
 #elif defined(HAVE_LLVM_MODULE_H)
@@ -35,12 +37,12 @@ namespace StrModule {
   /* Reads the file infile, interprets its contents as LLVM assembly
    * or bitcode, and creates and returns the corresponding module.
    */
-  llvm::Module *read_module(std::string infile, llvm::LLVMContext &context = GlobalContext::get());
+  llvm::Module *read_module(std::string infile, llvm::LLVMContext &context);
 
   /* Interprets the contents of src as LLVM assembly or bitcode, and
    * creates and returns the corresponding module.
    */
-  llvm::Module *read_module_src(const std::string &src, llvm::LLVMContext &context = GlobalContext::get());
+  llvm::Module *read_module_src(const std::string &src, llvm::LLVMContext &context);
 
   /* Stores mod as assembly to outfile. */
   void write_module(llvm::Module *mod, std::string outfile);
@@ -53,7 +55,7 @@ namespace StrModule {
    * compiled.
    */
   std::string portasm(std::string s);
-}
+}  // namespace StrModule
 
 #endif
 

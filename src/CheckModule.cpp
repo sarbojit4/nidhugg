@@ -20,6 +20,7 @@
 #include "CheckModule.h"
 #include "Debug.h"
 
+#include <llvm/ADT/StringSet.h>
 #if defined(HAVE_LLVM_IR_LLVMCONTEXT_H)
 #include <llvm/IR/LLVMContext.h>
 #elif defined(HAVE_LLVM_LLVMCONTEXT_H)
@@ -27,7 +28,6 @@
 #endif
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/raw_ostream.h>
-#include <llvm/ADT/StringSet.h>
 
 #include <set>
 
@@ -98,7 +98,7 @@ void CheckModule::check_pthread_create(const llvm::Module *M){
           << *pthread_create->arg_begin()->getType();
       throw CheckModuleError(err.str());
     }
-    llvm::Type *ty0e = static_cast<llvm::PointerType*>(pthread_create->arg_begin()->getType())->getElementType();
+    llvm::Type *ty0e = static_cast<llvm::PointerType*>(pthread_create->arg_begin()->getType())->getPointerElementType();
     if(!check_pthread_t(ty0e)){
       err << "First argument of pthread_create is pointer to invalid pthread_t type: "
           << *ty0e;
@@ -428,8 +428,7 @@ namespace CheckModule {
       }
     }
   }
-
-}
+}  // namespace CheckModule
 
 void CheckModule::check_nondet_int(const llvm::Module *M){
   check_nondet_int(M,"__VERIFIER_nondet_int");

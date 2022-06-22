@@ -114,9 +114,21 @@ plptest_cmpxchg_reuse Forbid : 12
 #plptest_cmpxchg_reuse_await Forbid : 10
 plptest_cmpxchg_member_reuse Forbid : 12
 plptest_cmpxchg_weak_reuse Forbid : 12
+plptest_futex_mutex Forbid : 10
 # These should not be transformed
 plptest_cmpxchg_reuse_reorder Forbid : 14
 plptest_leaky_counter Forbid : 4
+plptest_nested Forbid : 2
+
+# TSO test with inline assembly
+inlineasm Forbid : 12
+
+# Tests where we find some bugs
+trivial_bug_arm Allow : 1716
+bug_after_1k_sc Allow : 1716
+bug_after_1k_pso Allow : 1716
+bug_after_1k_rf Allow : 1716
+bug_after_1k_power Allow : 1716
 
 # Total number of traces: 1116
 # Total running time: 9.51 s
