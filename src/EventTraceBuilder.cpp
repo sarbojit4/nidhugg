@@ -2382,7 +2382,7 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
 
 void EventTraceBuilder::do_race_detect() {
   assert(has_vclocks);
-  assert(0 < prefix.size());
+  assert(0 < prefix.len());
   /* Bucket sort races by first_event index */
   std::vector<std::vector<const Race*>> races(prefix.len());
   std::map<IPid, std::vector<IPid>> eoms;
