@@ -2738,6 +2738,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       //llvm::dbgs()<<"PROBLEM------\n";///////////////
       return;
     }
+
     std::vector<IPid> sleeping_msgs;
     std::map<IPid, std::vector<IPid>> eoms;
     if (old_size != v.size() &&
@@ -2802,7 +2803,7 @@ reordering_possible(std::vector<Branch> &v, unsigned last_event,
 }
 
 bool EventTraceBuilder::
-conflict_with_rest_of_msg(unsigned j, Branch &child,
+conflict_with_rest_of_msg(unsigned j, const Branch &child,
 			  const std::vector<Branch> &v,
 			  const std::vector<VClock<IPid>> &first_of_msgs,
 			  unsigned &last_seen_msg_event,
@@ -3016,7 +3017,6 @@ linearize_sequence1(std::vector<Branch> &v,
     if(!partial_msg[v[k].spid] &&
        threads[SPS.get_pid(v[k].spid)].handler_id != -1){
       if(first_of_msgs[v[k].spid] == -1) first_of_msgs[v[k].spid] = k;
-      //if(v[k].index == 1)
       partial_msg[v[k].spid] = true;
     }
     if(v[k].is_ret_stmt()){
@@ -3025,11 +3025,12 @@ linearize_sequence1(std::vector<Branch> &v,
   }
   /* Make the already started partial message as last messasge in the handler*/
   /* Make the second racing message as the last message in the handler */
-  for(int k = 0; k < int(threads.size()); k+=2){
+  for(unsigned k = 0; k < threads.size(); k+=2){
     if((partial_msg[k] && v[first_of_msgs[k]].index!=1) ||
        (v.back().spid == k &&
-	threads[SPS.get_pid(v.back().spid)].handler_id != -1))
+	threads[SPS.get_pid(v.back().spid)].handler_id != -1)){
       last_msg[threads[SPS.get_pid(k)].handler_id] = k;
+    }
   }
   
   for(auto evts = clear_set.begin(); evts != clear_set.end();){
@@ -3083,18 +3084,18 @@ linearize_sequence1(std::vector<Branch> &v,
     // else g++;
   }
   /* Choosing last message for rest of the handler */
-  for(int k = 0; k < int(threads.size()); k+=2){
+  for(unsigned k = 0; k < threads.size(); k+=2){
     if(partial_msg[k] && last_msg.find(threads[SPS.get_pid(k)].handler_id) == last_msg.end()){
 	last_msg[threads[SPS.get_pid(k)].handler_id] = k;
     }
   }
 
-  VClock<IPid> clk_first_of_msgs[threads.size()];
+  std::vector<VClock<IPid>> clk_first_of_msgs(threads.size(), VClock<IPid>());
   bool reversible_race = true;
-  for(unsigned k = 0; k<int(threads.size()); k+=2){
+  for(unsigned k = 0; k<threads.size(); k+=2){
     if(first_of_msgs[k] != -1) clk_first_of_msgs[k] = v[first_of_msgs[k]].clock;
   }
-  for(int k = 0; k < int(threads.size()); k+=2){
+  for(unsigned k = 0; k < threads.size(); k+=2){
     if(first_of_msgs[k] != -1 && partial_msg[k] &&
        last_msg.find(threads[SPS.get_pid(k)].handler_id) != last_msg.end() &&
        last_msg[threads[SPS.get_pid(k)].handler_id] != k){
@@ -3111,7 +3112,10 @@ linearize_sequence1(std::vector<Branch> &v,
       if(!reversible_race) break;
     }
   }
-  if(!reversible_race) v.clear();
+  if(!reversible_race){
+    v.clear();
+    return true;
+  }
   bool linearized = true;
   std::vector<unsigned> curr_msg(threads.size(),0);
   for(unsigned k = 0; k < v.size(); k++){//collect partial msgs and first_of_msgs

@@ -345,7 +345,7 @@ protected:
     /* The number of events in this sequence. */
     int size;
     /* Parked WSs which will be inserted later */
-    std::set<std::vector<Branch>> pending_WSs;
+    mutable std::set<std::vector<Branch>> pending_WSs;
     //bool end;
     VClock<IPid> clock;
     bool operator<(const Branch &b) const{
@@ -813,7 +813,7 @@ protected:
 		 first_of_msgs_t first_of_msgs);
   bool reordering_possible(std::vector<Branch> &v, unsigned last_event,
 			   std::vector<VClock<IPid>> clk_fst_of_msgs);
-  bool conflict_with_rest_of_msg(unsigned j, Branch &child,
+  bool conflict_with_rest_of_msg(unsigned j, const Branch &child,
                                  const std::vector<Branch> &v,
                                  const std::vector<VClock<IPid>> &first_of_msgs,
                                  unsigned &last_seen_msg_event,
