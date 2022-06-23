@@ -432,7 +432,7 @@ protected:
   std::vector<Race> lock_fail_races;
 
   struct sleep_tree{
-    IPid pid;
+    IPid spid;
     unsigned i;
     /* Start checking events from start_index of every sequence in msg_trails */
     unsigned start_index;

@@ -1528,8 +1528,8 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
   }
 
   for(auto slp_tree_it = sleep_trees.begin(); slp_tree_it != sleep_trees.end();){
-    unsigned handler = threads[SPS.get_pid(slp_tree_it->pid)].handler_id;
-    if(slp_tree_it->pid == p){
+    unsigned handler = threads[SPS.get_pid(slp_tree_it->spid)].handler_id;
+    if(slp_tree_it->spid == p){
       // Block according to the definition of the paper
       // Check till the end of the message
       bool partial_msg = true;
@@ -1559,7 +1559,7 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       continue;
     }
     for(unsigned i = slp_tree_it->i; i < first_of_msgs.at(handler).size(); i++){
-      if(first_of_msgs.at(handler)[i].first != slp_tree_it->pid &&
+      if(first_of_msgs.at(handler)[i].first != slp_tree_it->spid &&
 	 first_of_msgs.at(handler)[i].second.leq(clock)){
 	/* For events that happens after at least one of the messages in the same handler */
 	for(auto seq_it = slp_tree_it->msg_trails.begin();
@@ -2315,8 +2315,8 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
 
     for(auto slp_tree_it = sleep_trees.begin();
     	slp_tree_it != sleep_trees.end();){
-      unsigned handler = threads[SPS.get_pid(slp_tree_it->pid)].handler_id;
-      if(slp_tree_it->pid == v[i].spid){
+      unsigned handler = threads[SPS.get_pid(slp_tree_it->spid)].handler_id;
+      if(slp_tree_it->spid == v[i].spid){
     	// TODO: Block according to the definition of the paper
     	slp_tree_it = sleep_trees.erase(slp_tree_it);
 	continue;
@@ -2334,11 +2334,11 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
       if(slp_tree_it->start_index == 0 && first_ev.index == 1 &&
 	 do_events_conflict(v[i].spid, v[i].sym, first_ev.spid, first_ev.sym)){
     	bool skip = false;
-    	for(unsigned ei : clear_set[slp_tree_it->pid]){
+    	for(unsigned ei : clear_set[slp_tree_it->spid]){
     	  if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
     	     skip = true; 
     	}
-    	if(!skip) clear_set[slp_tree_it->pid].emplace_back(i);
+    	if(!skip) clear_set[slp_tree_it->spid].emplace_back(i);
 	slp_tree_it++;
     	continue;
       }
@@ -2347,7 +2347,7 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
     	continue;
       }
       for(unsigned k = slp_tree_it->i; k < first_of_msgs.at(handler).size(); k++){
-	if(first_of_msgs.at(handler)[k].first != slp_tree_it->pid &&
+	if(first_of_msgs.at(handler)[k].first != slp_tree_it->spid &&
 	   first_of_msgs.at(handler)[k].second.leq(v[i].clock)){
     	  /* For events that happens after at least one of the messages in the same handler */
     	  for(auto seq_it = slp_tree_it->msg_trails.begin();
@@ -2363,12 +2363,12 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
     	    }
     	    if(conflict){
     	      bool skip = false;
-    	      for(unsigned ei : clear_set[slp_tree_it->pid]){
+    	      for(unsigned ei : clear_set[slp_tree_it->spid]){
     		if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
     		  skip = true; 
     	      }
     	      if(!skip)
-    		clear_set[slp_tree_it->pid].emplace_back(i);
+    		clear_set[slp_tree_it->spid].emplace_back(i);
     	    }
     	  }
     	  break;
