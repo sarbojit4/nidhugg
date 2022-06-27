@@ -72,50 +72,40 @@ case $verb in
         bench=$1
         tool=$2
         N=$3
-        T=$4
-        shift 4
-        echo -e "benchmark\tn\tt\ttool\ttraces\ttime\tspeedup\tmem"
+        echo -e "benchmark\tn\ttool\ttraces\ttime\tmem"
         for n in $N; do
-            for t in $T; do
-                f="${tool}_${n}_${t}.txt"
-                f1="${tool}_${n}_1.txt"
-                printf "%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\n" $bench $n $t $tool \
-                       $(get_traces "$f") $(get_time "$f") \
-                       $(get_speedup "$f" "$f1") $(get_mem "$f")
-            done
+            f="${tool}_${n}.txt"
+            printf "%s\t%d\t%s\t%s\t%s\t%s\n" $bench $n $tool \
+                   $(get_traces "$f") $(get_time "$f") \
+                   $(get_mem "$f")
         done
         ;;
     wide)
         bench=$1
         tools=$2
         N=$3
-        T=$4
-        natools=$5
-        shift 5
+        natools=$4
         echo -ne "benchmark\tn\tt"
         for tool in $tools $natools; do
-            echo -ne "\t${tool}_traces\t${tool}_time\t${tool}_speedup\t${tool}_mem"
+            echo -ne "\t${tool}_traces\t${tool}_time\t${tool}_mem"
         done
         echo ''
         for n in $N; do
-            for t in $T; do
-                printf "%s\t%d\t%d" $bench $n $t
-                for tool in $tools; do
-                    f="${tool}_${n}_${t}.txt"
-                    f1="${tool}_${n}_1.txt"
-                    traces=$(get_traces "$f")
-                    if [ x"$traces" = xerr ]; then
-                        err='{\error}'
-                        printf "\t%s\t%s\t%s\t%s" "$err" "$err" "$err" "$err"
-                    else
-                        printf "\t%s\t%s\t%s\t%s" "$traces" $(get_time "$f") \
-                               $(get_speedup "$f" "$f1") $(get_mem "$f")
-                    fi
-                done
-                na='{\notavail}'
-                for tool in $natools; do printf "\t%s\t%s\t%s\t%s" "$na" "$na" "$na" "$na"; done
-                printf "\n"
+            printf "%s\t%d" $bench $n
+            for tool in $tools; do
+                f="${tool}_${n}.txt"
+                traces=$(get_traces "$f")
+                if [ x"$traces" = xerr ]; then
+                    err='{\error}'
+                    printf "\t%s\t%s\t%s\t%s" "$err" "$err" "$err" "$err"
+                else
+                    printf "\t%s\t%s\t%s" "$traces" $(get_time "$f") \
+                           $(get_mem "$f")
+                fi
             done
+            na='{\notavail}'
+            for tool in $natools; do printf "\t%s\t%s\t%s\t%s" "$na" "$na" "$na" "$na"; done
+            printf "\n"
         done
         ;;
     *)
