@@ -133,7 +133,6 @@ bool EventTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       *proc = pid/2;
       *aux = pid % 2 - 1;
       *alt = curbranch().alt;
-      assert(threads[pid].available);
       threads[pid].event_indices.push_back(prefix_idx);
       assert(!threads[pid].sleeping);
       return true;
@@ -359,7 +358,7 @@ bool EventTraceBuilder::reset(){
    *  satisfy this assertion for now. Eventually, all should.
    */
   if(conf.dpor_algorithm != Configuration::SOURCE){
-    check_symev_vclock_equiv();
+    //check_symev_vclock_equiv();
   }
 #endif
 
@@ -2165,12 +2164,12 @@ bool EventTraceBuilder::do_events_conflict(int i, int j) const{
 
 bool EventTraceBuilder::do_events_conflict(const Event &fst,
 					   const Event &snd) const{
-  return do_events_conflict(fst.iid.get_pid(), fst.sym,
-                            snd.iid.get_pid(), snd.sym);
+  return do_events_conflict(threads[fst.iid.get_pid()].spid, fst.sym,
+                            threads[snd.iid.get_pid()].spid, snd.sym);
 }
 
 static bool symev_has_pid(const SymEv &e) {
-  return e.kind == SymEv::SPAWN || e.kind == SymEv::JOIN;
+  return e.kind == SymEv::SPAWN || e.kind == SymEv::JOIN || e.kind == SymEv::POST;
 }
 
 static bool symev_is_load(const SymEv &e) {
@@ -2447,7 +2446,7 @@ void EventTraceBuilder::do_race_detect() {
     }
     /* Reverese races */
     for (const Race *race : races[i]) {
-      assert(race->first_event == int(i));
+      //assert(race->first_event == int(i));
       race_detect_optimal(*race, (const struct obs_sleep&)sleep,
 			  sleeping_msgs, sleep_trees, first_of_msgs, i);
     }

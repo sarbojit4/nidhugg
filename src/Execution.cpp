@@ -3171,6 +3171,7 @@ void Interpreter::callQThreadCreate(Function *F,
   int tid = newThread(CPS.spawn(Threads[CurrentThread].cpid));
 
   // Build stack frame for the call
+  assert((Function*)GVTOP(ArgVals[1]) != NULL);
   Function *F_inner = (Function*)GVTOP(ArgVals[1]);
   std::vector<GenericValue> ArgVals_inner;
   if(F_inner->arg_size() == 1 &&
