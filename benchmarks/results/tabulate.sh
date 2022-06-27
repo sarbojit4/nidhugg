@@ -85,7 +85,7 @@ case $verb in
         tools=$2
         N=$3
         natools=$4
-        echo -ne "benchmark\tn\tt"
+        echo -ne "benchmark\tn"
         for tool in $tools $natools; do
             echo -ne "\t${tool}_traces\t${tool}_time\t${tool}_mem"
         done

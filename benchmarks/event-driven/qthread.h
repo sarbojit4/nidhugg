@@ -44,6 +44,7 @@ struct _msg_arg {
 #define _MAGIC_I_AM_NOT_INTERCEPTED -42
 
 int qthread_create(_actual_qthread_t *tid, void *(*func)(void *), void * arg){
+  *tid = 0xdeadbeefdeadbeef;
   return _MAGIC_I_AM_NOT_INTERCEPTED;
 }
 static int qthread_create_internal(qthread_t *tid, void *(*func)(void *), void * arg){
@@ -80,7 +81,7 @@ static void *_pthread_func(void *_msg_arg){
   free(msg_arg);
   return NULL;
 }
-static void *_post_func(void *_msg_arg){
+static void _post_func(void *_msg_arg){
   /* Replicate the actions of _pthread_func as much as possible */
   struct _msg_arg *msg_arg = (struct _msg_arg *)_msg_arg;
   void (*func)(void *) = msg_arg->func;
@@ -90,7 +91,6 @@ static void *_post_func(void *_msg_arg){
   (*func)(arg);
   (void)mutex; // no unlock
   free(msg_arg);
-  return NULL;
 }
 void qthread_post_event(_actual_qthread_t tid, void (*func)(void *), void *arg);
 static void qthread_post_event_internal(qthread_t tid, void (*func)(void *), void *arg){
