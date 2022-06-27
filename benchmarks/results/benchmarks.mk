@@ -11,16 +11,16 @@ OPT = # -O1
 TOOLCLANGFLAGS = $(OPT)
 OPTFLAGS = -mem2reg
 CLANGFLAGS = -c -emit-llvm -g -Xclang -disable-O0-optnone $(TOOLCLANGFLAGS)
-NIDHUGG ?= ../../nidhugg
-NIDHUGGOP ?= ../../nidhugg_op
+NIDHUGGC ?= ../../nidhuggc
+NIDHUGGCOP ?= ../../nidhuggc_op
 GENMC6 ?= ../../genmc
-SOURCE    = $(NIDHUGG) -c11 -sc -source
-OPTIMAL   = $(NIDHUGGOP) -sc -optimal
-OBSERVERS = $(NIDHUGG) -c11 -sc -observers
-RFSC      = $(NIDHUGG) -c11 -sc -rf --n-threads=$(1)
-EVENT     = $(NIDHUGG) -sc -event
-LAPORMO   = $(GENMC6) --input-from-bitcode-file --lapor --mo
-LAPOR     = $(GENMC6) --input-from-bitcode-file --lapor
+SOURCE    = $(NIDHUGGC) $(1) -- -c11 -sc -source
+OPTIMAL   = $(NIDHUGGCOP) $(1) -- -sc -optimal
+OBSERVERS = $(NIDHUGGC) $(1) -- -c11 -sc -observers
+RFSC      = $(NIDHUGGC) $(1) -- -c11 -sc -rf
+EVENT     = $(NIDHUGGC) $(1) -- -sc -event
+LAPORMO   = $(GENMC6) --lapor --mo -- $(1)
+LAPOR     = $(GENMC6) --lapor -- $(1)
 CDSC_DIR ?= /opt/cdschecker
 TIME = env time -f 'real %e\nres %M'
 TIMEOUT = timeout $(TIME_LIMIT)
@@ -43,7 +43,7 @@ BITCODE_FILES = $(N:%=code_%.ll)
 # Add the bitcode files as explicit targets, otherwise Make deletes them after
 # benchmark, and thus reruns *all* benchmarks of a particular size if any of
 # them need to be remade
-all: $(TABLES) $(BITCODE_FILES)
+all: $(TABLES) # $(BITCODE_FILES)
 
 code_%.ll: $(SRCDIR)/$(FILE)
 	$(CLANG) -DN=$* $(CLANGFLAGS) -o - $< | opt $(OPTFLAGS) -S -o $@
@@ -55,9 +55,9 @@ code_%.ll: $(SRCDIR)/$(FILE)
 # 		-DCDSC=1 -Dmain=user_main -pthread -DN=$* -o $@ $<
 
 define tool_template =
- $(1)_$(2).txt: code_$(2).ll
+ $(1)_$(2).txt: $(SRCDIR)/$(FILE)
 	@date
-	$$(RUN) $$(call $(shell echo $(1) | tr a-z A-Z)) $$< 2>&1 | tee $$@
+	$$(RUN) $$(call $(shell echo $(1) | tr a-z A-Z), -DN=$(2)) $$< 2>&1 | tee $$@
  $(1).txt: $(1)_$(2).txt
 endef
 
@@ -88,7 +88,7 @@ wide.txt: $(ALL_RESULTS) $(TABULATE)
 	  | column -t > $@
 
 clean:
-	rm -f *.ll *.elf $(TABLES)
+	rm -f *.ll *.bc *.elf $(TABLES)
 mrproper: clean
 	rm -f *.txt
 
