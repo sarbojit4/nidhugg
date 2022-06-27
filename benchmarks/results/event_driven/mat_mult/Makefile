@@ -1,5 +1,5 @@
 NAME=mat_mul
-FILE=event-drive/multi-handler/mat_mult.c
+FILE=event-driven/multi-handler/mat_mult.c
 N = 2 3 4
 TIME_LIMIT = 42000
 
