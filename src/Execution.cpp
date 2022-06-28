@@ -2501,6 +2501,12 @@ void Interpreter::callPthreadJoin(Function *F,
     TB.pthreads_error(ss.str());
     abort();
     return;
+  } else if(Threads[tid].handler_id != -1){
+    std::stringstream ss;
+    ss << "Messages cannot be joined\n" << tid;
+    TB.pthreads_error(ss.str());
+    abort();
+    return;
   }
 
   assert(Threads[tid].ECStack.empty());
@@ -3629,7 +3635,8 @@ bool Interpreter::checkRefuse(Instruction &I){
 
 void Interpreter::terminate(Type *RetTy, GenericValue Result){
   if(CurrentThread != 0){
-    assert(RetTy == Type::getInt8PtrTy(RetTy->getContext()));
+    assert(Threads[CurrentThread].handler_id != -1 ||
+	   RetTy == Type::getInt8PtrTy(RetTy->getContext()));
     Threads[CurrentThread].RetVal = Result;
     if(0 <= Threads[CurrentThread].handler_id){
       if(!Threads[Threads[CurrentThread].handler_id].msgs.empty()){//consume next message

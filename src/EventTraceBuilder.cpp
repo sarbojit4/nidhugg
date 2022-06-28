@@ -3272,11 +3272,11 @@ recompute_vclock(const std::vector<bool> &in_v,
     for (auto r : prefix[i].races){//needs to be fixed
       assert(r.first_event < i);
       if(prefix[r.first_event].iid.get_pid() == prefix[br_point].iid.get_pid()){
+	/* Races between the message at branching point second racing message */
 	assert(r.first_event < i);
 	if(r.kind == Race::MSG_REV){
 	  for(Race rr : prefix[r.fst_conflict].races){
 	    unsigned rr_fst = (rr.kind == Race::MSG_REV)? rr.fst_conflict : rr.first_event;
-	    assert(rr_fst < r.first_event);
 	    if(do_events_conflict(prefix[rr_fst].iid.get_pid(),
 				  prefix[rr_fst].sym,
 				  prefix[r.snd_conflict].iid.get_pid(),
@@ -3284,11 +3284,13 @@ recompute_vclock(const std::vector<bool> &in_v,
 	      unsigned rr_bef = (rr.kind == Race::MSG_REV)?
 		threads[prefix[rr.first_event].iid.get_pid()].
 		event_indices.back() : rr.first_event;
+	      assert(rr_bef < i);
 	      trace[i].insert(rr_bef);
 	      clock_WS[i] += clock_WS[rr_bef];
 	    }
 	  }
 	}
+	/* other kind of races */
 	for(Race rr : prefix[r.first_event].races){
 	  unsigned rr_fst = (rr.kind == Race::MSG_REV)? rr.fst_conflict : rr.first_event;
 	  assert(rr_fst < r.first_event);
@@ -3308,6 +3310,7 @@ recompute_vclock(const std::vector<bool> &in_v,
 	  }
 	}
       } else{
+	/* Races between other two messages */
 	unsigned r_bef = (r.kind == Race::MSG_REV)?
 	  threads[prefix[r.first_event].iid.get_pid()].
 	  event_indices.back() : r.first_event;
