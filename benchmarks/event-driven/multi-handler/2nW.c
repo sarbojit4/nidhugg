@@ -11,7 +11,7 @@
 #endif
 
 qthread_t handler1,handler2;
-atomic_int x,y;
+atomic_int x;
 
 void mes(void *j){
   atomic_store_explicit(&x, 2, memory_order_seq_cst);
