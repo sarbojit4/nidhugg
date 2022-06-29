@@ -3337,36 +3337,38 @@ void Interpreter::callFunction(Function *F,
     callXchgAwait(F,ArgVals);
     return;
   }
-  //Qt functions----
-  else if(F->getName().str() == "qthread_create"){
-    callQThreadCreate(F, ArgVals);
-    //dbgs()<<"Handling QThread_create function\n";
-    return;
-  }
-  else if(F->getName().str() == "qthread_start"){
-    //dbgs()<<"Handling QThread_start function\n";
-    callQThreadStart(F, ArgVals);
-    return;
-  }
-  else if(F->getName().str() == "qthread_wait"){
-    //dbgs()<<"Handling QThread_wait function\n";
-    //callQThreadWait(F, ArgVals);
-    return;
-  }
-  else if((F->getName().str() == "qthread_post_event")){
-    //dbgs()<<"Handling QThread_post_event function\n";
-    callQThreadPostMsg(F, ArgVals);
-    return;
-  }
-  else if((F->getName().str() == "qthread_exec")){
-    //dbgs()<<"Handling QThread_exec function\n";
-    callQThreadExec(F, ArgVals);
-    return;
-  }
-  else if((F->getName().str() == "qthread_quit")){
-    //dbgs()<<"Handling QThread_quit function\n";
-    callQThreadQuit(F, ArgVals);
-    return;
+  else if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
+    //Qt functions----
+    if(F->getName().str() == "qthread_create"){
+      callQThreadCreate(F, ArgVals);
+      //dbgs()<<"Handling QThread_create function\n";
+      return;
+    }
+    else if(F->getName().str() == "qthread_start"){
+      //dbgs()<<"Handling QThread_start function\n";
+      callQThreadStart(F, ArgVals);
+      return;
+    }
+    else if(F->getName().str() == "qthread_wait"){
+      //dbgs()<<"Handling QThread_wait function\n";
+      //callQThreadWait(F, ArgVals);
+      return;
+    }
+    else if((F->getName().str() == "qthread_post_event")){
+      //dbgs()<<"Handling QThread_post_event function\n";
+      callQThreadPostMsg(F, ArgVals);
+      return;
+    }
+    else if((F->getName().str() == "qthread_exec")){
+      //dbgs()<<"Handling QThread_exec function\n";
+      callQThreadExec(F, ArgVals);
+      return;
+    }
+    else if((F->getName().str() == "qthread_quit")){
+      //dbgs()<<"Handling QThread_quit function\n";
+      callQThreadQuit(F, ArgVals);
+      return;
+    }
   }
   assert((ECStack()->empty() || ECStack()->back().Caller == nullptr ||
           ECStack()->back().Caller.arg_size() == ArgVals.size()) &&
