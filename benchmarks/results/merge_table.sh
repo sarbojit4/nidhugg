@@ -1,12 +1,11 @@
 #!/bin/bash
 
-tools=("optimal" "event")
+tools=("optimal" "event" "lapormo" "lapor")
 
 declare -a bench_name
 declare -A trace
 declare -A time
 declare -A mem
-
 for i in "${!tools[@]}"
 do
     j=0
@@ -57,10 +56,10 @@ do
     do
 	line=$line" & "${time[$t,$l]}
     done
-    for t in "${!tools[@]}"
-    do
-	line=$line" & "${mem[$t,$l]}
-    done
+    #for t in "${!tools[@]}"
+    #do
+	#line=$line" & "${mem[$t,$l]}
+    #done
     line=$line" \\\\"
     echo $line >> all_merged.txt
 done        

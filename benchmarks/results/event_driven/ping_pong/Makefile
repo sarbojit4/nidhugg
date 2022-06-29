@@ -1,4 +1,4 @@
-NAME=ping_pong
+NAME=ping-pong
 FILE=event-driven/multi-handler/mat_mult.c
 N = 3 4 5 6
 

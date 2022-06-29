@@ -24,6 +24,7 @@ typedef struct int_pair{
 
 qthread_t handler[N];
 atomic_int A[M][K], B[K][N], C[M][N];
+int_pair p[M][N];
 
 atomic_int x,y;
 void mes(void *p){
@@ -65,7 +66,6 @@ int main(){
   }
 
   pthread_t t[M][N];
-  int_pair p[M][N];
   for (int i = 0; i < M; i++){
     for (int j = 0; j < N; j++){
       p[i][j].i=i;
