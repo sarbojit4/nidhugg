@@ -15,7 +15,7 @@ NIDHUGGC ?= ../../nidhuggc
 NIDHUGGCOP ?= /home/sarbojit/nidhugg/src/nidhuggc
 GENMC6 ?= ../../genmc
 SOURCE    = $(NIDHUGGC) $(1) -- -c11 -sc -source
-OPTIMAL   = $(NIDHUGGCOP) $(1) -- -sc -optimal
+OPTIMAL   = $(NIDHUGGC) $(1) -- -sc -optimal -no-assume-await
 OBSERVERS = $(NIDHUGGC) $(1) -- -c11 -sc -observers
 RFSC      = $(NIDHUGGC) $(1) -- -c11 -sc -rf
 EVENT     = $(NIDHUGGC) $(1) -- -sc -event
@@ -86,6 +86,7 @@ $(foreach tool,$(TOOLS),\
 wide.txt: $(ALL_RESULTS) $(TABULATE)
 	$(TABULATE) wide "$(NAME)" "$(TOOLS)" "$(N)" "$(NATOOLS)" \
 	  | column -t > $@
+
 
 clean:
 	rm -f *.ll *.bc *.elf $(TABLES)

@@ -108,7 +108,10 @@ case $verb in
         shift 4
         echo -ne "benchmark\tn"
         for tool in $tools $natools; do
-            echo -ne "\t${tool}_traces\t${tool}_time\t${tool}_mem"
+            echo -ne "\t${tool}_traces"
+        done
+        for tool in $tools $natools; do
+            echo -ne "\t${tool}_time"
         done
         echo ''
         for n in $N; do
@@ -118,18 +121,73 @@ case $verb in
                 traces=$(get_traces "$f")
                 if [ x"$traces" = xerr ]; then
                     err='{\error}'
-                    printf "\t%s\t%s\t%s" "$err" "$err" "$err"
+                    printf "\t%s" "$err"
                 else
-                    printf "\t%s\t%s\t%s" "$traces" $(get_time "$f") \
-                           $(get_mem "$f")
+                    printf "\t%s" "$traces"
                 fi
+            done
+            for tool in $tools; do
+                f="${tool}_${n}.txt"
+                traces=$(get_traces "$f")
+                if [ x"$traces" = xerr ]; then
+                    err='{\error}'
+                    printf "\t%s" "$err"
+                else
+                    printf "\t%s" $(get_time "$f") 
+                           
+                fi
+            done
+            for tool in $tools; do
+                f="${tool}_${n}.txt"
+                traces=$(get_traces "$f")
+                #if [ x"$traces" = xerr ]; then
+                    #err='{\error}'
+                    #printf "\t%s\t%s\t%s" "$err" "$err" "$err"
+                #else
+                    #printf "\t%s\t%s\t%s" $(get_mem "$f")
+                #fi
             done
             na='{\notavail}'
             for tool in $natools; do printf "\t%s\t%s\t%s" "$na" "$na" "$na"; done
             printf "\n"
         done
         ;;
+    all_merge)
+        arg=0
+	for dir in $@
+	do
+	    ofile=$dir/wide.txt
+	    line_no=1
+            echo $ofile
+	    while read line
+	    do
+		if [ $line_no = 1 ]; then line_no=0
+		else
+                    outline=""
+		    col_no=0
+		    for col in $line
+		    do
+			if [ $col_no = 0 ]; then
+			    bench_name="\bench{"$col
+			elif [ $col_no = 1 ]; then
+			    outline=$outline$bench_name"("$col")} & "
+			else
+			    outline=$outline" & "$col
+			fi
+		        col_no=$((col_no+1))
+		    done
+                    outline=$outline" \\\\"
+		    echo -e $outline
+		    echo $outline >> all_merged.txt
+		fi
+	    done < $ofile
+	done
+	;;
     *)
         echo "Unknown verb $verb" >&2
         exit 1
 esac
+
+
+
+

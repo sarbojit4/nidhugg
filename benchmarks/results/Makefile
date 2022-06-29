@@ -13,17 +13,21 @@ SUBDIRS =			\
 
 # T ?= all
 
+TABULATE = ./tabulate.sh
+ALL_WIDE = $(foreach tool,$(TOOLS),wide.txt)
+
 all: $(SUBDIRS)
 
 $(SUBDIRS):
 	$(MAKE) -C $@ $(T)
 
-merge:
-	bash merge_table.sh $(SUBDIRS)
+all_merged.txt: $(ALL_WIDE)
+	$(TABULATE) all_merge $(SUBDIRS)
 
 mrproper:
 	for d in $(SUBDIRS); do \
 		$(MAKE) -C$$d mrproper; \
 	done
+	rm -r all_merged.txt
 
 .PHONY: $(SUBDIRS) all mrproper
