@@ -21,6 +21,7 @@ RFSC      = $(NIDHUGGC) $(1) -- -c11 -sc -rf
 EVENT     = $(NIDHUGGC) $(1) -- -sc -event
 LAPORMO   = $(GENMC6) --lapor --mo -- $(1)
 LAPOR     = $(GENMC6) --lapor -- $(1)
+GENMC     = $(GENMC6) -- $(1)
 CDSC_DIR ?= /opt/cdschecker
 TIME = env time -f 'real %e\nres %M'
 TIMEOUT = timeout $(TIME_LIMIT)
@@ -28,7 +29,7 @@ ULIMIT = ulimit -Ss $(STACK_LIMIT) && ulimit -Sv $(MEM_LIMIT) &&
 RUN = -$(ULIMIT) $(TIMEOUT) $(TIME)
 TABULATE = ../../tabulate.sh
 
-TOOLS = optimal event lapormo 
+TOOLS = optimal event lapormo genmc
 #NATOOLS = event
 # ifneq ($(wildcard $(CDSC_DIR)/.),)
 #         TOOLS += cdsc

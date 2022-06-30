@@ -11,7 +11,7 @@
 #endif
 
 qthread_t handler;
-atomic_int price=20;
+atomic_int price=50;
 atomic_int contrib[N];
 atomic_int id[N];
 atomic_int state = 1; 
