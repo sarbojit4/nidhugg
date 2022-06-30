@@ -13,9 +13,9 @@ OPTFLAGS = -mem2reg
 CLANGFLAGS = -c -emit-llvm -g -Xclang -disable-O0-optnone $(TOOLCLANGFLAGS)
 NIDHUGGC ?= ../../nidhuggc
 NIDHUGGCOP ?= /home/sarbojit/nidhugg/src/nidhuggc
-GENMC6 ?= ../../genmc
+GENMC6 ?= ~kostis/genmc/src/genmc.v0.6.1
 SOURCE    = $(NIDHUGGC) $(1) -- -c11 -sc -source
-OPTIMAL   = $(NIDHUGGC) $(1) -- -sc -optimal -no-assume-await
+OPTIMAL   = $(NIDHUGGCOP) $(1) -- -sc -optimal -no-assume-await
 OBSERVERS = $(NIDHUGGC) $(1) -- -c11 -sc -observers
 RFSC      = $(NIDHUGGC) $(1) -- -c11 -sc -rf
 EVENT     = $(NIDHUGGC) $(1) -- -sc -event
@@ -28,7 +28,7 @@ ULIMIT = ulimit -Ss $(STACK_LIMIT) && ulimit -Sv $(MEM_LIMIT) &&
 RUN = -$(ULIMIT) $(TIMEOUT) $(TIME)
 TABULATE = ../../tabulate.sh
 
-TOOLS = optimal event lapormo lapor
+TOOLS = optimal event lapormo 
 #NATOOLS = event
 # ifneq ($(wildcard $(CDSC_DIR)/.),)
 #         TOOLS += cdsc

@@ -170,14 +170,13 @@ case $verb in
 			if [ $col_no = 0 ]; then
 			    bench_name="\bench{"$col
 			elif [ $col_no = 1 ]; then
-			    outline=$outline$bench_name"("$col")} & "
+			    outline=$outline$bench_name"("$col")}"
 			else
 			    outline=$outline" & "$col
 			fi
 		        col_no=$((col_no+1))
 		    done
                     outline=$outline" \\\\"
-		    echo -e $outline
 		    echo $outline >> all_merged.txt
 		fi
 	    done < $ofile
