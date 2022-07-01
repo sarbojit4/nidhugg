@@ -22,7 +22,6 @@ EVENT     = $(NIDHUGGC) $(1) -- -sc -event
 LAPORMO   = $(GENMC6) --lapor --mo -- $(1)
 LAPOR     = $(GENMC6) --lapor -- $(1)
 GENMC     = $(GENMC6) -- $(1)
-CDSC_DIR ?= /opt/cdschecker
 TIME = env time -f 'real %e\nres %M'
 TIMEOUT = timeout $(TIME_LIMIT)
 ULIMIT = ulimit -Ss $(STACK_LIMIT) && ulimit -Sv $(MEM_LIMIT) &&
@@ -30,12 +29,6 @@ RUN = -$(ULIMIT) $(TIMEOUT) $(TIME)
 TABULATE = ../../tabulate.sh
 
 TOOLS = optimal event lapormo genmc
-#NATOOLS = event
-# ifneq ($(wildcard $(CDSC_DIR)/.),)
-#         TOOLS += cdsc
-# else
-# 	NATOOLS += cdsc
-# endif
 
 TABLES = $(TOOLS:%=%.txt) wide.txt
 # Only for wide.txt (not including $(tool)_THREADS
@@ -49,12 +42,6 @@ all: $(TABLES) # $(BITCODE_FILES)
 code_%.ll: $(SRCDIR)/$(FILE)
 	$(CLANG) -DN=$* $(CLANGFLAGS) -o - $< | opt $(OPTFLAGS) -S -o $@
 
-# cdsc_%.elf: $(SRCDIR)/$(FILE)
-# 	$(CC) -Wl,-rpath=$(CDSC_DIR) $(OPT) -I../../cdsc_include \
-# 		-L$(CDSC_DIR) -lmodel -I$(CDSC_DIR)/include \
-# 		../../cdsc_lib/mutex.cpp -lstdc++ \
-# 		-DCDSC=1 -Dmain=user_main -pthread -DN=$* -o $@ $<
-
 define tool_template =
  $(1)_$(2).txt: $(SRCDIR)/$(FILE)
 	@date
@@ -65,11 +52,6 @@ endef
 $(foreach tool,$(filter-out $(SPECIAL_TOOLS),$(TOOLS)),\
 	$(foreach n,$(N),\
 		$(eval $(call tool_template,$(tool),$(n)))))
-
-# cdsc_%_1.txt: cdsc_%.elf
-# 	@date
-# 	$(RUN) ./$< 2>&1 | tee $@
-# cdsc.txt: $(foreach n,$(N),cdsc_$(n)_1.txt)
 
 # rfsc32_%_1.txt: rfsc_%_32.txt
 # 	cp $< $@
@@ -85,7 +67,7 @@ $(foreach tool,$(TOOLS),\
 	$(eval $(call tool_tab_template,$(tool))))
 
 wide.txt: $(ALL_RESULTS) $(TABULATE)
-	$(TABULATE) wide "$(NAME)" "$(TOOLS)" "$(N)" "$(NATOOLS)" \
+	$(TABULATE) wide "$(NAME)" "$(TOOLS)" "$(N)" \
 	  | column -t > $@
 
 
