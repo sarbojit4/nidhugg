@@ -142,9 +142,9 @@ case $verb in
                 traces=$(get_traces "$f")
                 #if [ x"$traces" = xerr ]; then
                     #err='{\error}'
-                    #printf "\t%s\t%s\t%s" "$err" "$err" "$err"
+                    #printf "\t%s" "$err"
                 #else
-                    #printf "\t%s\t%s\t%s" $(get_mem "$f")
+                    #printf "\t%s" $(get_mem "$f")
                 #fi
             done
             na='{\notavail}'
