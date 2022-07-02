@@ -104,13 +104,12 @@ case $verb in
         bench=$1
         tools=$2
         N=$3
-        natools=$4
-        shift 4
+        shift 3
         echo -ne "benchmark\tn"
-        for tool in $tools $natools; do
+        for tool in $tools; do
             echo -ne "\t${tool}_traces"
         done
-        for tool in $tools $natools; do
+        for tool in $tools; do
             echo -ne "\t${tool}_time"
         done
         echo ''
@@ -142,13 +141,11 @@ case $verb in
                 traces=$(get_traces "$f")
                 #if [ x"$traces" = xerr ]; then
                     #err='{\error}'
-                    #printf "\t%s\t%s\t%s" "$err" "$err" "$err"
+                    #printf "\t%s" "$err"
                 #else
-                    #printf "\t%s\t%s\t%s" $(get_mem "$f")
+                    #printf "\t%s" $(get_mem "$f")
                 #fi
             done
-            na='{\notavail}'
-            for tool in $natools; do printf "\t%s\t%s\t%s" "$na" "$na" "$na"; done
             printf "\n"
         done
         ;;

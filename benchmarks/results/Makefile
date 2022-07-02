@@ -16,20 +16,19 @@ SUBDIRS =			\
 # T ?= all
 
 TABULATE = ./tabulate.sh
-ALL_WIDE = $(foreach tool,$(TOOLS),wide.txt)
 
 all: $(SUBDIRS)
 
 $(SUBDIRS):
 	$(MAKE) -C $@ $(T)
 
-all_merged.txt: $(ALL_WIDE) 
+all_merged.txt: all
 	$(TABULATE) all_merge $(SUBDIRS)
 
 mrproper:
 	for d in $(SUBDIRS); do \
 		$(MAKE) -C$$d mrproper; \
 	done
-	rm -r all_merged.txt
+	rm -f all_merged.txt
 
 .PHONY: $(SUBDIRS) all mrproper
