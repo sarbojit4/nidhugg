@@ -433,10 +433,15 @@ protected:
 
   struct sleep_tree{
     IPid spid;
-    unsigned i;
     /* Start checking events from start_index of every sequence in msg_trails */
     unsigned start_index;
+    /* Events that might delete it from the sleep trees */
+    std::vector<VClock<IPid>> witness_events;
+    /* Global accesses done by the message */
     std::set<std::list<Branch>> msg_trails;
+    /* The handlers that are executing some message at the point
+       where this message is inserted in the sleep_tree */
+    std::vector<bool> handler_busy;
   };
   typedef std::map<IPid,std::set<std::list<Branch>>> done_trees_t;
   typedef std::vector<struct sleep_tree> sleep_trees_t;
@@ -513,6 +518,11 @@ protected:
      * explored traces.
      */
     uint64_t sleep_branch_trace_count;
+    bool end_of_msg() const{
+      for(const SymEv &symev : sym)
+	if(symev.is_return()) return true;
+      return false;
+    }
   };
 
   /* The fixed prefix of events in the current execution. This may be
@@ -760,10 +770,9 @@ protected:
    * from e.
    */
   void obs_sleep_add(struct obs_sleep &sleep,
-		     std::vector<IPid> &sleeping_msgs,
 		     sleep_trees_t &sleep_trees,
-		     const first_of_msgs_t &first_of_msgs,
-		     const Event &e) const;
+		     const Event &e,
+		     const std::vector<bool> &handler_busy) const;
   enum class obs_wake_res {
     CLEAR,
     CONTINUE,
@@ -778,8 +787,10 @@ protected:
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
 			      sleep_trees_t &sleep_trees, IPid p,
 			      unsigned index, VClock<IPid> clock,
-			      const sym_ty &sym,
-			      const first_of_msgs_t &first_of_msgs) const;
+			      const sym_ty &sym) const;
+  void update_witness_sets(unsigned, bool, IPid, const VClock<IPid> &,
+			   sleep_trees_t &,
+			   std::vector<std::vector<bool>> &) const;
   /* Performs the second half of a sleep set step, removing sleepers that
    * were identified as waking after event e.
    *
@@ -793,24 +804,21 @@ protected:
    */
   void obs_sleep_wake(struct obs_sleep &sleep,
 		      sleep_trees_t &sleep_trees,
-		      const Event &e,
-		      const first_of_msgs_t &first_of_msgs) const;
+		      const Event &e) const;
   std::map<IPid, std::vector<unsigned>>
   mark_sleepset_clearing_events(std::vector<Branch> &v,
 				struct obs_sleep sleep,
-				sleep_trees_t sleep_trees,
-			        first_of_msgs_t first_of_msgs);
-  void race_detect_optimal(const Race&,
+				sleep_trees_t sleep_trees);
+  void race_detect_optimal(unsigned, const Race&,
 			   const struct obs_sleep&,
-			   const std::vector<IPid>&,
 			   const sleep_trees_t &,
-			   first_of_msgs_t, unsigned);
+			   std::vector<std::vector<bool>>);
   void delete_matching_events(std::vector<Branch> &v, unsigned child_size,
 			      std::vector<Branch>::iterator vei);
 
-  void insert_WS(std::vector<Branch> &v, unsigned i,
-		 struct obs_sleep sleep, sleep_trees_t sleep_trees,
-		 first_of_msgs_t first_of_msgs);
+  void insert_WS(std::vector<Branch> &v, unsigned i, struct obs_sleep sleep,
+		 sleep_trees_t sleep_trees, std::vector<std::vector<bool>>
+		 busy_n_hap_aft_witness);
   bool reordering_possible(std::vector<Branch> &v, unsigned last_event,
 			   std::vector<VClock<IPid>> clk_fst_of_msgs);
   bool conflict_with_rest_of_msg(unsigned j, const Branch &child,
@@ -840,10 +848,9 @@ protected:
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
                              const struct obs_sleep &sleep,
-			     const std::vector<IPid> &sleeping_msgs,
 			     const sleep_trees_t &sleep_tree,
-			     const std::map<IPid, std::vector<IPid>> &eoms,
-			     first_of_msgs_t &first_of_msgs) const;
+			     std::vector<std::vector<bool>>
+			     busy_n_hap_aft_witness) const;
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);

@@ -3167,7 +3167,8 @@ void Interpreter::callQThreadCreate(Function *F,
     int new_tid = Threads.size();
     GenericValue *Ptr = (GenericValue*)GVTOP(ArgVals[0]);
     if(Ptr){
-      Type *ity = static_cast<PointerType*>(F->arg_begin()->getType())->getElementType();
+      Type *ity = static_cast<PointerType*>(F->arg_begin()->getType())
+	->getPointerElementType();
       GenericValue TIDVal = tid_to_pthread_t(ity,new_tid);
       StoreValueToMemory(TIDVal,Ptr,ity);
     }else{
