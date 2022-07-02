@@ -211,7 +211,7 @@ void PSOTraceBuilder::mark_unavailable(int proc, int aux){
 }
 
 bool PSOTraceBuilder::is_available(int proc, int aux){
-  return threads[proc*2].available;
+  return true; // Not supported
 }
 
 bool PSOTraceBuilder::is_replaying() const {

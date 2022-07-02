@@ -237,7 +237,7 @@ void TSOTraceBuilder::mark_unavailable(int proc, int aux){
 }
 
 bool TSOTraceBuilder::is_available(int proc, int aux){
-  return threads[ipid(proc,aux)].available;
+  return true; // Not supported
 }
 
 bool TSOTraceBuilder::is_replaying() const {
@@ -400,8 +400,9 @@ IID<CPid> TSOTraceBuilder::get_iid(unsigned i) const{
 }
 
 int TSOTraceBuilder::get_spid(int pid){
-  CPid cpid = threads[pid*2].cpid;
-  return (SPS.get_spid(cpid))/2;
+  // CPid cpid = threads[pid*2].cpid;
+  // return (SPS.get_spid(cpid))/2;
+  return pid;
 }
 
 static std::string rpad(std::string s, int n){
