@@ -941,9 +941,11 @@ void Interpreter::returnValueToCaller(Type *RetTy,
 }
 
 void Interpreter::visitReturnInst(ReturnInst &I) {
-  if(!TB.returnev()){
-    abort();
-    return;
+  if(ECStack()->size() == 1){
+    if(!TB.returnev()){
+      abort();
+      return;
+    }
   }
   ExecutionContext &SF = ECStack()->back();
   Type *RetTy = Type::getVoidTy(I.getContext());
