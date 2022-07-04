@@ -174,7 +174,9 @@ public:
     }
     else spid_to_ipid[cpid_to_spid[cpid]] = ipid;
   }
+  unsigned num_of_threads() const{ return 2*spid_to_ipid.size(); }
 private:
+  /* Auxiliary threads also have spids */ 
   std::map<CPid,int> cpid_to_spid;
   std::map<int,int> spid_to_ipid;
 };

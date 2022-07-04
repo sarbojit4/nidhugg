@@ -1522,10 +1522,8 @@ update_witness_sets(unsigned index, bool end_of_msg, IPid handler,
       for(auto &slp_tree : sleep_trees){
 	if(handler == threads[SPS.get_pid(slp_tree.spid)].handler_id)
 	  slp_tree.witness_events.push_back(clock);
-	for(auto e : slp_tree.witness_events){
-	  if(busy_n_hap_aft_witness[slp_tree.spid][handler])
-	    slp_tree.witness_events.push_back(clock);
-	}
+	if(busy_n_hap_aft_witness[slp_tree.spid][handler])
+	  slp_tree.witness_events.push_back(clock);
       }
     } else if(end_of_msg){
       for(auto &slp_tree : sleep_trees)
@@ -2459,10 +2457,10 @@ void EventTraceBuilder::do_race_detect() {
   /* Do race detection */
   struct obs_sleep sleep;
   sleep_trees_t sleep_trees;
-  std::vector<bool> handler_busy(threads.size(), false);
+  std::vector<bool> handler_busy(SPS.num_of_threads(), false);
   std::vector<std::vector<bool>>
-    busy_n_hap_aft_witness(threads.size(),
-			   std::vector<bool>(threads.size(), false));
+    busy_n_hap_aft_witness(SPS.num_of_threads(),
+			   std::vector<bool>(SPS.num_of_threads(), false));
   for (unsigned i = 0; i < races.size(); ++i){
     IPid ipid = prefix[i].iid.get_pid();
     unsigned index = prefix[i].iid.get_index();
