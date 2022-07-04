@@ -2612,7 +2612,8 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
            * drop all events in child_it.branch() from v.
            */
 	  delete_matching_events(v, child_it.branch().size, vei);
-          if(child_handler != -1 && child_it.branch().index == 1){
+          if(!clk_fst_of_msgs.empty() && child_handler != -1 &&
+	     child_it.branch().index == 1){
 	    if(partial_msg){
 	      /* delete the messages in the same handler before the current message */
 	      /* and the events that are happening after them */
