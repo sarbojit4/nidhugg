@@ -6,6 +6,7 @@ SUBDIRS =			\
 	event_driven/multilevel_race 	\
 	event_driven/nR+nR 	\
 	event_driven/n_msgs_nW+nR 	\
+	event_driven/mat_mult 	    \
 	event_driven/ping_pong 	    \
 	event_driven/consensus
 
