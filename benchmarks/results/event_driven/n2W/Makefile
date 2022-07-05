@@ -1,5 +1,5 @@
 NAME=n2W
 FILE=event-driven/non-atomic/2nW.c
-N = 2 4 8
+N = 4 6 8
 
 include ../../benchmarks.mk
