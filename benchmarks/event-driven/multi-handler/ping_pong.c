@@ -35,7 +35,7 @@ void ping_msg(void *msg_ptr){
 
 void *pong_func(void *i){
   qthread_exec();
-  return 0;
+  return NULL;
 }
 
 void *init(void *i){
