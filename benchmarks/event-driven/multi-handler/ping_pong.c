@@ -34,11 +34,14 @@ void *pong_func(void *i){
   return 0;
 }
 
-void *ping_func(void *i){
+void *init(void *i){
   for (int i = 0; i < N; i++){
     msg[i] = i;
     qthread_post_event(pong, &ping_msg, &msg[i]);
   }
+}
+
+void *ping_func(void *i){
   qthread_exec();
   return 0;
 }
@@ -50,5 +53,8 @@ int main() {
   qthread_create(&pong, &pong_func, NULL);
   qthread_start(ping);
   qthread_start(pong);
+  pthread_t t;
+  pthread_create(&t, NULL, &init, NULL);
+  pthread_join(t,NULL);
   return 0;
 }
