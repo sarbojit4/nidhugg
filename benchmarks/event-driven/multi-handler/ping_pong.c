@@ -18,20 +18,24 @@ void __VERIFIER_assume(int truth);
 
 void pong_msg(void *msg_ptr){
   atomic_int this_msg = *((atomic_int *)msg_ptr);
-  __VERIFIER_assume(last_pong_msg < this_msg);
-  atomic_store_explicit(&last_pong_msg, this_msg, memory_order_seq_cst);
+  if(last_pong_msg < this_msg){
+    atomic_store_explicit(&last_pong_msg, this_msg, memory_order_seq_cst);
+  } else 
+    atomic_store_explicit(&last_pong_msg, N+1, memory_order_seq_cst);
 }
 
 void ping_msg(void *msg_ptr){
   atomic_int this_msg = *((atomic_int *)msg_ptr);
-  __VERIFIER_assume(last_ping_msg < this_msg);
-  atomic_store_explicit(&last_ping_msg, this_msg, memory_order_seq_cst);
-  qthread_post_event(ping, &pong_msg, msg_ptr);
+  if(last_ping_msg < this_msg){
+    atomic_store_explicit(&last_ping_msg, this_msg, memory_order_seq_cst);
+    qthread_post_event(ping, &pong_msg, msg_ptr);
+  } else
+    atomic_store_explicit(&last_ping_msg, N+1, memory_order_seq_cst);
 }
 
 void *pong_func(void *i){
   qthread_exec();
-  return NULL;
+  return 0;
 }
 
 void *init(void *i){
