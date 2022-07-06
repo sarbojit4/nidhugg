@@ -4,25 +4,27 @@
 #include <assert.h>
 #include "qthread.h"
 
-//N! traces
 #ifndef N
-#  warning "N was not defined; defining it as 5"
-#  define N 5
+#  warning "N was not defined"
+#  define N 4
 #endif
 
 qthread_t handler;
 atomic_int x = -1;
 
-void __VERIFIER_assume(intptr_t);
-
 void mes(void *j){
   int i = (intptr_t)j;
-  x = i;
-  assert(x == i);
+  x = i*2+1;
+  assert(x == i*2+1);
 }
-
+void mespost(void *j){
+  int i = (intptr_t)j;
+  x = i*2;
+  qthread_post_event(handler, &mes, j);
+  assert(x == i*2);
+}
 void *th_post(void *i){
-  qthread_post_event(handler, &mes, i); 
+  qthread_post_event(handler, &mespost, i); 
   return 0;
 }
 
@@ -33,7 +35,6 @@ void *handler_func(void *i){
 
 int main(){
   pthread_t t[N];
-
   qthread_create(&handler, &handler_func, NULL);
   qthread_start(handler);
   for (int i = 0; i < N; i++){
