@@ -1,5 +1,5 @@
 NAME=ping-pong
 FILE=event-driven/multi-handler/ping_pong.c
-N = 3 4 5
+N = 6 7 8
 
 include ../../benchmarks.mk
