@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <assert.h>
 #include "qthread.h"
 
 #ifndef N
@@ -9,29 +10,21 @@
 #endif
 
 qthread_t handler;
-atomic_int x;
-atomic_int y;
+atomic_int x = -1;
 
 void mes(void *j){
-  atomic_store_explicit(&x, 2, memory_order_seq_cst);
-}
-void mes1(void *j){
-  atomic_store_explicit(&x, 2, memory_order_seq_cst);
+  int i = (intptr_t)j;
+  x = i*2+1;
+  assert(x == i*2+1);
 }
 void mespost(void *j){
-  atomic_store_explicit(&x, 2, memory_order_seq_cst);
-  qthread_post_event(handler, &mes, j); 
-}
-void mespost1(void *j){
-  atomic_store_explicit(&x, 2, memory_order_seq_cst);
-  qthread_post_event(handler, &mes1, j); 
+  int i = (intptr_t)j;
+  x = i*2;
+  qthread_post_event(handler, &mes, j);
+  assert(x == i*2);
 }
 void *th_post(void *i){
   qthread_post_event(handler, &mespost, i); 
-  return 0;
-}
-void *th_post1(void *i){
-  qthread_post_event(handler, &mespost1, i); 
   return 0;
 }
 
@@ -44,11 +37,10 @@ int main(){
   pthread_t t[N];
   qthread_create(&handler, &handler_func, NULL);
   qthread_start(handler);
-  for (int i = 0; i < N-1; i++){
-    pthread_create(&t[i], NULL, &th_post, NULL);
+  for (int i = 0; i < N; i++){
+    pthread_create(&t[i], NULL, &th_post, (void*)(intptr_t)i);
   }
-  pthread_create(&t[N-1], NULL, &th_post1, NULL);
-  for (int i = 0; i < N-1; i++){
+  for (int i = 0; i < N; i++){
     pthread_join(t[i], NULL);
   }
 }

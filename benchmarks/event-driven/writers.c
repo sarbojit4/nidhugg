@@ -11,13 +11,14 @@
 #endif
 
 qthread_t handler;
-atomic_int x;
+atomic_int x = -1;
 
 void __VERIFIER_assume(intptr_t);
 
 void mes(void *j){
-  atomic_store_explicit(&x, 2, memory_order_seq_cst);
-  assert(x == 2);
+  int i = (intptr_t)j;
+  x = i;
+  assert(x == i);
 }
 
 void *th_post(void *i){
@@ -36,7 +37,7 @@ int main(){
   qthread_create(&handler, &handler_func, NULL);
   qthread_start(handler);
   for (int i = 0; i < N; i++){
-    pthread_create(&t[i], NULL, &th_post, NULL);
+    pthread_create(&t[i], NULL, &th_post, (void*)(intptr_t)i);
   }
   for (int i = 0; i < N; i++){
     pthread_join(t[i], NULL);
