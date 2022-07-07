@@ -1,14 +1,12 @@
 SUBDIRS =			\
-	event_driven/2_phase_commit \
-	event_driven/n_buyers 	    \
-	event_driven/nW 	\
-	event_driven/2nW 	\
-	event_driven/multilevel_race 	\
-	event_driven/nR+nR 	\
-	event_driven/n_msgs_nW+nR 	\
-	event_driven/mat_mult 	    \
-	event_driven/ping_pong 	    \
-	event_driven/consensus
+	event_driven/writers 	\
+	event_driven/writers-posters 	\
+	event_driven/buyers 	    \
+	event_driven/ping-pong 	    \
+	event_driven/2PC \
+	event_driven/consensus \
+	event_driven/prolific-writers 	\
+	event_driven/mat-mult
 
 # T ?= all
 
