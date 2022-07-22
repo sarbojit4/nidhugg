@@ -132,3 +132,12 @@ bug_after_1k_power Allow : 1716
 
 # Total number of traces: 1116
 # Total running time: 9.51 s
+
+#Event test
+2PC Forbid : 240
+buyers Forbid : 120
+consensus Forbid : 4
+mat-mult Forbid : 1
+ping-pong Forbid : 13
+writers-posters Forbid : 2520
+writers Forbid : 120

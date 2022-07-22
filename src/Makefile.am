@@ -74,7 +74,6 @@ unittest_SOURCES = \
   CPid_test.cpp \
   DPORDriver_test.cpp DPORDriver_test.h \
   DryRun_test.cpp \
-  EvntDriv_test.cpp \
   FBVClock_test.cpp \
   GenMap_test.cpp \
   GenVector_test.cpp \
