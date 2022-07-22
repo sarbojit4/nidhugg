@@ -26,12 +26,12 @@ void mespost(void *j){
 }
 void *th_post(void *i){
   qthread_post_event(handler, &mespost, i); 
-  return 0;
+  return NULL;
 }
 
 void *handler_func(void *i){ 
   qthread_exec();
-  return 0;
+  return NULL;
 }
 
 int main(){
