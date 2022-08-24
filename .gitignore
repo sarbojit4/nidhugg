@@ -25,6 +25,8 @@ configure
 depcomp
 install-sh
 missing
+update_tags.sh
+TAGS
 src/.deps
 src/Makefile.in
 stamp-*
