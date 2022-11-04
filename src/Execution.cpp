@@ -3719,7 +3719,7 @@ void Interpreter::run() {
   bool rerun = false;
   bool was_following_WS = TB.is_following_WS();
   while(rerun || TB.schedule(&CurrentThread,&aux,&CurrentAlt,&DryRun)){
-    //if(!DryRun) llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";////////////
+    // if(!DryRun) llvm::dbgs()<<"Scheduling thread "<<CurrentThread<<"\n";////////////
     assert(0 <= CurrentThread && CurrentThread < int_fast64_t(Threads.size()));
     /* Check if scheduled thread is possible to execute */
     if(!TB.is_available(CurrentThread)){

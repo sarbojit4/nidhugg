@@ -2473,7 +2473,7 @@ void EventTraceBuilder::do_race_detect() {
     IPid ipid = prefix[i].iid.get_pid();
     unsigned index = prefix[i].iid.get_index();
     IPid handler = threads[ipid].handler_id;
-    //llvm::dbgs()<<i<<"\n";//////////////
+    // llvm::dbgs()<<i<<"\n";//////////////
     obs_sleep_add(sleep, sleep_trees, prefix[i], handler_busy);
     no_of_pending_WSs -= prefix.branch(i).pending_WSs.size();
 
@@ -2596,7 +2596,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	      if(!v[j].is_ret_stmt()){
 		if(partial_msg || !leftmost_branch){
 		  auto res = child_it.branch().pending_WSs.insert(std::move(v));
-		  //llvm::dbgs()<<child_it.branch().spid<<","<<child_it.branch().index<<"Parkq\n";//////////////
+		  // llvm::dbgs()<<child_it.branch().spid<<","<<child_it.branch().index<<"Parkq\n";//////////////
 		  if(res.second) no_of_pending_WSs++;
 		  return;
 		}
@@ -2620,7 +2620,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
            * drop all events in child_it.branch() from v.
            */
 	  delete_matching_events(v, child_it.branch().size, vei);
-          if(!clk_fst_of_msgs.empty() && child_handler != -1 &&
+	  if(!clk_fst_of_msgs.empty() && child_handler != -1 &&
 	     child_it.branch().index == 1){
 	    if(partial_msg){
 	      /* delete the messages in the same handler before the current message */
@@ -2651,10 +2651,11 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	      v.insert(v.begin(), msg.begin(), msg.end());
 	    }
 	  }
+	  if(v.size() == 0) return; // after deleting multiple events, 
           break;
         } else if (child_handler != -1 && child_it.branch().index == 1){
 	  if(threads[SPS.get_pid(ve.spid)].handler_id == child_handler){
-	  /* This branch is incompatible, try the next */
+	    /* This branch is incompatible, try the next */
 	    if(!partial_msg){
 	      if(ve.clock.lt(clk_lst_msg_event)){
 	    	leftmost_branch = false;
@@ -2673,9 +2674,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 		  //put the message in the sleep trees
 		  std::list<Branch> explored_trail;
 		  for(auto eit = threads[SPS.get_pid(child_it.branch().spid)].
-			         event_indices.begin();
+			event_indices.begin();
 		      eit != threads[SPS.get_pid(child_it.branch().spid)].
-			     event_indices.end();){
+			event_indices.end();){
 		    if(prefix.branch(*eit).access_global())
 		      explored_trail.push_back(branch_with_symbolic_data(*eit));
 		    eit += prefix.branch(*eit).size;
@@ -2727,6 +2728,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
           skip = NEXT;
         }
       }
+
       if (skip == NEXT) {
 	//Update sleep trees and sleepset
 	if (child_handler != -1 && child_it.branch().index == 1){
@@ -2809,26 +2811,26 @@ void EventTraceBuilder::
 			 std::vector<Branch>::iterator vei){
   Branch ve = *vei;
   if (ve.size < child_size) {
-  /* child_it.branch() contains more events than just ve.
-   * We need to scan v to find all of them.
-   */
-  int missing = child_size - ve.size;
-  int spid = ve.spid;
-  for (auto vri = v.erase(vei); missing != 0 && vri != v.end();) {
-    if (vri->spid == spid) {
-      assert(vri->sym.empty());
-      if (vri->size > missing) {
-	vri->size = missing;
-	missing = 0;
-	break;
+    /* child_it.branch() contains more events than just ve.
+     * We need to scan v to find all of them.
+     */
+    int missing = child_size - ve.size;
+    int spid = ve.spid;
+    for (auto vri = v.erase(vei); missing != 0 && vri != v.end();) {
+      if (vri->spid == spid) {
+	assert(vri->sym.empty());
+	if (vri->size > missing) {
+	  vri->size = missing;
+	  missing = 0;
+	  break;
+	} else {
+	  missing -= vri->size;
+	  vri =  v.erase(vri);
+	}
       } else {
-	missing -= vri->size;
-	vri =  v.erase(vri);
+	++vri;
       }
-    } else {
-      ++vri;
     }
-  }
   } else if (ve.size > child_size) {
     /* ve is larger than child_it.branch(). Delete the common prefix from ve. */
     vei->size -= child_size;
