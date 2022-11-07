@@ -569,7 +569,10 @@ void EventTraceBuilder::wut_string_add_node
     }
     iid_map_step_rev(iid_map, b);
     while(lines[l].size() < offset) lines[l] += " ";
+    //if(b.index != iid_map[b.spid]) lines[l]+="----w";////////////////
+    assert(b.index == iid_map[b.spid]);
     lines[l] += " " + iid_string(b, iid_map[b.spid]);
+
     nodes.pop_back();
   }
 }
@@ -3184,10 +3187,11 @@ linearize_sequence(unsigned br_point, Branch second_br,
   /* Do topological sort on the wakeup_sequence */
   std::vector<bool> visited(prefix.len(),false), visiting(prefix.len(),false);
   std::vector<unsigned> sorted_seq;
+  std::vector<unsigned> curr_msg(threads.size(), 0);
   for(unsigned i = br_point; i < prefix.len(); i++){
     if(in_v[i] && !visited[i]){
       if(visit_event(br_point,i,in_v,trace,
-		     visiting,visited,sorted_seq) == false){
+		     visiting,visited,sorted_seq,curr_msg) == false){
 	llvm::dbgs()
 	  << "Linearize WS failsed: as cycle in the wakeup sequence.\n";
         exit(1);
@@ -3201,7 +3205,9 @@ linearize_sequence(unsigned br_point, Branch second_br,
       continue;
     }
     for(auto it = trace[*s_it].begin(); it != trace[*s_it].end();it++){
-      if(!in_v[*it]){
+      if(threads[prefix[*it].iid.get_pid()].event_indices.back() != *it &&
+	 !in_v[*it]){
+	in_v[*s_it] = false;
 	s_it = sorted_seq.erase(s_it);
 	s_it--;
 	break;
@@ -3223,19 +3229,35 @@ bool EventTraceBuilder::
 visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
 	    std::vector<std::set<unsigned>> &trace,
 	    std::vector<bool> &visiting, std::vector<bool> &visited,
-	    std::vector<unsigned> &sorted_seq) const{
+	    std::vector<unsigned> &sorted_seq,
+	    std::vector<unsigned> &curr_msg) const{
   if(visiting[i] == true) return false;
   visiting[i] = true;
+  IPid handler = threads[prefix[i].iid.get_pid()].handler_id;
+  if(handler != -1 && curr_msg[handler] != 0 &&
+     curr_msg[handler] != prefix[i].iid.get_pid()){
+    unsigned last_of_curr_msg = threads[curr_msg[handler]].event_indices.back();
+    if(last_of_curr_msg >= br_point && !visited[last_of_curr_msg] &&
+       !visit_event(br_point,last_of_curr_msg,in_v,trace,
+		    visiting,visited,sorted_seq,curr_msg)){
+      visiting[i] = false;
+      return false;
+    }
+  }
+  if(handler != -1) curr_msg[handler] = prefix[i].iid.get_pid();
   for(auto it = trace[i].begin(); it != trace[i].end();){
-    if(in_v[*it] == false){
+    if(in_v[*it] == false &&
+       threads[prefix[*it].iid.get_pid()].event_indices.back() == *it){
       visiting[i] = false;
       in_v[i] = false;
       return true;
     } else if(*it >= br_point && !visited[*it]){
-      if(visit_event(br_point,*it,in_v,trace,visiting,visited,sorted_seq)
-	 == false){
+      if(!visit_event(br_point,*it,in_v,trace,visiting,
+		      visited,sorted_seq,curr_msg)){
 	visiting[i] = false;
-	if((*it) <= i) return false;
+	if((*it) <= i){
+	  return false;
+	}
 	else{// Is it always a message	  
 	  IPid pid = prefix[*it].iid.get_pid();
 	  in_v[threads[pid].event_indices.front()] = false;
@@ -3248,6 +3270,8 @@ visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
   visiting[i] = false;
   visited[i] = true;
   sorted_seq.push_back(i);
+  if(handler != -1 && threads[prefix[i].iid.get_pid()].event_indices.back() == i)
+    curr_msg[handler] = 0;
   return true;
 }
 

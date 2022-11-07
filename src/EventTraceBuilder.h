@@ -838,7 +838,8 @@ protected:
   bool visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
 		   std::vector<std::set<unsigned>> &trace,
 		   std::vector<bool> &visiting, std::vector<bool> &visited,
-		   std::vector<unsigned> &sorted_seq) const;
+		   std::vector<unsigned> &sorted_seq,
+		   std::vector<unsigned> &curr_msg) const;
   void recompute_vclock(const std::vector<bool> &in_v,
 			std::vector<VClock<IPid>> &clock_WS,
 			std::vector<std::set<unsigned>> &trace,
