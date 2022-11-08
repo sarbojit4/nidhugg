@@ -2545,6 +2545,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
   bool leftmost_branch = true;
   VClock<IPid> second_br_clock = v.back().clock;
   std::vector<bool> handler_busy(threads.size(), false);
+  std::vector<unsigned> curr_msg(threads.size(), 0);
   while(1) {
     if (!node.size()) {
       /* node is a leaf. That means that an execution that will explore the
@@ -2773,6 +2774,14 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       		     child_it.branch().index, child_it.branch().clock,
       		     child_it.branch().sym);
       node = child_it.node();
+      if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1){
+	if(curr_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] != 0){
+	  if(child_it.branch().is_ret_stmt())
+	    curr_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] = 0;
+	} else if(child_it.branch().index == 1)
+	  curr_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] =
+	    child_it.branch().spid;
+      }
       skip = RECURSE;
       break;
 
@@ -2796,6 +2805,9 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       // llvm::dbgs()<<"Redundant\n";/////////////////
       return;
     }
+    assert(threads[SPS.get_pid(v.front().spid)].handler_id == -1 ||
+	   curr_msg[threads[SPS.get_pid(v.front().spid)].handler_id] == 0 ||
+	   curr_msg[threads[SPS.get_pid(v.front().spid)].handler_id] == v.front().spid);
     for (Branch &ve : v) {
       if (conf.dpor_algorithm == Configuration::OBSERVERS)
         clear_observed(ve.sym);
