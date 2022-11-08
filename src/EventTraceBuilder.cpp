@@ -3205,7 +3205,7 @@ linearize_sequence(unsigned br_point, Branch second_br,
       if(visit_event(br_point,i,in_v,trace,
 		     visiting,visited,sorted_seq,curr_msg) == false){
 	llvm::dbgs()
-	  << "Linearize WS failsed: as cycle in the wakeup sequence.\n";
+	  << "Linearize WS failed: as cycle in the wakeup sequence.\n";
         exit(1);
       }
     }
@@ -3256,7 +3256,6 @@ visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
       return false;
     }
   }
-  if(handler != -1) curr_msg[handler] = prefix[i].iid.get_pid();
   for(auto it = trace[i].begin(); it != trace[i].end();){
     if(in_v[*it] == false &&
        threads[prefix[*it].iid.get_pid()].event_indices.back() == *it){
@@ -3282,8 +3281,12 @@ visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
   visiting[i] = false;
   visited[i] = true;
   sorted_seq.push_back(i);
-  if(handler != -1 && threads[prefix[i].iid.get_pid()].event_indices.back() == i)
-    curr_msg[handler] = 0;
+  if(handler != -1){
+    if(prefix[i].iid.get_index() == 1)
+      curr_msg[handler] = prefix[i].iid.get_pid();
+    else if(threads[prefix[i].iid.get_pid()].event_indices.back() == i)
+      curr_msg[handler] = 0;
+  }
   return true;
 }
 
