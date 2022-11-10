@@ -2107,38 +2107,50 @@ void EventTraceBuilder::compute_vclocks(){
       for (auto it = end; it != oldend; ++it){
         if (it->kind == Race::LOCK_SUC){
           prefix[i].clock += prefix[it->unlock_event].clock;
+	  add_happens_after(i, it->unlock_event);
 	  changed = true;
-        }
-	if (it->kind == Race::MSG_REV){
+        } else if (it->kind == Race::MSG_REV){
 	  int last_of_fst = threads[prefix[it->first_event].iid.get_pid()].
 	    event_indices.back();
           prefix[i].clock += prefix[last_of_fst].clock;
+	  add_happens_after(i, last_of_fst);
 	  changed = true;
-        }
+        } else{
+	  for (const SymEv &fe : prefix[it->first_event].sym)
+	    for (const SymEv &se : prefix[it->second_event].sym)
+	      if(do_symevs_conflict(it->first_event, fe, it->second_event, se))
+		add_happens_after(it->second_event, it->first_event);
+	}
       }
     } while (changed);
     /* Then filter out subsumed */
     auto fill = end;
-      fill = frontier_filter
-	(first_pair, end,
-	 [this](const Race &f, const Race &s){
-	   /* A virtual event does not contribute to the vclock and cannot
-	    * subsume races. */
-	   if (s.kind == Race::LOCK_FAIL) return false;
-	   /* Also filter out observed races with nonfirst witness */
-	   if (f.kind == Race::OBSERVED && s.kind == Race::OBSERVED
-	       && f.first_event == s.first_event
-	       && f.second_event == s.second_event){
-	     /* N.B. We want the _first_ observer as the witness; thus
-	      * the reversal of f and s.
-	      */
-	     return s.witness_event <= f.witness_event;
-	   }
-	   int last_of_s = threads[prefix[s.first_event].iid.get_pid()].event_indices.back();
-	   int se = s.kind == Race::LOCK_SUC ? s.unlock_event :
-	     Race::MSG_REV ? last_of_s : s.first_event;
-	   return prefix[f.first_event].clock.leq(prefix[se].clock);
-	 });
+    fill = frontier_filter
+      (first_pair, end,
+       [this](const Race &f, const Race &s){
+	 /* A virtual event does not contribute to the vclock and cannot
+	  * subsume races. */
+	 if (s.kind == Race::LOCK_FAIL) return false;
+	 /* Also filter out observed races with nonfirst witness */
+	 if (f.kind == Race::OBSERVED && s.kind == Race::OBSERVED
+	     && f.first_event == s.first_event
+	     && f.second_event == s.second_event){
+	   /* N.B. We want the _first_ observer as the witness; thus
+	    * the reversal of f and s.
+	    */
+	   return s.witness_event <= f.witness_event;
+	 }
+	 int last_of_s = threads[prefix[s.first_event].iid.get_pid()].event_indices.back();
+	 int se = s.kind == Race::LOCK_SUC ? s.unlock_event :
+	   Race::MSG_REV ? last_of_s : s.first_event;
+	 return prefix[f.first_event].clock.leq(prefix[se].clock);
+       });
+    for(auto it = fill; it != end; ++it){
+        for (const SymEv &fe : prefix[it->first_event].sym)
+	  for (const SymEv &se : prefix[it->second_event].sym)
+	    if(do_symevs_conflict(it->first_event, fe, it->second_event, se))
+	      add_happens_after(it->second_event, it->first_event);	      
+    }
     /* Add clocks of remaining (reversible) races */
     for (auto it = first_pair; it != fill; ++it){
       if (it->kind == Race::LOCK_SUC){
@@ -3152,7 +3164,7 @@ linearize_sequence1(std::vector<Branch> &v,
     if(threads[SPS.get_pid(v[k].spid)].handler_id != -1){
       if(curr_msg[threads[SPS.get_pid(v[k].spid)].handler_id] != 0 &&
 	 curr_msg[threads[SPS.get_pid(v[k].spid)].handler_id] != v[k].spid){
-  	linearized = false;
+	linearized = false;
   	break;
       }
       curr_msg[threads[SPS.get_pid(v[k].spid)].handler_id] = v[k].spid;
