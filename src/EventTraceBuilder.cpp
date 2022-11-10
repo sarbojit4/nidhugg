@@ -2819,7 +2819,21 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
     }
     assert(threads[SPS.get_pid(v.front().spid)].handler_id == -1 ||
 	   curr_msg[threads[SPS.get_pid(v.front().spid)].handler_id] == 0 ||
-	   curr_msg[threads[SPS.get_pid(v.front().spid)].handler_id] == v.front().spid);
+	   curr_msg[threads[SPS.get_pid(v.front().spid)].handler_id] ==
+	   v.front().spid);
+    for (Branch &ve : v) {
+      if(threads[SPS.get_pid(ve.spid)].handler_id != -1){
+	if(curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] != 0){
+	  if(ve.is_ret_stmt())
+	    curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] = 0;
+	} else if(ve.index == 1)
+	  curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] = ve.spid;
+      }
+      if(curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] != 0 &&
+	 curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] != ve.spid){
+	exit(1);
+      }
+    }
     for (Branch &ve : v) {
       if (conf.dpor_algorithm == Configuration::OBSERVERS)
         clear_observed(ve.sym);
