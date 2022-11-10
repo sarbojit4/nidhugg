@@ -3047,6 +3047,7 @@ bool EventTraceBuilder::
 linearize_sequence1(std::vector<Branch> &v,
 		    const VClock<IPid> &second_br_clock,
 		    std::map<IPid, std::vector<unsigned>> clear_set) const{
+  unsigned old_size = v.size();
   /* partial_msg[k] = true iff k is partial in v */ 
   bool partial_msg[threads.size()];
   int first_of_msgs[threads.size()];
@@ -3174,6 +3175,7 @@ linearize_sequence1(std::vector<Branch> &v,
     }
   }
   if(!linearized){
+    if(old_size <= v.size()) return false;
     linearize_sequence1(v, second_br_clock, clear_set);
   }
   return true;
