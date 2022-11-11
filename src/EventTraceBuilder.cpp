@@ -2440,11 +2440,22 @@ void EventTraceBuilder::do_race_detect() {
   for (const Race &r : lock_fail_races) races[r.first_event].push_back(&r);
   for (unsigned i = 0; i < prefix.len(); ++i){
     auto special_case1 = [this](IPid handler, unsigned fst, unsigned sec){
+                          VClock<IPid> pre = prefix[sec].clock;
+			  IPid snd_handler =
+			    threads[prefix[sec].iid.get_pid()].handler_id;
+                          for(unsigned k = sec-1; k > fst; k--){
+			    IPid pid = prefix[k].iid.get_pid();
+			    if(threads[pid].handler_id == snd_handler &&
+			       threads[pid].event_indices.back() == k &&
+			       threads[pid].event_indices.front() < fst)
+			      pre += prefix[k].clock;
+			  }
 			  for(unsigned k = fst+1; k < sec; k++){
 			    IPid pid = prefix[k].iid.get_pid();
+			    
 			    if(prefix[k].iid.get_index() == 1 &&
 			       threads[pid].handler_id == handler &&
-			       prefix[k].clock.lt(prefix[sec].clock)){
+			       prefix[k].clock.lt(pre)){
 			      return true;
 			    }
 			  }
@@ -2466,10 +2477,12 @@ void EventTraceBuilder::do_race_detect() {
       IPid spid = prefix[r.second_event].iid.get_pid();
       if(r.kind==Race::MSG_REV) races[r.first_event].push_back(&r);
       else if(threads[fpid].handler_id != -1 &&
-         special_case1(threads[fpid].handler_id,r.first_event,r.second_event))
+	      threads[fpid].handler_id != threads[spid].handler_id &&
+	      special_case1(threads[fpid].handler_id,r.first_event,r.second_event))
 	races[threads[fpid].event_indices.front()].push_back(&r);
 	      
       else if(threads[fpid].handler_id != -1 &&
+	      threads[fpid].handler_id != threads[spid].handler_id &&
 	      special_case2(threads[spid].handler_id,r.first_event,r.second_event))
 	continue;
       else races[r.first_event].push_back(&r);
