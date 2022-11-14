@@ -6,6 +6,7 @@ SUBDIRS =			\
 	event_driven/2PC \
 	event_driven/consensus \
 	event_driven/prolific-writers 	\
+	event_driven/db-cache \
 	event_driven/mat-mult
 
 # T ?= all

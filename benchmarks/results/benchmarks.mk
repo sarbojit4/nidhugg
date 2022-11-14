@@ -1,6 +1,6 @@
 SHELL = /bin/bash -o pipefail
 
-TIME_LIMIT ?= 36000 # seconds
+TIME_LIMIT ?= 3600 # seconds
 STACK_LIMIT ?= 65536 # kB
 MEM_LIMIT ?= 33554432 # kB
 
@@ -13,7 +13,7 @@ OPTFLAGS = -mem2reg
 CLANGFLAGS = -c -emit-llvm -g -Xclang -disable-O0-optnone $(TOOLCLANGFLAGS)
 NIDHUGGC ?= ../../nidhuggc
 NIDHUGGCOP ?= $(NIDHUGGC)
-GENMC6 ?= ~kostis/genmc/src/genmc.v0.6.1
+GENMC6 ?= ../../genmc
 SOURCE    = $(NIDHUGGC) $(1) -- -c11 -sc -source
 OPTIMAL   = $(NIDHUGGCOP) $(1) -- -sc -optimal -no-assume-await
 OBSERVERS = $(NIDHUGGC) $(1) -- -c11 -sc -observers
