@@ -2258,7 +2258,7 @@ bool EventTraceBuilder::do_events_conflict
   IPid s_ipid = SPS.get_pid(snd_pid);
   if (fst_pid == snd_pid) return true;
   if (threads[f_ipid].handler_id == s_ipid) return true;
-  if (threads[f_ipid].handler_id == s_ipid) return true;
+  if (threads[s_ipid].handler_id == f_ipid) return true;
   for (const SymEv &fe : fst) {
     if (symev_has_pid(fe) && fe.num() == snd_pid) return true;
     for (const SymEv &se : snd) {
@@ -3388,9 +3388,9 @@ recompute_vclock(const std::vector<bool> &in_v,
 	   * before r.first_conflict and r.first_conflict */
 	  for(Race rr : prefix[r.fst_conflict].races){
 	    unsigned rr_fst = (rr.kind == Race::MSG_REV)? rr.fst_conflict : rr.first_event;
-	    if(do_events_conflict(prefix[rr_fst].iid.get_pid(),
+	    if(do_events_conflict(threads[prefix[rr_fst].iid.get_pid()].spid,
 				  prefix[rr_fst].sym,
-				  prefix[r.snd_conflict].iid.get_pid(),
+				  threads[prefix[r.snd_conflict].iid.get_pid()].spid,
 				  prefix[r.snd_conflict].sym)){
 	      unsigned rr_bef = (rr.kind == Race::MSG_REV)?
 		threads[prefix[rr.first_event].iid.get_pid()].
@@ -3405,9 +3405,9 @@ recompute_vclock(const std::vector<bool> &in_v,
 	for(Race rr : prefix[r.first_event].races){
 	  unsigned rr_fst = (rr.kind == Race::MSG_REV)? rr.fst_conflict : rr.first_event;
 	  assert(rr_fst < r.first_event);
-	  if(do_events_conflict(prefix[rr_fst].iid.get_pid(),
+	  if(do_events_conflict(threads[prefix[rr_fst].iid.get_pid()].spid,
 				prefix[rr_fst].sym,
-				prefix[i].iid.get_pid(),
+				threads[prefix[i].iid.get_pid()].spid,
 				prefix[i].sym)){
 	    bool msg_rev = r.kind != Race::MSG_REV &&
 	      threads[prefix[i].iid.get_pid()].handler_id != -1 &&
@@ -3677,7 +3677,7 @@ void EventTraceBuilder::wakeup(Access::Type type, SymAddr ml){
       if (!threads[p].sleeping) continue;
       assert(threads[p].sleep_sym);
       assert(bool(wakeup_set.count(p))
-             == do_events_conflict(pid, ev, p, *threads[p].sleep_sym));
+             == do_events_conflict(threads[pid].spid, ev, threads[p].spid, *threads[p].sleep_sym));
     }
   }
 #endif
