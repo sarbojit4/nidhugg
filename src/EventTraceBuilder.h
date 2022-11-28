@@ -638,7 +638,7 @@ protected:
    * iid_map needs to be an iid_map at <branch,node>. It is restored to
    * the value it had when calling the function before returning.
    */
-  void wut_string_add_node(std::vector<std::string> &lines,
+  bool wut_string_add_node(std::vector<std::string> &lines,
                            std::vector<int> &iid_map,
                            unsigned line, Branch branch,
                            WakeupTreeRef<Branch> node) const;

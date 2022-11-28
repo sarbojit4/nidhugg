@@ -536,7 +536,7 @@ std::string EventTraceBuilder::oslp_string(const struct obs_sleep &os) const {
 }
 
 /* For debug-printing the wakeup tree; adds a node and its children to lines */
-void EventTraceBuilder::wut_string_add_node
+bool EventTraceBuilder::wut_string_add_node
 (std::vector<std::string> &lines, std::vector<int> &iid_map,
  unsigned line, Branch branch, WakeupTreeRef<Branch> node) const{
   unsigned offset = 2 + ((lines.size() < line)?0:lines[line].size());
@@ -546,6 +546,7 @@ void EventTraceBuilder::wut_string_add_node
   unsigned l = line;
   WakeupTreeRef<Branch> n = node;
   Branch b = branch;
+  bool res = true;
   while (n.size()) {
     b = n.begin().branch();
     n = n.begin().node();
@@ -565,16 +566,21 @@ void EventTraceBuilder::wut_string_add_node
     n = nodes.back().second;
     for (auto ci = n.begin(); ci != n.end(); ++ci) {
       if (ci == n.begin()) continue;
-      wut_string_add_node(lines, iid_map, l+1, ci.branch(), ci.node());
+      
+      res &= wut_string_add_node(lines, iid_map, l+1, ci.branch(), ci.node());
     }
     iid_map_step_rev(iid_map, b);
     while(lines[l].size() < offset) lines[l] += " ";
-    //if(b.index != iid_map[b.spid]) lines[l]+="----w";////////////////
-    assert(b.index == iid_map[b.spid]);
+    // assert(b.index == iid_map[b.spid]);
     lines[l] += " " + iid_string(b, iid_map[b.spid]);
+    if(b.index != iid_map[b.spid]){
+      lines[l]+= std::to_string(b.index) + "----w";////////////////
+      res &= false;
+    }
 
     nodes.pop_back();
   }
+  return res;
 }
 
 static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
@@ -718,6 +724,7 @@ void EventTraceBuilder::debug_print() const {
   }
 
   /* Add wakeup tree */
+  bool res = true;
   std::vector<int> iid_map = iid_map_at(prefix.len());
   for(int i = prefix.len()-1; 0 <= i; --i){
     auto node = prefix.parent_at(i);
@@ -725,7 +732,7 @@ void EventTraceBuilder::debug_print() const {
     for (auto it = node.begin(); it != node.end(); ++it) {
       Branch b = it.branch();
       if (b == prefix.branch(i)) continue; /* Only print others */
-      wut_string_add_node(lines, iid_map, i, it.branch(), it.node());
+      res &= wut_string_add_node(lines, iid_map, i, it.branch(), it.node());
     }
   }
   // /* print sleep tree */
@@ -767,6 +774,7 @@ void EventTraceBuilder::debug_print() const {
                    << errors[i]->to_string() << "\n";
     }
   }
+  assert(res);
 }
 
 bool EventTraceBuilder::spawn(){
