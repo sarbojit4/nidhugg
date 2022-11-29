@@ -1,4 +1,4 @@
-AME=plb
+NAME=plb
 FILE=event-driven/plb.c
 N = 3
 

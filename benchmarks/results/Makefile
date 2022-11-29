@@ -8,7 +8,8 @@ SUBDIRS =			\
 	event_driven/prolific-writers 	\
 	event_driven/db-cache \
 	event_driven/mat-mult \
-        event_driven/plb
+        event_driven/plb \
+        event_driven/race
 
 # T ?= all
 
