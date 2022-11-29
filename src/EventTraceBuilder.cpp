@@ -3265,6 +3265,7 @@ linearize_sequence(unsigned br_point, Branch second_br,
       }
     }
   }
+
   for(auto s_it = sorted_seq.begin(); s_it != sorted_seq.end(); s_it++){
     if(!in_v[*s_it]){
       s_it = sorted_seq.erase(s_it);
@@ -3402,7 +3403,8 @@ recompute_vclock(const std::vector<bool> &in_v,
 	   * before r.first_conflict and r.first_conflict */
 	  for(Race rr : prefix[r.fst_conflict].races){
 	    unsigned rr_fst = (rr.kind == Race::MSG_REV)? rr.fst_conflict : rr.first_event;
-	    if(do_events_conflict(threads[prefix[rr_fst].iid.get_pid()].spid,
+	    if(prefix[rr_fst].iid.get_pid() != prefix[i].iid.get_pid() &&
+	       do_events_conflict(threads[prefix[rr_fst].iid.get_pid()].spid,
 				  prefix[rr_fst].sym,
 				  threads[prefix[r.snd_conflict].iid.get_pid()].spid,
 				  prefix[r.snd_conflict].sym)){
@@ -3419,7 +3421,8 @@ recompute_vclock(const std::vector<bool> &in_v,
 	for(Race rr : prefix[r.first_event].races){
 	  unsigned rr_fst = (rr.kind == Race::MSG_REV)? rr.fst_conflict : rr.first_event;
 	  assert(rr_fst < r.first_event);
-	  if(do_events_conflict(threads[prefix[rr_fst].iid.get_pid()].spid,
+	  if(prefix[rr_fst].iid.get_pid() != prefix[i].iid.get_pid() &&
+	     do_events_conflict(threads[prefix[rr_fst].iid.get_pid()].spid,
 				prefix[rr_fst].sym,
 				threads[prefix[i].iid.get_pid()].spid,
 				prefix[i].sym)){
