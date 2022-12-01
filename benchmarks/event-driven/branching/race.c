@@ -2,6 +2,7 @@
 #include<stdlib.h>
 #include<pthread.h>
 #include<assert.h>
+#include<stdatomic.h>
 #include"qthread.h"
 
 #ifndef N
@@ -10,26 +11,29 @@
 #endif
 
 struct device{
-  int owner;
+  atomic_int owner;
 };
 
 typedef struct{
   qthread_t handler;
-  int gid;
+  atomic_int gid;
   int fd;
   int to_write;
 } arg_t;
 
 struct device dev;
-int state = 0;
-int last_gid = 1;
+atomic_int state = 0;
+atomic_int last_gid = 0;
 int num = 0;
 int num_msg = 0;
 
-int new_gid(){ return last_gid++; }
+int new_gid(){
+  atomic_store_explicit(&last_gid, last_gid+1, memory_order_seq_cst);
+  return last_gid; 
+}
 
 int random_int(){
-  state = state + 17;
+  atomic_store_explicit(&state, state+17, memory_order_seq_cst);
   return (state*13)%7;
 }
 
@@ -41,23 +45,24 @@ int get_fd() {
   return random_int();
 }
 
-int transfer(int fd, struct device dev){
+int transfer(int fd, atomic_int owner){
   return 2;
 }
 
 void write(void *arg) {
   qthread_t handler = ((arg_t *)arg)->handler;
-  int gid = ((arg_t *)arg)->gid;
+  atomic_int gid = atomic_load_explicit(&((arg_t *)arg)->gid, memory_order_seq_cst);
   int fd = ((arg_t *)arg)->fd;
   int to_write = ((arg_t *)arg)->to_write;
+  atomic_int owner = atomic_load_explicit(&dev.owner, memory_order_seq_cst);
   //assert(dev.owner == gid);
-  to_write -= transfer(fd, dev);
+  to_write -= transfer(fd, owner);
   if(to_write > 0){
     ((arg_t *)arg)->to_write = to_write;
     qthread_post_event(handler, &write, arg);
     return;
   }
-  dev.owner = 0;
+  atomic_store_explicit(&(dev.owner), 0, memory_order_seq_cst);
   free(arg);
 }
 
@@ -67,7 +72,8 @@ void *handler_func(void *arg){
 }
 
 void new_client(void *handler){
-  if(dev.owner>0 && num_msg <= N){
+  atomic_int owner = atomic_load_explicit(&dev.owner, memory_order_seq_cst);
+  if(owner>0 && num_msg <= N){
     num_msg++;
     qthread_post_event(*(qthread_t *)handler, &new_client, handler);
   }
@@ -77,7 +83,7 @@ void new_client(void *handler){
     arg->gid = new_gid();
     arg->fd = get_fd();
     arg->to_write = get_write();
-    dev.owner = arg->gid;
+    atomic_store_explicit(&(dev.owner), arg->gid, memory_order_seq_cst);
     qthread_post_event(arg->handler, &write, arg);
     free(handler);
   }
@@ -93,7 +99,7 @@ void listen(void *socket){
 }
 
 int main(){
-  dev.owner = 0;
+  atomic_store_explicit(&(dev.owner), 0, memory_order_seq_cst);
   qthread_t *socket = malloc(sizeof(qthread_t));
   qthread_create(socket, &handler_func, NULL);
   qthread_start(*socket);
