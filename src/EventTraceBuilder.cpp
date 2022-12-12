@@ -700,11 +700,18 @@ void EventTraceBuilder::debug_print() const {
   std::vector<std::vector<bool>>
     busy_n_hap_aft_witness(threads.size(),
 			   std::vector<bool>(threads.size(), false));
+  bool multiple_handlers;
+  IPid last_handler = -1;
 
   for(unsigned i = 0; i < prefix.len(); ++i){
     IPid ipid = prefix[i].iid.get_pid();
     unsigned index = prefix[i].iid.get_index();
     IPid handler = threads[ipid].handler_id;
+    if(!multiple_handlers && handler != -1){
+      if(last_handler != -1 && handler != last_handler)
+	multiple_handlers = true;
+      last_handler = handler;
+    }
     iid_offs = std::max(iid_offs,2*ipid+int(iid_string(i).size()));
     symev_offs = std::max(symev_offs,
                           int(events_to_string(prefix[i].sym).size()));
@@ -720,7 +727,7 @@ void EventTraceBuilder::debug_print() const {
     }
     obs_sleep_wake(sleep_set, sleep_trees, threads[ipid].spid,
 		   prefix[i].iid.get_index(),
-		   prefix[i].clock, prefix[i].sym);
+		   prefix[i].clock, prefix[i].sym, multiple_handlers);
   }
 
   /* Add wakeup tree */
@@ -1495,26 +1502,14 @@ void unordered_vector_delete(std::vector<T> &vec, std::size_t pos) {
 void
 EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
 				  sleep_trees_t &sleep_trees,
-				  const Event &e) const{
-  if (conf.dpor_algorithm != Configuration::OBSERVERS) {
+				  const Event &e,
+				  bool multiple_handlers) const{
 #ifndef NDEBUG
     obs_wake_res res =
 #endif
       obs_sleep_wake(sleep, sleep_trees, threads[e.iid.get_pid()].spid,
-		     e.iid.get_index(), e.clock, e.sym);
+		     e.iid.get_index(), e.clock, e.sym, multiple_handlers);
     assert(res != obs_wake_res::BLOCK);
-  } else {
-    sym_ty sym = e.sym;
-    /* A tricky part to this is that we must clear observers from the events
-     * we use to wake */
-    clear_observed(sym);
-#ifndef NDEBUG
-    obs_wake_res res =
-#endif
-      obs_sleep_wake(sleep, sleep_trees, threads[e.iid.get_pid()].spid,
-		     e.iid.get_index(), e.clock, sym);
-    assert(res != obs_wake_res::BLOCK);
-  }
 }
 
 static bool symev_does_load(const SymEv &e) {
@@ -1552,7 +1547,8 @@ update_witness_sets(unsigned index, bool end_of_msg, IPid handler,
 
 EventTraceBuilder::obs_wake_res EventTraceBuilder::
 obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
-	       unsigned index, VClock<IPid> clock, const sym_ty &sym) const{
+	       unsigned index, VClock<IPid> clock, const sym_ty &sym,
+	       bool multiple_handlers) const{
   for (unsigned i = 0; i < sleep.sleep.size();) {
     const auto &s = sleep.sleep[i];
     if (s.spid == p) {
@@ -1572,8 +1568,8 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
   for(auto slp_tree_it = sleep_trees.begin(); slp_tree_it != sleep_trees.end();){
     unsigned handler = threads[SPS.get_pid(slp_tree_it->spid)].handler_id;
     if(slp_tree_it->spid == p){
-      // Block according to the definition of the paper
-      // Check till the end of the message
+      // TODO: Block according to the definition of the paper
+      // Check till the end of the message(might need to extend the WS
       bool partial_msg = true;
       for(const SymEv &symev : sym) if(symev.is_return()) partial_msg = false;
       if(!slp_tree_it->witness_events.empty() &&
@@ -1585,10 +1581,8 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
 	slp_tree_it++;
 	continue;
       }
-      else{
-	//TODO: saturation method
+      else if(!multiple_handlers || reordering_possible())
 	return obs_wake_res::BLOCK;
-      }
     }
     Branch first_ev = slp_tree_it->msg_trails.begin()->front();
     if(slp_tree_it->start_index == 0 && first_ev.index == 1 &&
@@ -1657,18 +1651,25 @@ sequence_clears_sleep(const std::vector<Branch> &seq,
   struct obs_sleep isleep = sleep_const;
   sleep_trees_t slp_trees = sleep_trees;
   obs_wake_res state = obs_wake_res::CONTINUE;
+  bool multiple_handlers = false;
+  IPid last_handler = -1;
   std::vector<bool> msg_starts(threads.size(), false);
   for (auto it = seq.cbegin(); state == obs_wake_res::CONTINUE
          && it != seq.cend(); ++it) {
     unsigned index = it->index;
     IPid handler = threads[SPS.get_pid(it->spid)].handler_id;
     VClock<IPid> clock = it->clock;
+    if(!multiple_handlers && handler != -1){
+      if(last_handler != -1 && handler != last_handler)
+	multiple_handlers = true;
+      last_handler = handler;
+    }
     update_witness_sets(it->index, it->is_ret_stmt(),
     			threads[SPS.get_pid(it->spid)].handler_id,
     			it->clock, slp_trees, busy_n_hap_aft_witness);
 
     state = obs_sleep_wake(isleep, slp_trees, it->spid, it->index,
-			   it->clock, it->sym);
+			   it->clock, it->sym, multiple_handlers);
   }
   /* Redundant */
   return (state == obs_wake_res::CLEAR);
@@ -2505,10 +2506,17 @@ void EventTraceBuilder::do_race_detect() {
   std::vector<std::vector<bool>>
     busy_n_hap_aft_witness(SPS.num_of_threads(),
 			   std::vector<bool>(SPS.num_of_threads(), false));
+  bool multiple_handlers = false;
+  IPid last_handler = -1;
   for (unsigned i = 0; i < races.size(); ++i){
     IPid ipid = prefix[i].iid.get_pid();
     unsigned index = prefix[i].iid.get_index();
     IPid handler = threads[ipid].handler_id;
+    if(!multiple_handlers && handler != -1){
+      if(last_handler != -1 && handler != last_handler)
+	multiple_handlers = true;
+      last_handler = handler;
+    }
     // llvm::dbgs()<<i<<"\n";//////////////
     obs_sleep_add(sleep, sleep_trees, prefix[i], handler_busy);
     no_of_pending_WSs -= prefix.branch(i).pending_WSs.size();
@@ -2536,7 +2544,7 @@ void EventTraceBuilder::do_race_detect() {
       if(index == 1) handler_busy[handler]=true;
       else if(prefix[i].end_of_msg()) handler_busy[handler]=false;
     }
-    obs_sleep_wake(sleep, sleep_trees, prefix[i]);
+    obs_sleep_wake(sleep, sleep_trees, prefix[i], multiple_handlers);
   }
 
   for (unsigned i = 0; i < prefix.len(); ++i) prefix[i].races.clear();
@@ -2612,8 +2620,15 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	}
       }
       VClock<IPid> clk_lst_msg_event = v[last_seen_msg_event].clock;
+      bool multiple_handlers = false;
+      IPid last_handler = -1;
       for (auto vei = v.begin(); skip == NO && vei != v.end(); ++vei, ++j) {
         const Branch &ve = *vei;
+	if(!multiple_handlers && threads[SPS.get_pid(ve.spid)].handler_id != -1){
+	  if(last_handler != -1 && threads[SPS.get_pid(ve.spid)].handler_id != last_handler)
+	    multiple_handlers = true;
+	  last_handler = threads[SPS.get_pid(ve.spid)].handler_id;
+	}
         if (child_it.branch() == ve) {
 	  branch_found = true;
 
@@ -2646,13 +2661,10 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 		  break;
 		}
 	      }
-	    } else{
-	      // TODO: saturation method
-	      if(!reordering_possible(v,j,clk_fst_of_msgs)){
-	      	skip = NEXT;
-	        leftmost_branch = false;
-	      	break;
-	      }
+	    } else if(multiple_handlers && !reordering_possible()){
+	      skip = NEXT;
+	      leftmost_branch = false;
+	      break;
 	    }
 	  }
           /* We will recurse into this node. To do that we first need to
@@ -2807,7 +2819,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       			  sleep_trees, busy_n_hap_aft_witness);
       obs_sleep_wake(sleep, sleep_trees, child_it.branch().spid,
       		     child_it.branch().index, child_it.branch().clock,
-      		     child_it.branch().sym);
+      		     child_it.branch().sym, multiple_handlers);
       node = child_it.node();
 #ifndef NDEBUG
       if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1){
@@ -2911,8 +2923,9 @@ void EventTraceBuilder::
 }
 
 bool EventTraceBuilder::
-reordering_possible(std::vector<Branch> &v, unsigned last_event,
-		    std::vector<VClock<IPid>> clk_fst_of_msgs){
+reordering_possible() const{
+  // TODO: saturation method
+  llvm::dbgs()<<"Incomplete WI check\n";
   return true;
 }
 
@@ -3376,7 +3389,7 @@ recompute_vclock(const std::vector<bool> &in_v,
     if(!multiple_handlers && handler != -1){
       if(last_handler != -1 && handler != last_handler)
 	multiple_handlers = true;
-      last_handler = threads[pid].handler_id;
+      last_handler = handler;
     }
     
     if (index > 1) {

@@ -787,7 +787,7 @@ protected:
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
 			      sleep_trees_t &sleep_trees, IPid p,
 			      unsigned index, VClock<IPid> clock,
-			      const sym_ty &sym) const;
+			      const sym_ty &sym, bool multiple_handlers) const;
   void update_witness_sets(unsigned, bool, IPid, const VClock<IPid> &,
 			   sleep_trees_t &,
 			   std::vector<std::vector<bool>> &) const;
@@ -804,7 +804,8 @@ protected:
    */
   void obs_sleep_wake(struct obs_sleep &sleep,
 		      sleep_trees_t &sleep_trees,
-		      const Event &e) const;
+		      const Event &e,
+		      bool multiple_handlers) const;
   std::map<IPid, std::vector<unsigned>>
   mark_sleepset_clearing_events(std::vector<Branch> &v,
 				struct obs_sleep sleep,
@@ -819,8 +820,7 @@ protected:
   void insert_WS(std::vector<Branch> &v, unsigned i, struct obs_sleep sleep,
 		 sleep_trees_t sleep_trees, std::vector<std::vector<bool>>
 		 busy_n_hap_aft_witness);
-  bool reordering_possible(std::vector<Branch> &v, unsigned last_event,
-			   std::vector<VClock<IPid>> clk_fst_of_msgs);
+  bool reordering_possible() const;
   bool conflict_with_rest_of_msg(unsigned j, const Branch &child,
                                  const std::vector<Branch> &v,
                                  const std::vector<VClock<IPid>> &first_of_msgs,
