@@ -3074,7 +3074,7 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
 	    prefix[br_point].iid.get_index() == 1)                  ||
 	   (threads[ipid].handler_id == threads[spid].handler_id &&
 	    !prefix[br_point].clock.
-	     leq(prefix[threads[ipid].event_indices.back()].clock)))
+	    leq(prefix[threads[ipid].event_indices.back()].clock)))
 	  in_notdep[k] = true;
 	else in_notdep[k] = false;
       }
@@ -3424,9 +3424,10 @@ recompute_vclock(const std::vector<bool> &in_v,
 	      unsigned rr_bef = (rr.kind == Race::MSG_REV)?
 		threads[prefix[rr.first_event].iid.get_pid()].
 		event_indices.back() : rr.first_event;
-	      assert(rr_bef < i);
-	      trace[i].insert(rr_bef);
-	      clock_WS[i] += clock_WS[rr_bef];
+	      unsigned i_con = (rr.kind == Race::MSG_REV)? i : r.snd_conflict;
+	      assert(rr_bef < i_con);
+	      trace[i_con].insert(rr_bef);
+	      clock_WS[i_con] += clock_WS[rr_bef];
 	    }
 	  }
 	}
