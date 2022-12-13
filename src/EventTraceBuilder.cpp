@@ -2855,10 +2855,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       return;
     }
 #ifndef NDEBUG
-    assert(threads[SPS.get_pid(v.front().spid)].handler_id == -1 ||
-	   curr_msg[threads[SPS.get_pid(v.front().spid)].handler_id] == 0 ||
-	   curr_msg[threads[SPS.get_pid(v.front().spid)].handler_id] ==
-	   v.front().spid);
+    bool problem = false;
     for (Branch &ve : v) {
       if(threads[SPS.get_pid(ve.spid)].handler_id != -1){
 	if(curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] != 0){
@@ -2869,7 +2866,8 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       }
       if(curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] != 0 &&
 	 curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] != ve.spid){
-	exit(1);
+	problem = true;
+	break;
       }
     }
 #endif
@@ -2879,6 +2877,14 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       for (SymEv &e : ve.sym) e.purge_data();
       node = node.put_child(std::move(ve));
     }
+#ifndef NDEBUG
+    if(problem){
+      Branch marker(0,1);
+      node = node.put_child(marker);
+      debug_print();
+      exit(-6);
+    }
+#endif
     branches++;
     return;
   }
