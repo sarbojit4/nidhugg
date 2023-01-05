@@ -123,6 +123,7 @@ public:
   int max_branches;
   int max_pending_WSs;
   int no_of_pending_WSs;
+  std::set<std::set<std::pair<IID<int>,IID<int>>>> Traces;
 
 protected:
   const Configuration &conf;

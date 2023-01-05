@@ -132,6 +132,7 @@ public:
     /* Maximum number of branches in the wakeup tree at some point of exploration */
     int max_branches;
     int max_pending_WSs;
+    uint64_t unique_trace_count;
 
     bool has_errors() const { return error_trace && error_trace->has_errors(); }
   };

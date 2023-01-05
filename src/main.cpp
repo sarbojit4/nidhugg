@@ -138,6 +138,7 @@ int main(int argc, char *argv[]){
       }
       std::cout << "maximum branches in the wakeup tree: "<<res.max_branches<<"\n";
       std::cout << "maximum pending WSs in the wakeup tree: "<<res.max_pending_WSs<<"\n";
+      std::cout << "Unique number of traces: "<<res.unique_trace_count<<"\n";
 
       delete driver;
     }

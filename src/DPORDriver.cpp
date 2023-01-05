@@ -480,6 +480,7 @@ DPORDriver::Result DPORDriver::run(){
 
   res.max_branches = TB->max_branches;
   res.max_pending_WSs = TB->max_pending_WSs;
+  res.unique_trace_count = TB->Traces.size();
   delete TB;
 
   return res;

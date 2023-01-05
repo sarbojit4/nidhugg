@@ -306,6 +306,18 @@ Trace *TSOTraceBuilder::get_trace() const{
 }
 
 bool TSOTraceBuilder::reset(){
+  if(Traces.find(currtrace) == Traces.end()){/////////////////
+    llvm::dbgs()<<"----------------------------------------\n";
+    for(auto p : currtrace){
+      llvm::dbgs()<<p.first<<p.second;/////////////
+      llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
+       		  <<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
+    }
+    llvm::dbgs()<<currtrace.size()<<"----------------------------------------\n";
+    Traces.insert(currtrace);
+  }////////////////
+  currtrace.clear();
+
   compute_vclocks();
 
   do_race_detect();
@@ -804,6 +816,11 @@ void TSOTraceBuilder::do_atomic_store(const SymData &sd){
 
   seen_accesses.insert(last_full_memory_conflict);
 
+  for(int i : seen_accesses){
+    if(i < 0) continue;
+    if (i == prefix_idx) continue;
+    currtrace.emplace(prefix[i].iid, curev().iid);
+  }
   see_events(seen_accesses);
   see_event_pairs(seen_pairs);
 }
@@ -1069,6 +1086,11 @@ void TSOTraceBuilder::do_load(const SymAddrSize &ml){
 
   seen_accesses.insert(last_full_memory_conflict);
 
+  for(int i : seen_accesses){
+    if(i < 0) continue;
+    if (i == prefix_idx) continue;
+    currtrace.emplace(prefix[i].iid, curev().iid);
+  }
   see_events(seen_accesses);
   see_event_pairs(seen_pairs);
 }
