@@ -2448,7 +2448,7 @@ void EventTraceBuilder::do_race_detect() {
   std::map<IPid, std::vector<IPid>> eoms;
   for (const Race &r : lock_fail_races) races[r.first_event].push_back(&r);
   for (unsigned i = 0; i < prefix.len(); ++i){
-    auto special_case1 = [this](IPid handler, unsigned fst, unsigned sec){
+    auto special_case1 = [this](IPid fst_handler, unsigned fst, unsigned sec){
                           VClock<IPid> pre = prefix[sec].clock;
 			  IPid snd_handler =
 			    threads[prefix[sec].iid.get_pid()].handler_id;
@@ -2463,7 +2463,7 @@ void EventTraceBuilder::do_race_detect() {
 			    IPid pid = prefix[k].iid.get_pid();
 			    
 			    if(prefix[k].iid.get_index() == 1 &&
-			       threads[pid].handler_id == handler &&
+			       threads[pid].handler_id == fst_handler &&
 			       prefix[k].clock.lt(pre)){
 			      return true;
 			    }
@@ -3024,55 +3024,89 @@ EventTraceBuilder::wakeup_sequence(const Race &race,
 	continue;
       }
       else if(race.kind == Race::MSG_REV){
-	if(k < j){
-	  if(!prefix[br_point].clock.leq(prefix[k].clock)) in_notdep[k] = true;
-        }
-	else{
-	  if(k == race.snd_conflict){// second conflict of the race does not go in the notdep
-	    in_notdep[k] = false;
-	    continue;
-	  }
-	  if(ipid == spid && k < race.snd_conflict){
-	    //events before second conflict event in second message should be in notdep
-	    in_notdep[k] = true;
-	    continue;
-	  }
-	  //The events after the first half of the second message should be in the notdep
-	  if(prefix[k].iid.get_index() > 1 &&
-	     in_notdep[find_process_event(ipid, prefix[k].iid.get_index()-1)]
-	     == false){
-	    in_notdep[k] = false;
-	    continue;
-          }
+	// if(k < j){
+	//   if(!prefix[br_point].clock.leq(prefix[k].clock)) in_notdep[k] = true;
+        // }
+	// else{
+	if(ipid == fpid){
+	  in_notdep[k] = false;
+	  continue;
+	}
+	if(ipid == spid && k < race.snd_conflict){
+	  //events before second conflict event in second message should be in notdep
 	  in_notdep[k] = true;
-	  for (unsigned h : prefix[k].happens_after){
-            if(in_notdep[h] == false){
-              in_notdep[k] = false;
-              break;
-	    }
+	  continue;
+	}
+	if(k == race.snd_conflict){// second conflict of the race does not go in the notdep
+	  in_notdep[k] = false;
+	  continue;
+	}
+	//The events after the first half of the second message should be in the notdep
+	if(prefix[k].iid.get_index() > 1){
+	  unsigned last = find_process_event(ipid, prefix[k].iid.get_index()-1);
+	  in_notdep[k] = in_notdep[last];
+	} else in_notdep[k] = true;
+	for (unsigned h : prefix[k].happens_after){
+	  if(in_notdep[h] == false){
+	    in_notdep[k] = false;
+	    break;
 	  }
-	  if(in_notdep[k] == true){
-	    for (auto race : prefix[k].races){
-	      unsigned h = race.kind == Race::MSG_REV?
-		threads[prefix[race.first_event].iid.get_pid()].
-		event_indices.back() : race.first_event; 
-	      if(in_notdep[h] == false){
-		in_notdep[k] = false;
-		break;
-	      }
-	    }
-	  }
-	  if(in_notdep[k] == true){//can be removed
-	    for (unsigned h : prefix[k].eom_before){
-	      if(in_notdep[h] == false){
-		in_notdep[k] = false;
-		break;
-	      }
+	}
+	if(in_notdep[k] == true){
+	  for (auto race : prefix[k].races){
+	    unsigned h = race.kind == Race::MSG_REV?
+	      threads[prefix[race.first_event].iid.get_pid()].
+	      event_indices.back() : race.first_event; 
+	    if(in_notdep[h] == false){
+	      in_notdep[k] = false;
+	      break;
 	    }
 	  }
 	}
+	if(in_notdep[k] == true){//can be removed
+	  for (unsigned h : prefix[k].eom_before){
+	    if(in_notdep[h] == false){
+	      in_notdep[k] = false;
+	      break;
+	    }
+	  }
+	}
+	  //}
       }
       else if(!prefix[br_point].clock.leq(prefix[k].clock)){
+	if(prefix[k].iid.get_index() > 1){
+	  unsigned last = find_process_event(ipid, prefix[k].iid.get_index()-1);
+	  in_notdep[k] = in_notdep[last];
+	} else in_notdep[k] = true;
+	if(in_notdep[k]){
+	  for (unsigned h : prefix[k].happens_after){
+	    if(in_notdep[h] == false){
+	      in_notdep[k] = false;
+	      break;
+	    }
+	  }
+	}
+	if(in_notdep[k]){
+	  for (auto race : prefix[k].races){
+	    // llvm::dbgs()<<prefix[race.first_event].iid<<prefix[race.second_event].iid<<"\n";/////////////
+	    unsigned h = race.kind == Race::MSG_REV?
+	      threads[prefix[race.first_event].iid.get_pid()].
+	      event_indices.back() : race.first_event;
+	    if(in_notdep[h] == false){
+	      in_notdep[k] = false;
+	      break;
+	    }
+	  }
+	}
+	if(in_notdep[k]){//can be removed
+	  for (unsigned h : prefix[k].eom_before){
+	    if(in_notdep[h] == false){
+	      in_notdep[k] = false;
+	      break;
+	    }
+	  }
+	}
+	if(!in_notdep[k]) continue;
 	if(threads[ipid].handler_id == -1 || ipid == spid ||
 	   (threads[ipid].handler_id != threads[fpid].handler_id &&
 	    threads[ipid].handler_id != threads[spid].handler_id)   ||
