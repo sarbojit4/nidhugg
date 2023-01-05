@@ -1,7 +1,7 @@
-#include<stdio.h>
-#include<stdatomic.h>
-#include<pthread.h>
-#include"qthread.h"
+#include <stdio.h>
+#include <stdatomic.h>
+#include <pthread.h>
+#include "qthread.h"
 
 #ifndef N
 #define N 3
