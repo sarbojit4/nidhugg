@@ -3277,13 +3277,13 @@ linearize_sequence1(std::vector<Branch> &v,
 
 std::vector<EventTraceBuilder::Branch> EventTraceBuilder::
 linearize_sequence(unsigned br_point, Branch second_br,
-		   IPid spid, std::vector<bool> &in_v) const{
+		   const Race &race, std::vector<bool> &in_v) const{
   std::vector<std::set<unsigned>> trace(prefix.len());
   std::vector<Branch> linearized_ws;
   std::vector<VClock<IPid>> clock_WS(prefix.len());
   unsigned k = find_process_event(SPS.get_pid(second_br.spid),second_br.index);
   in_v[k] = true;
-  recompute_vclock(in_v,clock_WS,trace,br_point,k);
+  recompute_vclock(in_v,clock_WS,trace,race);
   /* partial msgs goes after full msgs */
   std::vector<unsigned> last_msgs;
   for(int i = 2; i < threads.size(); i+=2){
@@ -3404,14 +3404,16 @@ void EventTraceBuilder::
 recompute_vclock(const std::vector<bool> &in_v,
 		 std::vector<VClock<IPid>> &clock_WS,
 		 std::vector<std::set<unsigned>> &trace,
-		 unsigned br_point, unsigned second) const{
+		 const Race &race) const{
   std::vector<unsigned> last_event(threads.size());
   std::vector<IPid> partial_msg(threads.size(),0);
   std::vector<bool> msg_starts_in_v(threads.size(),false);
   unsigned last_handler = -1;
   bool multiple_handlers=false;
+  unsigned second = race.second_event;
   for(unsigned i = 0; i < br_point; i++)
     clock_WS[i]=prefix[i].clock;
+  
   for(unsigned i = 0; i < prefix.len(); i++)
     if(in_v[i]) last_event[prefix[i].iid.get_pid()] = i;
 
@@ -3449,7 +3451,8 @@ recompute_vclock(const std::vector<bool> &in_v,
     for (auto r : prefix[i].races){//needs to be fixed
       assert(r.first_event < i);
       /* Consider the race we are currently reversing */
-      if(prefix[r.first_event].iid.get_pid() == prefix[br_point].iid.get_pid()){
+      if(prefix[r.first_event].iid.get_pid() == prefix[race.first_event].iid.get_pid() &&
+	 r.first_event >= race.first_event){
 	assert(r.first_event < i);
 	if(r.kind == Race::MSG_REV){
 	  /* If r is MSG_REV race, Consider the races between events e 
@@ -3509,7 +3512,7 @@ recompute_vclock(const std::vector<bool> &in_v,
 	  threads[prefix[ej].iid.get_pid()].event_indices.front();
 	unsigned lev_ej =
 	  threads[prefix[ej].iid.get_pid()].event_indices.back();
-	if(prefix[ej].iid.get_pid() != prefix[br_point].iid.get_pid() &&
+	if(prefix[ej].iid.get_pid() != prefix[race.first_event].iid.get_pid() &&
 	   clock_WS[fev_ej].lt(clock_WS[i]) &&
 	   !clock_WS[ej].lt(clock_WS[fev_i])){
 	  trace[fev_i].insert(ej);
