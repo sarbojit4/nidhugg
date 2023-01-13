@@ -307,13 +307,13 @@ Trace *TSOTraceBuilder::get_trace() const{
 
 bool TSOTraceBuilder::reset(){
   if(Traces.find(currtrace) == Traces.end()){/////////////////
-    llvm::dbgs()<<"----------------------------------------\n";
-    for(auto p : currtrace){
-      llvm::dbgs()<<p.first<<p.second;/////////////
-      llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
-       		  <<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
-    }
-    llvm::dbgs()<<currtrace.size()<<"----------------------------------------\n";
+    // llvm::dbgs()<<"----------------------------------------\n";
+    // for(auto p : currtrace){
+    //   llvm::dbgs()<<p.first<<p.second;/////////////
+    //   llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
+    //    		  <<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
+    // }
+    // llvm::dbgs()<<currtrace.size()<<"----------------------------------------\n";
     Traces.insert(currtrace);
   }////////////////
   currtrace.clear();

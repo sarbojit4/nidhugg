@@ -531,7 +531,6 @@ protected:
    * events that are determined in advance to be executed.
    */
   WakeupTreeExplorationBuffer<Branch, Event> prefix;
-  //std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
   std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
 
   /* The number of threads that have been dry run since the last
@@ -828,8 +827,8 @@ protected:
                                  bool &partial_msg) const;
   /* Compute the wakeup sequence for reversing a race. */
   Branch
-  wakeup_sequence(const Race &race, std::map<IPid, std::vector<IPid>> &eoms,
-		  unsigned br_point, std::vector<bool> &unfiltered_notdep) const;
+  wakeup_sequence(const Race &race, unsigned &br_point,
+		  std::vector<bool> &unfiltered_notdep) const;
   std::vector<Branch> linearize_sequence(unsigned br_point, Branch second_br,
 					 const Race &race, std::vector<bool> &in_v) const;
   bool linearize_sequence1(std::vector<Branch> &v,
