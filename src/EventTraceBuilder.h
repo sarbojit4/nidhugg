@@ -818,7 +818,7 @@ protected:
 
   void insert_WS(std::vector<Branch> &v, unsigned i, struct obs_sleep sleep,
 		 sleep_trees_t sleep_trees, std::vector<std::vector<bool>>
-		 busy_n_hap_aft_witness);
+		 busy_n_hap_aft_witness, std::vector<IPid> ongoing_msg);
   bool reordering_possible() const;
   bool conflict_with_rest_of_msg(unsigned j, const Branch &child,
                                  const std::vector<Branch> &v,
@@ -831,9 +831,10 @@ protected:
 		  std::vector<bool> &unfiltered_notdep) const;
   std::vector<Branch> linearize_sequence(unsigned br_point, Branch second_br,
 					 const Race &race, std::vector<bool> &in_v) const;
-  bool linearize_sequence1(std::vector<Branch> &v,
+  bool remove_partial_msgs(std::vector<Branch> &v,
 			   const VClock<IPid> &second_br_clock,
-			   std::map<IPid, std::vector<unsigned>> clear_set) const;
+			   std::map<IPid, std::vector<unsigned>> clear_set,
+			   std::vector<IPid> &ongoing_msg) const;
   bool visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
 		   std::vector<std::set<unsigned>> &trace,
 		   std::vector<bool> &visiting, std::vector<bool> &visited,

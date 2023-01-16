@@ -2443,7 +2443,7 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
 void EventTraceBuilder::do_race_detect() {
   assert(has_vclocks);
   assert(0 < prefix.len());
-  /* Bucket sort races by first_event index */
+  /* Do race detection */
   std::vector<std::vector<std::vector<Branch>>> WSs(prefix.len(), std::vector<std::vector<Branch>>());
   std::map<IPid, std::vector<IPid>> eoms;
   for (const Race &r : lock_fail_races){
@@ -2522,7 +2522,7 @@ void EventTraceBuilder::do_race_detect() {
     }
   }
 
-  /* Do race detection */
+  /* Insert WSs in the tree */
   struct obs_sleep sleep;
   sleep_trees_t sleep_trees;
   std::vector<bool> handler_busy(SPS.num_of_threads(), false);
@@ -2532,6 +2532,7 @@ void EventTraceBuilder::do_race_detect() {
 			   std::vector<bool>(SPS.num_of_threads(), false));
   bool multiple_handlers = false;
   IPid last_handler = -1;
+  std::vector<IPid> ongoing_msg(threads.size(),0);
   for (unsigned i = 0; i < prefix.len(); ++i){
     IPid ipid = prefix[i].iid.get_pid();
     unsigned index = prefix[i].iid.get_index();
@@ -2552,21 +2553,26 @@ void EventTraceBuilder::do_race_detect() {
       // llvm::dbgs()<<"Pending: ";/////////////////"
       // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
       // llvm::dbgs()<<"\n";///////////
-      insert_WS(v, i, sleep, sleep_trees, busy_n_hap_aft_witness);
+      insert_WS(v, i, sleep, sleep_trees, busy_n_hap_aft_witness, ongoing_msg);
       v_it = prefix.branch(i).pending_WSs.erase(v_it);
     }
     /* Reverese races */
     for (auto v : WSs[i]) {
       // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
       // llvm::dbgs()<<"--\n";///////////
-      insert_WS(v, i, sleep, sleep_trees, busy_n_hap_aft_witness);
+      insert_WS(v, i, sleep, sleep_trees, busy_n_hap_aft_witness, ongoing_msg);
     }
     /* Add events in the witness events */
     update_witness_sets(index, prefix[i].end_of_msg(), handler,
 			prefix[i].clock, sleep_trees, busy_n_hap_aft_witness);
     if(handler != -1){
-      if(index == 1) handler_busy[handler]=true;
-      else if(prefix[i].end_of_msg()) handler_busy[handler]=false;
+      if(index == 1){
+        ongoing_msg[handler] = threads[ipid].spid;
+	handler_busy[handler] = true;
+      } else if(prefix[i].end_of_msg()){
+	ongoing_msg[handler] = 0;
+	handler_busy[handler] = false;
+      }
     }
     obs_sleep_wake(sleep, sleep_trees, prefix[i], multiple_handlers);
   }
@@ -2579,14 +2585,12 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 				  struct obs_sleep sleep,
 				  sleep_trees_t sleep_trees,
 				  std::vector<std::vector<bool>> 
-				  busy_n_hap_aft_witness){
+				  busy_n_hap_aft_witness,
+				  std::vector<IPid> ongoing_msg){
   WakeupTreeRef<Branch> node = prefix.parent_at(i);
   bool leftmost_branch = true;
   VClock<IPid> second_br_clock = v.back().clock;
   std::vector<bool> handler_busy(threads.size(), false);
-#ifndef NDEBUG
-  std::vector<unsigned> curr_msg(threads.size(), 0);
-#endif
   while(1) {
     if (!node.size()) {
       /* node is a leaf. That means that an execution that will explore the
@@ -2819,16 +2823,14 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       		     child_it.branch().index, child_it.branch().clock,
       		     child_it.branch().sym, multiple_handlers);
       node = child_it.node();
-#ifndef NDEBUG
       if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1){
-	if(curr_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] != 0){
+	if(ongoing_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] != 0){
 	  if(child_it.branch().is_ret_stmt())
-	    curr_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] = 0;
+	    ongoing_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] = 0;
 	} else if(child_it.branch().index == 1)
-	  curr_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] =
+	  ongoing_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] =
 	    child_it.branch().spid;
       }
-#endif
       skip = RECURSE;
       break;
 
@@ -2840,7 +2842,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
     /* No existing child was compatible with v. Insert v as a new sequence. */
     std::map<IPid, std::vector<unsigned>> clear_set =
       mark_sleepset_clearing_events(v, sleep, sleep_trees);
-    if(!linearize_sequence1(v ,second_br_clock, clear_set)){
+    if(!remove_partial_msgs(v ,second_br_clock, clear_set, ongoing_msg)){
       //llvm::dbgs()<<"PROBLEM------\n";///////////////
       return;
     }
@@ -2854,14 +2856,14 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
     bool problem = false;
     for (Branch &ve : v) {
       if(threads[SPS.get_pid(ve.spid)].handler_id != -1){
-	if(curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] != 0){
+	if(ongoing_msg[threads[SPS.get_pid(ve.spid)].handler_id] != 0){
 	  if(ve.is_ret_stmt())
-	    curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] = 0;
+	    ongoing_msg[threads[SPS.get_pid(ve.spid)].handler_id] = 0;
 	} else if(ve.index == 1)
-	  curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] = ve.spid;
+	  ongoing_msg[threads[SPS.get_pid(ve.spid)].handler_id] = ve.spid;
       }
-      if(curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] != 0 &&
-	 curr_msg[threads[SPS.get_pid(ve.spid)].handler_id] != ve.spid){
+      if(ongoing_msg[threads[SPS.get_pid(ve.spid)].handler_id] != 0 &&
+	 ongoing_msg[threads[SPS.get_pid(ve.spid)].handler_id] != ve.spid){
 	problem = true;
 	break;
       }
@@ -3161,15 +3163,16 @@ EventTraceBuilder::wakeup_sequence(const Race &race, unsigned &br_point,
 }
 
 bool EventTraceBuilder::
-linearize_sequence1(std::vector<Branch> &v,
-		    const VClock<IPid> &second_br_clock,
-		    std::map<IPid, std::vector<unsigned>> clear_set) const{
+remove_partial_msgs(std::vector<Branch> &v, const VClock<IPid> &second_br_clock,
+		    std::map<IPid, std::vector<unsigned>> clear_set,
+		    std::vector<IPid> &ongoing_msg) const{
   unsigned old_size = v.size();
   /* partial_msg[k] = true iff k is partial in v */ 
   bool partial_msg[threads.size()];
   int first_of_msgs[threads.size()];
-  for(int k = 0; k < int(threads.size()); k+=2){
+  for(IPid k = 0; k < threads.size(); k+=2){
     first_of_msgs[k] = -1;
+    IPid handler = threads[SPS.get_pid(k)].handler_id;
     partial_msg[k] = false;
   }
   std::map<IPid, IPid> last_msg;
@@ -3179,27 +3182,21 @@ linearize_sequence1(std::vector<Branch> &v,
       if(first_of_msgs[v[k].spid] == -1) first_of_msgs[v[k].spid] = k;
       partial_msg[v[k].spid] = true;
     }
-    if(v[k].is_ret_stmt()){
+    if(v[k].is_ret_stmt() && threads[SPS.get_pid(v[k].spid)].handler_id != -1){
       partial_msg[v[k].spid] = false;
+      ongoing_msg[threads[SPS.get_pid(v[k].spid)].handler_id] = 0;
     }
   }
-  /* Make the already started partial message as last messasge in the handler*/
-  /* Make the second racing message as the last message in the handler */
-  for(unsigned k = 0; k < threads.size(); k+=2){
-    if((partial_msg[k] && v[first_of_msgs[k]].index!=1) ||
-       (v.back().spid == k &&
-	threads[SPS.get_pid(v.back().spid)].handler_id != -1)){
-      last_msg[threads[SPS.get_pid(k)].handler_id] = k;
-    }
-  }
+  for(IPid k = 0; k < threads.size(); k=k+2)
+    if(ongoing_msg[k] != 0) last_msg[k] = ongoing_msg[k];
   
   for(auto evts = clear_set.begin(); evts != clear_set.end();){
     //No partial msg happening before clear set
     bool flag = false;
     for(unsigned ei : evts->second){
       for(int k = 0; k < int(threads.size()); k+=2){
-      	if(partial_msg[k] && v[first_of_msgs[k]].index==1 &&
-	   first_of_msgs[k] != -1 &&
+      	if(partial_msg[k] && first_of_msgs[k] != -1 &&
+	   v[first_of_msgs[k]].index==1 &&
       	   v[first_of_msgs[k]].clock.lt(v[ei].clock))
       	  flag = true;
       }
@@ -3293,7 +3290,7 @@ linearize_sequence1(std::vector<Branch> &v,
   }
   if(!linearized){
     if(old_size <= v.size()) return false;
-    linearize_sequence1(v, second_br_clock, clear_set);
+    remove_partial_msgs(v, second_br_clock, clear_set, ongoing_msg);
   }
   return true;
 }
