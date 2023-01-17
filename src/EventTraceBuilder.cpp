@@ -2559,8 +2559,9 @@ void EventTraceBuilder::do_race_detect() {
     /* Reverese races */
     for (auto v : WSs[i]) {
       // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
-      // llvm::dbgs()<<"--\n";///////////
-      insert_WS(v, i, sleep, sleep_trees, busy_n_hap_aft_witness, ongoing_msg);
+      // llvm::dbgs()<<"\n";///////////
+      if (sequence_clears_sleep(v, sleep, sleep_trees, busy_n_hap_aft_witness))
+	insert_WS(v, i, sleep, sleep_trees, busy_n_hap_aft_witness, ongoing_msg);
     }
     /* Add events in the witness events */
     update_witness_sets(index, prefix[i].end_of_msg(), handler,
@@ -2847,7 +2848,6 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
       return;
     }
 
-    std::map<IPid, std::vector<IPid>> eoms;
     if (!sequence_clears_sleep(v, sleep, sleep_trees, busy_n_hap_aft_witness)){
       // llvm::dbgs()<<"Redundant\n";/////////////////
       return;
