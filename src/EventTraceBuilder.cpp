@@ -2658,16 +2658,13 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 		  return;
 		}
 		else if(conflict_with_rest_of_msg(j, child_it.branch(), v, clk_fst_of_msgs,
-						  last_seen_msg_event, partial_msg)){
+						  last_seen_msg_event, partial_msg) ||
+			(multiple_handlers && !reordering_possible())){
 		  skip = NEXT;
 		  leftmost_branch = false;
 		  break;
 		}
 	      }
-	    } else if(multiple_handlers && !reordering_possible()){
-	      skip = NEXT;
-	      leftmost_branch = false;
-	      break;
 	    }
 	  }
           /* We will recurse into this node. To do that we first need to
@@ -2929,8 +2926,8 @@ void EventTraceBuilder::
 bool EventTraceBuilder::
 reordering_possible() const{
   // TODO: saturation method
-  llvm::dbgs()<<"Incomplete WI check\n";
-  return true;
+  // llvm::dbgs()<<"Incomplete WI check\n";
+  return false;
 }
 
 bool EventTraceBuilder::
