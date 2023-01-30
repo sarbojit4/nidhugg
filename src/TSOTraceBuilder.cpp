@@ -819,7 +819,8 @@ void TSOTraceBuilder::do_atomic_store(const SymData &sd){
   for(int i : seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
-    currtrace.emplace(prefix[i].iid, curev().iid);
+    if(prefix[i].iid.get_pid() != curev().iid.get_pid())
+      currtrace.emplace(prefix[i].iid, curev().iid);
   }
   see_events(seen_accesses);
   see_event_pairs(seen_pairs);
@@ -1089,7 +1090,8 @@ void TSOTraceBuilder::do_load(const SymAddrSize &ml){
   for(int i : seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
-    currtrace.emplace(prefix[i].iid, curev().iid);
+    if(prefix[i].iid.get_pid() != curev().iid.get_pid())
+      currtrace.emplace(prefix[i].iid, curev().iid);
   }
   see_events(seen_accesses);
   see_event_pairs(seen_pairs);
