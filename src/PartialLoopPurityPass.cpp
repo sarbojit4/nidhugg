@@ -27,7 +27,10 @@
 #include "SpinAssumePass.h"
 #include "vecset.h"
 
+#include <boost/container/flat_map.hpp>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/CallGraph.h>
+#include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/LoopPass.h>
 #include <llvm/Analysis/ValueTracking.h>
 #if defined(HAVE_LLVM_IR_DOMINATORS_H)
@@ -65,6 +68,7 @@
 #include <llvm/IR/CallSite.h>
 #endif
 #include <llvm/Pass.h>
+#include <llvm/Support/CommandLine.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/FormattedStream.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
@@ -87,11 +91,15 @@ typedef llvm::Instruction TerminatorInst;
 #endif
 
 namespace {
+  llvm::cl::opt<int> cl_plp_dbgp("plp-debug");
+
   const int MAX_CONJUNCTION_TERMS = 5;
   const int MAX_DISJUNCTION_TERMS = 10;
 
   /* Not reentrant */
   static const llvm::DominatorTree *DominatorTree;
+  static const llvm::Loop *Loop;
+  static const struct RPO *LoopRPO;
   static const std::unordered_map<llvm::Function *, bool> *may_inline;
   static bool inlining_needed = false;
 
@@ -301,6 +309,16 @@ namespace {
     }
   };
 
+  struct RPO {
+    std::vector<llvm::BasicBlock *> blocks;
+    boost::container::flat_map<const llvm::BasicBlock *, std::size_t> block_indices;
+    bool is_backedge(const llvm::BasicBlock *From, const llvm::BasicBlock *To) const {
+      assert(block_indices.count(From) && block_indices.count(To));
+      return block_indices.at(From) >= block_indices.at(To);
+    }
+    RPO(std::size_t capacity) { blocks.reserve(capacity); }
+  };
+
   /* Encodes a restriction on where an assume may be inserted. There is
    * no bottom value, instead, operator& (which is the only operation
    * that may return bottom) uses Option<InsertionPoint>. */
@@ -317,23 +335,48 @@ namespace {
     bool is_true() const { return *this; }
     bool is_false() const { return !*this; }
 
+    static bool isBefore(llvm::Instruction *I, llvm::Instruction *J) {
+      llvm::BasicBlock *IB = I->getParent(), *JB = J->getParent();
+      if (IB == JB) {
+        while(true) {
+          if (J == &*JB->begin()) return false;
+          J = J->getPrevNode();
+          if (I == J) return true;
+        }
+      } else {
+        std::size_t IBI = LoopRPO->block_indices.at(IB),
+          JBI = LoopRPO->block_indices.at(JB);
+        assert (IBI != JBI);
+        if (IBI > JBI) return false;
+        VecSet<std::size_t> predecessors;
+        while (true) {
+          for (llvm::BasicBlock *Pred : llvm::predecessors(JB)) {
+            if (Pred == IB) return true;
+            assert(LoopRPO->block_indices.count(Pred)); // Cannot exit loop
+            std::size_t PredI = LoopRPO->block_indices.at(Pred);
+            // if (it == LoopRPO->block_indices.end()) continue;
+            if (PredI >= IBI && PredI < JBI)
+              predecessors.insert(PredI);
+          }
+          if (predecessors.empty()) return false;
+          assert(predecessors.back() < JBI);
+          JBI = predecessors.back();
+          predecessors.pop_back();
+          assert(IBI < JBI);
+          JB = LoopRPO->blocks[JBI];
+        }
+        abort();
+      }
+    }
+
     Option<InsertionPoint> operator&(InsertionPoint other) const {
       InsertionPoint res;
       if (!earliest) res.earliest = other.earliest;
       else if (!other.earliest) res.earliest = earliest;
       else if (earliest == other.earliest) res.earliest = earliest;
-      else if (DominatorTree->dominates(earliest, other.earliest)) {
-        res.earliest = other.earliest;
-      } else if (DominatorTree->dominates(other.earliest, earliest)) {
-        res.earliest = earliest;
-      } else {
-        /* TODO: We have to find the least common denominator */
-        llvm::dbgs() << "Meeting insertion points general case not implemented:\n";
-        llvm::dbgs() << "    " << *earliest << "\n"
-                     << " and" << *other.earliest << "\n";
-        // assert(false);
-        return {}; // Underapproximating for now
-      }
+      else if (isBefore(earliest, other.earliest)) res.earliest = other.earliest;
+      else if (isBefore(other.earliest, earliest)) res.earliest = earliest;
+      else return {};
       return res;
     }
 
@@ -364,7 +407,7 @@ namespace {
       if (!earliest && other.earliest) return false;
       if (!other.earliest) return true;
       if (earliest == other.earliest) return true;
-      return DominatorTree->dominates(other.earliest, earliest);
+      return isBefore(other.earliest, earliest);
     }
     bool operator<(InsertionPoint other) const {
       return *this != other && *this <= other;
@@ -450,7 +493,7 @@ namespace {
       for (BinaryPredicate &term : vec)
         term = f(term);
 
-      ConjunctionLoc res(true);
+      ConjunctionLoc res(true, insertion_point);
       for (BinaryPredicate &term : vec)
         res.addConjunct(std::move(term));
       return res;
@@ -519,8 +562,8 @@ namespace {
     bool is_false() const { return disjuncts.empty(); }
     auto begin() const { return disjuncts.begin(); }
     auto end() const { return disjuncts.end(); }
-    bool operator!=(const Disjunction &other) { return !(*this == other); }
-    bool operator==(const Disjunction &other) {
+    bool operator!=(const Disjunction &othr) const { return !(*this == othr); }
+    bool operator==(const Disjunction &other) const {
       return disjuncts == other.disjuncts;
     }
     bool operator<(const Disjunction &other) const {
@@ -542,12 +585,19 @@ namespace {
       }
       return found_smaller;
     }
+    bool operator<=(const Disjunction &other) const {
+      return *this == other || *this < other;
+    }
 
     Disjunction operator|(const Disjunction &other) const {
       Disjunction res = *this;
       res.addConds(other.disjuncts);
       res.bound();
       return res;
+    }
+
+    Disjunction &operator|=(const Disjunction &other) {
+      return *this = (*this | other);
     }
 
     Disjunction operator&(const Disjunction &other) const {
@@ -764,13 +814,6 @@ namespace {
     return llvm::dyn_cast<llvm::Instruction>(V);
   }
 
-  void maybeResolvePhi(llvm::Value *&V, const llvm::BasicBlock *From,
-                       const llvm::BasicBlock *To) {
-    llvm::PHINode *N = llvm::dyn_cast_or_null<llvm::PHINode>(V);
-    if (!N || N->getParent() != To) return;
-    V = N->getIncomingValueForBlock(From);
-  }
-
   BinaryPredicate collapseTautologies(const BinaryPredicate &cond) {
     if (cond.is_true() || cond.is_false()) return cond;
     if (cond.rhs == cond.lhs) {
@@ -859,41 +902,36 @@ namespace {
     return true;
   }
 
-  struct RPO {
-    std::vector<llvm::BasicBlock *> blocks;
-    std::set<std::pair<const llvm::BasicBlock *, const llvm::BasicBlock *>> backedges;
-    RPO(std::size_t capacity) { blocks.reserve(capacity); }
-  };
-
   void RPOVisit(llvm::Loop* L, RPO &rpo,
                 std::unordered_set<llvm::BasicBlock *> &visited,
-                std::unordered_map<llvm::BasicBlock *, unsigned> &poorder,
+                decltype(RPO::block_indices)::sequence_type &poorder,
                 llvm::BasicBlock *BB) {
     if (!visited.insert(BB).second) return;
     for (llvm::BasicBlock *Succ : llvm::successors(BB)) {
       if (!L->contains(Succ)) continue;
       RPOVisit(L, rpo, visited, poorder, Succ);
     }
-    poorder[BB] = rpo.blocks.size();
     rpo.blocks.push_back(BB);
+    poorder.emplace_back(BB, L->getNumBlocks() - rpo.blocks.size());
   }
 
   RPO getLoopRPO(llvm::Loop *L) {
     RPO ret(L->getNumBlocks());
     std::unordered_set<llvm::BasicBlock *> visited(L->getNumBlocks());
-    std::unordered_map<llvm::BasicBlock *, unsigned> poorder(L->getNumBlocks());
+    decltype(RPO::block_indices)::sequence_type poorder;
+    poorder.reserve(L->getNumBlocks());
+
     RPOVisit(L, ret, visited, poorder, L->getHeader());
     std::reverse(ret.blocks.begin(), ret.blocks.end());
+    std::sort(poorder.begin(), poorder.end());
+    ret.block_indices.adopt_sequence
+      (boost::container::ordered_unique_range, std::move(poorder));
     assert(ret.blocks.size() == L->getNumBlocks());
-    /* Compute backedges */
-    for (llvm::BasicBlock *BB : ret.blocks) {
-      unsigned BBi = poorder.at(BB);
-      for (llvm::BasicBlock *Succ : llvm::successors(BB)) {
-        if (!L->contains(Succ)) continue;
-        unsigned Succi = poorder.at(Succ);
-        if (Succi >= BBi) ret.backedges.emplace(BB, Succ);
-      }
+#ifndef NDEBUG
+    for (std::size_t i = 0; i < ret.blocks.size(); ++i) {
+      assert(ret.block_indices.at(ret.blocks[i]) == i);
     }
+#endif
     return ret;
   }
 
@@ -903,36 +941,50 @@ namespace {
                         const llvm::BasicBlock *To) {
     if (To == L->getHeader()) {
       /* Check for data leaks along the back edge */
-      // llvm::dbgs() << "Checking " << From->getName() << "->" << To->getName()
-      //              << " for escaping phis: \n";
-      for (const llvm::Instruction *I = &*To->begin();
-           I != To->getFirstNonPHI(); I = I->getNextNode()) {
+      if (cl_plp_dbgp >= 4)
+        llvm::dbgs() << "Checking " << From->getName() << "->" << To->getName()
+                     << " for escaping phis: \n";
+      for (const llvm::Instruction *I = &*To->begin(),
+             *End = To->getFirstNonPHI(); I != End; I = I->getNextNode()) {
         const llvm::PHINode *Phi = llvm::cast<llvm::PHINode>(I);
-        llvm::Value *V = Phi->getIncomingValueForBlock(From);
-        // llvm::dbgs() << "  "; Phi->printAsOperand(llvm::dbgs());
-        // llvm::dbgs() << ": "; V->printAsOperand(llvm::dbgs()); llvm::dbgs() << "\n";
-        if (llvm::Instruction *VI = maybeFindValueLocation(V)) {
-          if (L->contains(VI)) {
-            if (isPermissibleLeak(L, Phi, VI)) {
-              continue;
-            }
-            // llvm::dbgs() << "  leak: "; V->printAsOperand(llvm::dbgs());
-            // llvm::dbgs() << " through "; Phi->printAsOperand(llvm::dbgs());
-            // llvm::dbgs() << "\n";
-            return false; /* Leak */
+        /* XXX: DANGER ZONE */
+        if (Phi->getName().startswith("plp_inner_mon")) continue;
+        llvm::Value *FromOutside = nullptr;
+        for (llvm::BasicBlock *Entering : llvm::predecessors(L->getHeader())) {
+          if (L->contains(Entering)) continue;
+          if (!FromOutside) {
+            FromOutside = Phi->getIncomingValueForBlock(Entering);
+            assert(FromOutside);
+          } else if (Phi->getIncomingValueForBlock(Entering) != FromOutside) {
+            FromOutside = nullptr;
+            break;
           }
         }
+
+        llvm::Value *V = Phi->getIncomingValueForBlock(From);
+        assert(V);
+        if (V == FromOutside || V == Phi) continue;
+
+        if (cl_plp_dbgp >= 4) { llvm::dbgs() << "  "; Phi->printAsOperand(llvm::dbgs()); }
+        if (cl_plp_dbgp >= 4) { llvm::dbgs() << ": "; V->printAsOperand(llvm::dbgs()); llvm::dbgs() << "\n"; }
+        llvm::Instruction *VI = maybeFindValueLocation(V);
+        if (!VI) return false;
+        if (!L->contains(VI) || !isPermissibleLeak(L, Phi, VI)) return false;
       }
       return true;
     }
     if (!L->contains(To)) return false;
-    if (rpo.backedges.count({From, To})) return false;
-    PurityCondition in = conds[To].map([From, To](BinaryPredicate term) {
-      maybeResolvePhi(term.rhs, From, To);
-      maybeResolvePhi(term.lhs, From, To);
+    if (rpo.is_backedge(From, To)) {
+      if (cl_plp_dbgp >= 3)
+        llvm::dbgs() << "    backedge: " << From->getName() << " -> " << To->getName() << "\n";
+      return false;
+    }
+    if (cl_plp_dbgp >= 4) llvm::dbgs() << "    in from " << To->getName() << ": " << conds[To] << "\n";
+    PurityCondition in = conds[To].map([](BinaryPredicate term) {
       term.normalise();
       return collapseTautologies(term);
     });
+    if (cl_plp_dbgp >= 3) llvm::dbgs() << "    normalised: " << in << "\n";
     return in;
   }
 
@@ -957,8 +1009,9 @@ namespace {
         }
       }
     }
-    return BinaryPredicate(llvm::CmpInst::ICMP_EQ, cond,
-                           llvm::ConstantInt::getTrue(cond->getContext()));
+    return collapseTautologies
+      (BinaryPredicate(llvm::CmpInst::ICMP_EQ, cond,
+                       llvm::ConstantInt::getTrue(cond->getContext())));
   }
 
   PurityCondition computeOut(const llvm::Loop *L, PurityConditions &conds,
@@ -974,10 +1027,12 @@ namespace {
         // purity; if not, the condition should just be false. That way,
         // we won't waste good conditions in the overapproximations
         BinaryPredicate brCond = getBranchCondition(branch->getCondition());
-        brCond = collapseTautologies(brCond);
         if (!L->contains(trueSucc)) {
           assert(trueIn.is_false());
+          if (cl_plp_dbgp >= 3) llvm::dbgs() << "   trueSucc not in loop\n";
+          if (cl_plp_dbgp >= 3) llvm::dbgs() << "    falseIn: " << falseIn << "\n";
           if (falseIn.is_true()) return brCond.negate();
+          if (cl_plp_dbgp >= 3) llvm::dbgs() << "     (not true)\n";
           return falseIn & InsertionPoint(&*falseSucc->getFirstInsertionPt());
         }
         if (!L->contains(falseSucc)) {
@@ -987,11 +1042,17 @@ namespace {
         }
         // if (trueIn.is_true()) return falseIn | brCond;
         // if (falseIn.is_true()) return trueIn | brCond.negate();
-        // llvm::dbgs() << "   lhs: " << (falseIn | brCond) << "\n";
-        // llvm::dbgs() << "    trueIn: " << trueIn << "\n";
-        // llvm::dbgs() << "    brCond.negate(): " << brCond.negate() << "\n";
-        // llvm::dbgs() << "   rhs: " << (trueIn | brCond.negate()) << "\n";
-        // assert(!(trueIn | brCond.negate()).is_false() || (trueIn.is_false() && brCond.is_false()));
+        if (cl_plp_dbgp >= 3) {
+          llvm::dbgs() << "    falseIn: " << falseIn << "\n";
+          llvm::dbgs() << "    brCond: " << brCond << "\n";
+          llvm::dbgs() << "   lhs: " <<
+            (falseIn | brCond)
+                       << "\n";
+          llvm::dbgs() << "    trueIn: " << trueIn << "\n";
+          // llvm::dbgs() << "    brCond.negate(): " << brCond.negate() << "\n";
+          llvm::dbgs() << "   rhs: " << (trueIn | brCond.negate()) << "\n";
+        }
+        assert(!(trueIn | brCond.negate()).is_false() || (trueIn.is_false() && brCond.is_true()));
         return (falseIn | brCond) & (trueIn | brCond.negate());
       }
     }
@@ -1124,12 +1185,11 @@ namespace {
   }
 
   void debugPrintInstructionPCs(llvm::Loop *L, PurityConditions &conds) {
-    RPO rpo = getLoopRPO(L);
     llvm::dbgs() << "Results of analysing " << L->getHeader()->getParent()->getName()
                  << ":" << *L;
     std::map<llvm::Instruction*,PurityCondition> iconds;
-    for (llvm::BasicBlock *BB : rpo.blocks) {
-      PurityCondition cond = computeOut(L, conds, rpo, BB);
+    for (llvm::BasicBlock *BB : LoopRPO->blocks) {
+      PurityCondition cond = computeOut(L, conds, *LoopRPO, BB);
       iconds[BB->getTerminator()] = cond;
       for (auto it = BB->rbegin(); ++it != BB->rend();) {
         iconds[&*it] = cond &= instructionPurity(L, *it);
@@ -1137,7 +1197,7 @@ namespace {
     }
     llvm::formatted_raw_ostream os(llvm::errs());
     std::string indent(2, ' ');
-    for (llvm::BasicBlock *BB : rpo.blocks) {
+    for (llvm::BasicBlock *BB : LoopRPO->blocks) {
       os << indent << BB->getName() << ":";
       os.PadToColumn(30+indent.size());
       os.changeColor(llvm::raw_ostream::YELLOW, false, false)
@@ -1160,7 +1220,7 @@ namespace {
 
   PurityConditions analyseLoop(llvm::Loop *L) {
     PurityConditions conds;
-    RPO rpo = getLoopRPO(L);
+    const RPO &rpo = *LoopRPO;
     // llvm::dbgs() << "Analysing " << L->getHeader()->getParent()->getName()
     //              << ":" << *L;
 #ifndef NDEBUG
@@ -1171,7 +1231,7 @@ namespace {
 #ifndef NDEBUG
       for (llvm::BasicBlock *S : llvm::successors(BB)) {
         assert(visited.count(S) || L->getHeader() == S || !L->contains(S)
-               || rpo.backedges.count({BB, S}));
+               || rpo.is_backedge(BB, S));
       }
       visited.insert(BB);
 #endif
@@ -1258,7 +1318,13 @@ namespace {
 
   bool recurseLoops(llvm::Loop *L, const std::function<bool(llvm::Loop*)> &f) {
     bool changed = false;
+    assert(!Loop && !LoopRPO);
+    Loop = L;
+    RPO rpo = getLoopRPO(L);
+    LoopRPO = &rpo;
     changed |= f(L);
+    Loop = nullptr;
+    LoopRPO = nullptr;
     for (auto it = L->begin(); it != L->end(); ++it) {
       changed |= recurseLoops(*it, f);
     }
@@ -1314,64 +1380,201 @@ namespace {
                                         const ConjunctionLoc &cond) {
     InsertionPoint IPT(&*L->getHeader()->getFirstInsertionPt());
     if (!(IPT &= cond.insertion_point)) abort(); // Not possible
-    for (const BinaryPredicate &term : cond) {
-      if (llvm::Instruction *LHS = maybeFindUserLocationOrNull
-          (llvm::dyn_cast_or_null<llvm::User>(term.lhs))) {
-        if (!(IPT &= LHS->getNextNode())) return nullptr;
+    if (cl_plp_dbgp >= 3) {
+      llvm::dbgs() << "   RPO: ";
+      for (auto it = LoopRPO->blocks.begin(); it != LoopRPO->blocks.end(); ++it) {
+        if (it != LoopRPO->blocks.begin()) llvm::dbgs() << ", ";
+        llvm::dbgs() << (*it)->getName();
       }
-      if (llvm::Instruction *RHS = maybeFindUserLocationOrNull
-          (llvm::dyn_cast_or_null<llvm::User>(term.rhs))) {
-        if (!(IPT &= RHS->getNextNode())) return nullptr;
+      llvm::dbgs() << "\n";
+      llvm::dbgs() << "  IPT:" << IPT << "\n";
+    }
+    for (const BinaryPredicate &term : cond) {
+      for (llvm::Value *Value : {term.lhs, term.rhs}) {
+        if (llvm::Instruction *Loc = maybeFindUserLocationOrNull
+            (llvm::dyn_cast_or_null<llvm::User>(Value))) {
+          if (!L->contains(Loc->getParent())) {
+            /* Must dominate header */
+          } else if (!(IPT &= Loc->getNextNode())) {
+            return nullptr;
+          }
+          if (cl_plp_dbgp >= 3) llvm::dbgs() << "  IPT:" << IPT << "\n";
+        }
       }
     }
     assert(IPT.earliest);
     return IPT.earliest;
   }
 
+  /* Compute path conditions to all blocks in the loop, i.e. conditions
+   * that must hold if we are in that block. */
+  auto getPathConds(llvm::Loop *L, const RPO &rpo) {
+    std::map<const llvm::BasicBlock*, PurityCondition> ret;
+    for (const llvm::BasicBlock *BB : rpo.blocks) {
+      PurityCondition &BBImp = ret[BB];
+      if (BB == L->getHeader()) continue;
+      BBImp = true;
+      for (const llvm::BasicBlock *Pred : llvm::predecessors(BB)) {
+        /* Note: gets false for backedges */
+        PurityCondition PredImp = ret[Pred];
+        if (const llvm::BranchInst *Br = llvm::dyn_cast<llvm::BranchInst>
+            (Pred->getTerminator())) {
+          if (Br->isConditional()) {
+            BinaryPredicate BrCond = getBranchCondition(Br->getCondition());
+            if (BB != Br->getSuccessor(0)) BrCond = BrCond.negate();
+            PredImp |= BrCond;
+          }
+        }
+        BBImp &= PredImp;
+      }
+    }
+    return ret;
+  }
+
+  llvm::Value *constantZeroValue(llvm::Type *T) {
+    return llvm::Constant::getNullValue(T);
+    abort();
+  }
+
+  bool phiSameAs
+  (llvm::PHINode *PHI,
+   llvm::ArrayRef<std::pair<llvm::BasicBlock*,llvm::Value*>> Vals) {
+    assert(PHI->getNumIncomingValues() == Vals.size());
+    for (const auto &pair : Vals) {
+      if (PHI->getIncomingValueForBlock(pair.first) != pair.second) return false;
+    }
+    return true;
+  }
+
+  /* Make a value available further down in the loop DAG. If it does not
+   * dominate BB, insert PHI-nodes that supply its value if it was
+   * executed in the current pure loop iteration, and some arbitrary
+   * value otherwise. */
+  llvm::Value *bringDown(llvm::Value *V, llvm::BasicBlock *BB,
+                         const RPO &rpo, const llvm::DominatorTree &DT) {
+    llvm::Instruction *I = maybeFindValueLocation(V);
+    if (!I) return V; // No location
+    if (I->getParent() == BB) return I; // Already in BB
+    if (DT.dominates(I, BB)) return I; // No "bringing" required
+    std::size_t II = rpo.block_indices.at(I->getParent());
+    bool needPhi = false, allSame = true;
+    llvm::SmallVector<std::pair<llvm::BasicBlock*,llvm::Value*>, 4> prev;
+    for (llvm::BasicBlock *Pred : llvm::predecessors(BB)) {
+      llvm::Value *PV;
+      if (rpo.is_backedge(Pred, BB) || rpo.block_indices.at(Pred) < II) {
+        PV = constantZeroValue(V->getType());
+        needPhi = true;
+      } else {
+        PV = bringDown(V, Pred, rpo, DT);
+      }
+      prev.emplace_back(Pred, PV);
+    }
+    allSame = std::all_of(prev.begin(), prev.end(), [&](const auto &pair) {
+      return pair.second == prev[0].second;
+    });
+    if (allSame && !needPhi && prev.size()) return prev[0].second;
+    for (auto it = BB->begin();
+         it != BB->end() && llvm::isa<llvm::PHINode>(*it); ++it) {
+      if (phiSameAs(llvm::cast<llvm::PHINode>(&*it), prev)) return &*it;
+    }
+    llvm::PHINode *PHI = llvm::PHINode::Create
+      (V->getType(), prev.size(), V->getName() + ".in." + BB->getName(),
+       &*BB->getFirstInsertionPt());
+    for (const auto &pair : prev) PHI->addIncoming(pair.second, pair.first);
+    return PHI;
+  }
+
+  llvm::Value *getInnerLoopMonitor(llvm::Loop *L, llvm::BasicBlock *BB,
+                                   const RPO &rpo) {
+    llvm::Value *True = llvm::ConstantInt::getTrue(BB->getContext());
+    llvm::Value *False = llvm::ConstantInt::getFalse(BB->getContext());
+    if (BB == L->getHeader()) return True;
+    llvm::SmallVector<std::pair<llvm::BasicBlock*,llvm::Value*>, 4> prev;
+    for (llvm::BasicBlock *Pred : llvm::predecessors(BB)) {
+      llvm::Value *PV;
+      if (rpo.is_backedge(Pred, BB)) PV = False;
+      else PV = getInnerLoopMonitor(L, Pred, rpo);
+      prev.emplace_back(Pred, PV);
+    }
+    bool allSame = std::all_of(prev.begin(), prev.end(), [&](const auto &pair) {
+      return pair.second == prev[0].second;
+    });
+    if (allSame && prev.size()) return prev[0].second;
+    for (auto it = BB->begin();
+         it != BB->end() && llvm::isa<llvm::PHINode>(*it); ++it) {
+      if (phiSameAs(llvm::cast<llvm::PHINode>(&*it), prev)) return &*it;
+    }
+    llvm::PHINode *PHI = llvm::PHINode::Create
+      (True->getType(), prev.size(), "plp_inner_mon." + BB->getName(),
+       &*BB->getFirstInsertionPt());
+    // PHI->setMetadata("plp", llvm::MDString::get(BB->getContext(), "pure"));
+    for (const auto &pair : prev) PHI->addIncoming(pair.second, pair.first);
+    return PHI;
+  }
+
   bool runOnLoop(llvm::Loop *L) {
-    // Debug::warn(("plp.code." + L->getHeader()->getParent()->getName()).str())
-    //   << "Analysing " << L->getHeader()->getParent()->getName() << ":\n"
-    //   << *L->getHeader()->getParent();
+    if (cl_plp_dbgp >= 1)
+      Debug::warn(("plp.code." + L->getHeader()->getParent()->getName()).str())
+        << "Analysing " << L->getHeader()->getParent()->getName() << ":\n";
+      //<< *L->getHeader()->getParent();
     assert(!may_inline);
     assert(!inlining_needed);
     PurityConditions conditions = analyseLoop(L);
-    // debugPrintInstructionPCs(L, conditions);
+    if (cl_plp_dbgp >= 2) debugPrintInstructionPCs(L, conditions);
     PurityCondition headerCond = conditions[L->getHeader()];
     assert(!inlining_needed);
     if (headerCond.is_false()) {
-      // llvm::dbgs() << "Loop " << L->getHeader()->getParent()->getName() << ":"
-      //              << *L << " isn't pure\n";
+      if (cl_plp_dbgp >= 1)
+        llvm::dbgs() << "Loop " << L->getHeader()->getParent()->getName() << ":"
+                     << *L << " isn't pure\n";
       return false;
-    } else {
-      // llvm::dbgs() << "Partially pure loop found in "
-      //              << L->getHeader()->getParent()->getName() << "():\n";
+    } else if (cl_plp_dbgp >= 1) {
+      llvm::dbgs() << "Partially pure loop " << *L << " found in "
+                   << L->getHeader()->getParent()->getName() << "():\n";
       // L->print(llvm::dbgs(), 2);
-      // llvm::dbgs() << " Purity condition: " << headerCond << "\n";
+      llvm::dbgs() << " Purity condition: " << headerCond << "\n";
     }
 
-    for (const ConjunctionLoc &conj : headerCond) {
+    auto pathConds = getPathConds(L, *LoopRPO);
+    for (ConjunctionLoc conj : headerCond) {
       llvm::Instruction *I = findInsertionPoint(L, conj);
       if (!I) {
-        // llvm::dbgs() << "Not elimiating loop purity: No valid insertion location found\n";
+        if (cl_plp_dbgp >= 1)
+          llvm::dbgs() << "Not elimiating loop purity: No valid insertion location found\n";
         continue;
       }
-      //llvm::dbgs() << " Insertion point: " << *I << "\n";
-      llvm::Value *Cond = nullptr;
-      if (conj.is_true()) {
-        Cond = llvm::ConstantInt::getTrue(L->getHeader()->getContext());
+      if (cl_plp_dbgp >= 1) llvm::dbgs() << " Insertion point: " << *I << "\n";
+      llvm::Value *LoopMon = getInnerLoopMonitor(L, I->getParent(), *LoopRPO);
+      /* It's either the constant true, or a phi node */
+      if (llvm::isa<llvm::PHINode>(LoopMon)) {
+        if (cl_plp_dbgp >= 3)
+          llvm::dbgs() << "  Inner loop monitor: %" << LoopMon->getName() << "\n";
+        conj &= BinaryPredicate(llvm::CmpInst::ICMP_EQ, LoopMon,
+                                llvm::ConstantInt::getTrue(I->getContext()));
       } else {
-        for (const BinaryPredicate &term : conj) {
-          llvm::Value *TermCond = llvm::ICmpInst::Create
-            (getPredicateOpcode(term.op),
-             llvm::CmpInst::getInversePredicate(term.op),
-             term.lhs, term.rhs, "pp.term.negated", I);
-          if (!Cond) Cond = TermCond;
-          else
-            Cond = llvm::BinaryOperator::Create
-              (llvm::BinaryOperator::BinaryOps::Or, Cond, TermCond,
-               "pp.conj.negated", I);
-        }
+        assert(LoopMon == llvm::ConstantInt::getTrue(I->getContext()));
       }
+      if (cl_plp_dbgp >= 3) llvm::dbgs() << "  Conjunction: " << conj << "\n";
+      llvm::Value *Cond = nullptr;
+      for (const BinaryPredicate &term : conj) {
+        if (PurityCondition(term) <= pathConds.at(I->getParent())) {
+          if (cl_plp_dbgp >= 3)
+            llvm::dbgs() << "   Omitting term implied by PC: " << term << "\n";
+          continue;
+        }
+        llvm::Value *LHS = bringDown(term.lhs, I->getParent(), *LoopRPO, *DominatorTree);
+        llvm::Value *RHS = bringDown(term.rhs, I->getParent(), *LoopRPO, *DominatorTree);
+        llvm::Value *TermCond = llvm::ICmpInst::Create
+          (getPredicateOpcode(term.op),
+           llvm::CmpInst::getInversePredicate(term.op),
+           LHS, RHS, "pp.term.negated", I);
+        if (!Cond) Cond = TermCond;
+        else
+          Cond = llvm::BinaryOperator::Create
+            (llvm::BinaryOperator::BinaryOps::Or, Cond, TermCond,
+             "pp.conj.negated", I);
+      }
+      if (!Cond) Cond = llvm::ConstantInt::getTrue(I->getContext());
       llvm::Function *F_assume = L->getHeader()->getParent()->getParent()
         ->getFunction("__VERIFIER_assume");
       {
@@ -1384,9 +1587,10 @@ namespace {
       llvm::CallInst::Create(F_assume,{Cond},"",I);
     }
 
-    // llvm::dbgs() << "Rewritten:\n";
-    // llvm::dbgs() << *L->getHeader()->getParent();
-
+    if (cl_plp_dbgp >= 4) {
+      llvm::dbgs() << "Rewritten:\n";
+      llvm::dbgs() << *L->getHeader()->getParent();
+    }
     return true;
   }
 }  // namespace
