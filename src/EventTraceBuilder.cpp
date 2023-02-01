@@ -3158,7 +3158,29 @@ bool EventTraceBuilder::wakeup_sequence(const Race &race, unsigned &br_point,
       unfiltered_notdep.push_back(in_notdep[k]);
     }
   }
-
+#ifndef NDEBUG
+  for(unsigned k = 0; k < prefix.len(); ++k){
+    if(in_notdep[k]){
+      if(prefix[k].iid.get_index() > 1){
+	unsigned last = find_process_event(prefix[k].iid.get_pid(), prefix[k].iid.get_index()-1);
+	assert(in_notdep[last]);
+      }
+      for (unsigned h : prefix[k].happens_after)
+	assert(in_notdep[h]);
+      for (auto race : prefix[k].races){
+	if(prefix[k].iid.get_pid() != spid ||
+	   prefix[race.first_event].iid.get_pid() != fpid){
+	  unsigned h = race.kind == Race::MSG_REV?
+	    threads[prefix[race.first_event].iid.get_pid()].
+	    event_indices.back() : race.first_event;
+	  assert(in_notdep[h]);
+	}
+      }
+      for (unsigned h : prefix[k].eom_before)
+	assert(in_notdep[h]);
+    }
+  }
+#endif
   if (race.kind == Race::NONBLOCK) {
     recompute_cmpxhg_success(second_br.sym, v, i);
   }
@@ -3528,11 +3550,13 @@ recompute_vclock(const std::vector<bool> &in_v,
     if(i == last_event[pid]){
       unsigned fev_i = threads[pid].event_indices.front();
       for (unsigned ej : prefix[fev_i].eom_before){
-	assert(ej < i);
 	unsigned fev_ej =
 	  threads[prefix[ej].iid.get_pid()].event_indices.front();
 	unsigned lev_ej =
 	  threads[prefix[ej].iid.get_pid()].event_indices.back();
+	assert(ej < i);
+	assert(clock_WS[ej] != VClock<IPid>());
+	assert(clock_WS[fev_ej] != VClock<IPid>());
 	if(prefix[ej].iid.get_pid() != prefix[race.first_event].iid.get_pid() &&
 	   clock_WS[fev_ej].lt(clock_WS[i]) &&
 	   !clock_WS[ej].lt(clock_WS[fev_i])){
