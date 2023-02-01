@@ -2449,7 +2449,8 @@ void EventTraceBuilder::do_race_detect() {
   for (const Race &r : lock_fail_races){
     unsigned br_point;
     std::vector<bool> unfiltered_notdep;
-    Branch second_br = wakeup_sequence(r, br_point, unfiltered_notdep);
+    Branch second_br(0,0);
+    if(!wakeup_sequence(r, br_point, unfiltered_notdep, second_br)) continue;
     std::vector<Branch> v =
       linearize_sequence(br_point, second_br, r, unfiltered_notdep);
     assert(0 <= br_point && br_point < prefix.len());
@@ -2498,7 +2499,8 @@ void EventTraceBuilder::do_race_detect() {
 	  special_case1(threads[fpid].handler_id,r.first_event,r.second_event))){
 	unsigned br_point;
 	std::vector<bool> unfiltered_notdep;
-	Branch second_br = wakeup_sequence(r, br_point, unfiltered_notdep);
+	Branch second_br(0,0);
+	if(!wakeup_sequence(r, br_point, unfiltered_notdep, second_br)) continue;
 	std::vector<Branch> v =
 	  linearize_sequence(br_point, second_br, r, unfiltered_notdep);
 	assert(0 <= br_point && br_point < prefix.len());
@@ -2513,7 +2515,8 @@ void EventTraceBuilder::do_race_detect() {
       else{
 	unsigned br_point;
 	std::vector<bool> unfiltered_notdep;
-	Branch second_br = wakeup_sequence(r, br_point, unfiltered_notdep);
+	Branch second_br(0,0);
+	if(!wakeup_sequence(r, br_point, unfiltered_notdep, second_br)) continue;
 	std::vector<Branch> v =
 	  linearize_sequence(br_point, second_br, r, unfiltered_notdep);
 	assert(0 <= br_point && br_point < prefix.len());
@@ -2974,15 +2977,15 @@ conflict_with_rest_of_msg(unsigned j, const Branch &child,
   return false;
 }
 
-EventTraceBuilder::Branch
-EventTraceBuilder::wakeup_sequence(const Race &race, unsigned &br_point,
-				   std::vector<bool> &unfiltered_notdep) const{
+bool EventTraceBuilder::wakeup_sequence(const Race &race, unsigned &br_point,
+					std::vector<bool> &unfiltered_notdep,
+					Branch &second_br) const{
   int i = race.first_event;
   int j = race.kind != Race::MSG_REV? race.second_event : race.snd_conflict;
   IPid fpid = prefix[i].iid.get_pid();
   IPid spid = prefix[j].iid.get_pid();
   Event second({-1,0});
-  Branch second_br(0,0);
+  second_br = Branch(0,0);
   recompute_second(race,second_br,second);
 
   /* v is the subsequence of events in prefix come after prefix[i],
@@ -3150,13 +3153,16 @@ EventTraceBuilder::wakeup_sequence(const Race &race, unsigned &br_point,
 	 in_notdep[threads[ipid].event_indices.front()])
         fst_partial_msgs.push_back(threads[ipid].event_indices.front());
     }
-    for(unsigned k = 0; k < prefix.len(); ++k) unfiltered_notdep.push_back(in_notdep[k]);
+    for(unsigned k = 0; k < prefix.len(); ++k){
+      if(prefix[k].iid.get_pid() == spid && !in_notdep[k] && k < j) return false;
+      unfiltered_notdep.push_back(in_notdep[k]);
+    }
   }
 
   if (race.kind == Race::NONBLOCK) {
     recompute_cmpxhg_success(second_br.sym, v, i);
   }
-  return second_br;
+  return true;
 }
 
 bool EventTraceBuilder::
@@ -3434,6 +3440,7 @@ recompute_vclock(const std::vector<bool> &in_v,
   /* Recomputing clock for the WS*/
   for(unsigned i = 0; i < prefix.len();){
     if(!in_v[i] && i != second){
+      clock_WS[i] = VClock<IPid>();
       i++;
       continue;
     }

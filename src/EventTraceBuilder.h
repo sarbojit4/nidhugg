@@ -826,9 +826,9 @@ protected:
                                  unsigned &last_seen_msg_event,
                                  bool &partial_msg) const;
   /* Compute the wakeup sequence for reversing a race. */
-  Branch
-  wakeup_sequence(const Race &race, unsigned &br_point,
-		  std::vector<bool> &unfiltered_notdep) const;
+  bool wakeup_sequence(const Race &race, unsigned &br_point,
+		       std::vector<bool> &unfiltered_notdep,
+		       Branch &second_br) const;
   std::vector<Branch> linearize_sequence(unsigned br_point, Branch second_br,
 					 const Race &race, std::vector<bool> &in_v) const;
   bool remove_partial_msgs(std::vector<Branch> &v,
