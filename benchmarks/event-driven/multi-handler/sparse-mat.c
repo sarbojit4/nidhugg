@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <assert.h>
+#include <math.h>
 #include "qthread.h"
 
 
@@ -15,20 +17,25 @@
 
 qthread_t handler1, handler2;
 atomic_int A[M][N];
-int p[N];
+atomic_int p[N];
+atomic_int msg_finished[N];
 atomic_int sum_of_elems = 0;
 
 atomic_int x,y;
-void sum_sum(void *p){
-  int i = (*(int *)p);
+void __VERIFIER_assume(intptr_t);
+
+void sum_sum(void *arg){
+  atomic_int i = atomic_load_explicit((atomic_int *)arg, memory_order_seq_cst);
   sum_of_elems += A[0][i];
+  atomic_store_explicit(&msg_finished[i], 1, memory_order_seq_cst);
+  p[i]=0;
 } 
-void sum_col_elems(void *p){
-  int i = (*(int *)p);
+void sum_col_elems(void *arg){
+  atomic_int i = atomic_load_explicit((atomic_int *)arg, memory_order_seq_cst);
   for(int j = 1; j < M; j++){
-    A[0][j] += A[j][i];
+    A[0][i] += A[j][i];
   }
-  qthread_post_event(handler1, &sum_sum, p); 
+  qthread_post_event(handler2, &sum_sum, arg); 
 }
 
 
@@ -49,7 +56,17 @@ int main(){
   qthread_start(handler2);
 
   for (int i = 0; i < N; i++){
+      msg_finished[i] = 0;
       p[i] = i;
       qthread_post_event(handler1, &sum_col_elems, &p[i]); 
   }
+
+  int expected_sum = (((M/2)+(M%2))*(N/2))+((M/2)*((N/2)+(N%2)));
+  int all_finished = 1;
+  for (int i = 0; i < N; i++){
+    atomic_int finished = atomic_load_explicit(&msg_finished[i], memory_order_seq_cst);
+    if(finished == 0){} //all_finished = 1
+  }
+  //if(all_finished == 1) assert(sum_of_elems == expected_sum);
+
 }

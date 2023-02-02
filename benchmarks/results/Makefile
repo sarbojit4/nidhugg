@@ -1,15 +1,14 @@
 SUBDIRS =			\
+	event_driven/prolific-writers 	\
 	event_driven/writers 	\
 	event_driven/writers-posters 	\
 	event_driven/buyers 	    \
 	event_driven/ping-pong 	    \
 	event_driven/2PC \
 	event_driven/consensus \
-	event_driven/prolific-writers 	\
 	event_driven/db-cache \
 	event_driven/mat-mult \
-        event_driven/plb \
-        event_driven/race
+	event_driven/sparse-mat
 
 # T ?= all
 
