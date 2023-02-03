@@ -7,7 +7,7 @@
 
 
 #ifndef M
-#  warning "M was not defined; defining it as 3"
+#  warning "M was not defined; defining it as 4"
 #  define M 4
 #endif
 #ifndef N
