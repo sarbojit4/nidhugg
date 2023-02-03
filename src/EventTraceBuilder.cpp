@@ -935,13 +935,13 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
           }
         }else{
           seen_accesses.insert(bi.last_update);
-	  currtrace.emplace(prefix[bi.last_update].iid, curev().iid);
+	  //currtrace.emplace(prefix[bi.last_update].iid, curev().iid);
         }
       }
     }
     for(int i : bi.last_read){
       if(0 <= i && prefix[i].iid.get_pid() != tipid){
-	currtrace.emplace(prefix[i].iid, curev().iid);
+	//currtrace.emplace(prefix[i].iid, curev().iid);
 	seen_accesses.insert(i);
       }
     }
@@ -1083,7 +1083,7 @@ void EventTraceBuilder::do_load(ByteInfo &m){
     IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
     if(lu_tipid != ipid){
       seen_accesses.insert(lu);
-      currtrace.emplace(prefix[lu].iid, curev().iid);
+      //currtrace.emplace(prefix[lu].iid, curev().iid);
     }
     if (conf.dpor_algorithm == Configuration::OBSERVERS) {
       /* Update last_update to be an observed store */
