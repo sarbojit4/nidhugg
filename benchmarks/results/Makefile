@@ -1,7 +1,7 @@
 SUBDIRS =			\
-	event_driven/prolific-writers 	\
+	event_driven/prolific 	\
 	event_driven/writers 	\
-	event_driven/writers-posters 	\
+	event_driven/posters 	\
 	event_driven/buyers 	    \
 	event_driven/ping-pong 	    \
 	event_driven/2PC \
