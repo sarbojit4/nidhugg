@@ -8,7 +8,8 @@ SUBDIRS =			\
 	event_driven/consensus \
 	event_driven/db-cache \
 	event_driven/mat-mult \
-	event_driven/sparse-mat
+	event_driven/sparse-mat \
+	event_driven/plb
 
 # T ?= all
 
