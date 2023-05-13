@@ -698,7 +698,7 @@ void EventTraceBuilder::debug_print() const {
   sleep_trees_t sleep_trees;
   std::vector<bool> handler_busy(threads.size(), false);
   std::vector<std::vector<bool>>
-    busy_n_hap_aft_witness(threads.size(),
+    busy_n_hap_aft_witness(SPS.num_of_threads(),
 			   std::vector<bool>(threads.size(), false));
   bool multiple_handlers;
   IPid last_handler = -1;
@@ -1653,7 +1653,6 @@ sequence_clears_sleep(const std::vector<Branch> &seq,
   obs_wake_res state = obs_wake_res::CONTINUE;
   bool multiple_handlers = false;
   IPid last_handler = -1;
-  std::vector<bool> msg_starts(threads.size(), false);
   for (auto it = seq.cbegin(); state == obs_wake_res::CONTINUE
          && it != seq.cend(); ++it) {
     unsigned index = it->index;
@@ -3191,9 +3190,10 @@ bool EventTraceBuilder::
 remove_partial_msgs(std::vector<Branch> &v, const VClock<IPid> &second_br_clock,
 		    std::map<IPid, std::vector<unsigned>> clear_set,
 		    std::vector<IPid> &ongoing_msg) const{
+  //llvm::dbgs()<<"Hello1\n";/////////////
   unsigned old_size = v.size();
   /* partial_msg[k] = true iff k is partial in v */ 
-  bool partial_msg[threads.size()];
+  bool partial_msg[SPS.num_of_threads()];
   int first_of_msgs[threads.size()];
   for(IPid k = 0; k < threads.size(); k+=2){
     first_of_msgs[k] = -1;
