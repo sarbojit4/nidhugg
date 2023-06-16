@@ -104,7 +104,8 @@ cl_dpor_algorithm(llvm::cl::NotHidden, llvm::cl::init(Configuration::SOURCE),
                   llvm::cl::values(clEnumValN(Configuration::SOURCE,"source","Source-DPOR (default)"),
                                    clEnumValN(Configuration::OPTIMAL,"optimal","Optimal-DPOR"),
                                    clEnumValN(Configuration::OBSERVERS,"observers","Optimal-DPOR with Observers"),
-                                   clEnumValN(Configuration::READS_FROM,"rf","Optimal Reads-From-centric SMC")
+                                   clEnumValN(Configuration::READS_FROM,"rf","Optimal Reads-From-centric SMC"),
+				   clEnumValN(Configuration::SIMP_DPOR,"simp","Simplified Optimal DPOR algorithm")
 #ifdef LLVM_CL_VALUES_USES_SENTINEL
                                   ,clEnumValEnd
 #endif
@@ -339,7 +340,8 @@ void Configuration::check_commandline(){
       Debug::warn("Configuration::check_commandline:dpor:mm")
         << "WARNING: Optimal-DPOR not implemented for memory model " << mm << ".\n";
     }
-    if (cl_dpor_algorithm == Configuration::READS_FROM
+    if ((cl_dpor_algorithm == Configuration::READS_FROM
+	 || cl_dpor_algorithm == Configuration::SIMP_DPOR)
         && cl_memory_model != Configuration::SC) {
       Debug::warn("Configuration::check_commandline:dpor:mm")
         << "WARNING: Optimal Reads-From-SMC not implemented for memory model " << mm << ".\n";
