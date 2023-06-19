@@ -2848,6 +2848,7 @@ wakeup_sequence(const Race &race) const{
       /* continue */
     } else if (!first.clock.leq(prefix[k].clock)) {
       v.emplace_back(branch_with_symbolic_data(k));
+      v.back().schedule = true;
     } else if (race.kind == Race::OBSERVED && k != j) {
       if (!std::any_of(observers.begin(), observers.end(),
                        [this,k](const Event* o){
@@ -2857,6 +2858,7 @@ wakeup_sequence(const Race &race) const{
           observers.push_back(&prefix[k]);
         } else if (race.kind == Race::OBSERVED) {
           notobs.emplace_back(branch_with_symbolic_data(k));
+	  notobs.back().schedule = true;
         }
       }
     }
@@ -2871,6 +2873,8 @@ wakeup_sequence(const Race &race) const{
     Branch witness_br = branch_with_symbolic_data(k);
     /* Only replay the racy event. */
     witness_br.size = 1;
+    first_br.schedule=true;
+    witness_br.schedule=true;
 
     v.emplace_back(std::move(first_br));
     v.insert(v.end(), std::make_move_iterator(notobs.begin()),
@@ -2884,6 +2888,9 @@ wakeup_sequence(const Race &race) const{
     recompute_observed(v);
   }
 
+  v.back().schedule = true;
+  v.back().schedule_head = true;
+  
   return v;
 }
 
