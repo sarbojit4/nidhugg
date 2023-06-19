@@ -2258,6 +2258,7 @@ void SimpTraceBuilder::compute_vclocks(){
   }
   lock_fail_races = std::move(final_lock_fail_races);
 
+  std::vector<int>schedule_heads;
   for (unsigned i = 0; i < prefix.len(); i++){
     IPid ipid = prefix[i].iid.get_pid();
     if (prefix[i].iid.get_index() > 1) {
@@ -2296,7 +2297,22 @@ void SimpTraceBuilder::compute_vclocks(){
                                   return r.kind == Race::NONDET;
                                 });
 
-    auto end = races.end();
+    if(prefix.branch(i).schedule_head) schedule_heads.push_back(i);
+    auto end = partition(races.begin(), races.end(),
+			 [this,schedule_heads,i](const Race &r){
+			   if(prefix.branch(r.first_event).schedule){
+			     return false;
+			   } else{
+			     for(int head : schedule_heads)
+			       if(r.first_event < head &&
+				  !prefix[head].clock.lt(prefix[i].clock))
+				 return false;
+			     return true;
+			   }
+			 });
+    for (auto it = end; it != races.end(); ++it){
+      prefix[i].clock += prefix[it->first_event].clock;
+    }
     bool changed;
     do {
       auto oldend = end;
