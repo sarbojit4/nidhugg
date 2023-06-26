@@ -428,6 +428,8 @@ protected:
   std::unordered_map<SymAddr, boost::container::flat_map<IPid,BlockedAwait>>
     blocked_awaits;
 
+  typedef std::vector<std::vector<Branch>> sleepseqs_t;
+
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts
    * with other events, and if the sequence has a conflicting event,
@@ -478,7 +480,7 @@ protected:
     /* The set of threads that go to sleep immediately before this
      * event sequence.
      */
-    VecSet<IPid> sleep;
+    sleepseqs_t doneseqs;
     /* The events that the threads in sleep will perform as their next step,
      * as determined by dry running.
      * sleep and sleep_evs are of the same size and correspond pairwise.
@@ -742,9 +744,9 @@ protected:
     std::vector<SymAddrSize> must_read;
     /* Check for pid in sleep */
     bool count(IPid pid) const;
-  };
+  };  
   /* Returns a string representation of a sleep set. */
-  std::string oslp_string(const struct obs_sleep &slp) const;
+  std::string oslp_string(const sleepseqs_t &slp) const;
   /* Traverses prefix to compute the set of threads that were sleeping
    * as the first event of prefix[i] started executing. Returns that
    * set.
@@ -753,7 +755,7 @@ protected:
   /* Performs the first half of a sleep set step, adding new sleepers
    * from e.
    */
-  void obs_sleep_add(struct obs_sleep &sleep, const Event &e) const;
+  void obs_sleep_add(sleepseqs_t &sleep, const Event &e) const;
   enum class obs_wake_res {
     CLEAR,
     CONTINUE,
@@ -765,7 +767,7 @@ protected:
    * If obs_wake_res::BLOCK is returned, then this execution has
    * blocked.
    */
-  obs_wake_res obs_sleep_wake(struct obs_sleep &osleep, IPid p,
+  obs_wake_res obs_sleep_wake(sleepseqs_t &sleepseqs, IPid p,
                               const sym_ty &sym) const;
   /* Performs the second half of a sleep set step, removing sleepers that
    * were identified as waking after event e.
@@ -778,14 +780,16 @@ protected:
    * As this overload is only used on events that have already been
    * executed, it will never block, and thus has no return value.
    */
-  void obs_sleep_wake(struct obs_sleep &sleep, const Event &e) const;
+  void obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const;
   void race_detect(const Race&, const struct obs_sleep&);
-  void race_detect_optimal(const Race&, const struct obs_sleep&);
+  void race_detect_optimal(const Race&, const sleepseqs_t&);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch> wakeup_sequence(const Race&) const;
+  bool blocked_wakeup_sequence(std::vector<Branch> &seq,
+			       const sleepseqs_t &sleepseqs);
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
-                             const struct obs_sleep &sleep) const;
+                             const sleepseqs_t &sleep) const;
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);
