@@ -536,6 +536,11 @@ protected:
    */
   int replay_point;
 
+  /* End of wakeup seqence in the current execution, no longer follows the 
+   * wakeup tree
+   */
+  int end_of_ws;
+
   /* The latest value passed to this->metadata(). */
   const llvm::MDNode *last_md;
 

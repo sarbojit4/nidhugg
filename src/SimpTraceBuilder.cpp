@@ -72,6 +72,7 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
                  == IID<CPid>(threads[curbranch().pid].cpid,
                               curev().iid.get_index())));
       replay = false;
+      end_of_ws= prefix_idx;
       assert(conf.dpor_algorithm == Configuration::SOURCE
              || (errors.size() && errors.back()->get_location()
                  == IID<CPid>(threads[curev().iid.get_pid()].cpid,
@@ -344,8 +345,8 @@ bool SimpTraceBuilder::reset(){
 
   /* Setup the new Event at prefix[i] */
   {
-    for(int j = replay_point; j <=doneseq_end; j++)
-    doneseq.push_back(branch_with_symbolic_data(j));
+    for(int j = i; j <=doneseq_end; j++)
+      doneseq.push_back(branch_with_symbolic_data(j));
 
     uint64_t sleep_branch_trace_count =
       prefix[i].sleep_branch_trace_count + estimate_trace_count(i+1);
@@ -2319,25 +2320,13 @@ void SimpTraceBuilder::compute_vclocks(){
                                 });
 
     auto end = partition(races.begin(), races.end(),
-			 [this,schedule_heads,i](const Race &r){
-			   if(r.second_event <= replay_point) return false;
+			 [this,schedule_heads](const Race &r){
+			   if(r.second_event < end_of_ws) return false;
 			   else if(prefix.branch(r.first_event).schedule){
 			     return false;
-			   } else{
-			     for(int head : schedule_heads)
-			       if(r.first_event < head &&
-				  !prefix[head].clock.lt(prefix[i].clock))
-				 return false;
-			     return true;
-			   }
+			   } else return true;
 			 });
-    if(prefix.branch(i).schedule_head) schedule_heads.push_back(i);
     for (auto it = end; it != races.end(); ++it){
-      // llvm::dbgs()<<"Dleted race (<"<<threads[prefix[it->first_event].iid.get_pid()].cpid
-      // 		  <<prefix.branch(it->first_event).schedule<<","
-      // 		  <<prefix[it->second_event].iid.get_index()<<">,<"
-      // 		  <<threads[prefix[it->second_event].iid.get_pid()].cpid
-      // 		  <<prefix[it->second_event].iid.get_index()<<">)\n";/////////
       prefix[i].clock += prefix[it->first_event].clock;
     }
     bool changed;
@@ -2356,6 +2345,19 @@ void SimpTraceBuilder::compute_vclocks(){
         }
       }
     } while (changed);
+    auto new_end = partition(first_pair, end,
+			     [this,schedule_heads](const Race &r){
+			       for(int head : schedule_heads)
+				 if(r.first_event < head &&
+				    !prefix[head].clock.lt(prefix[r.second_event].clock))
+				   return false;
+			       return true;
+			     });
+    for (auto it = new_end; it != end; ++it){
+      prefix[i].clock += prefix[it->first_event].clock;
+    }
+    if(prefix.branch(i).schedule_head) schedule_heads.push_back(i);
+    end = new_end;
     /* Then filter out subsumed */
     auto fill = frontier_filter
       (first_pair, end,
