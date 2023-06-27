@@ -251,7 +251,7 @@ protected:
      * the last read of the second real thread.
      *
      * last_read_t is simply a wrapper around a vector, which expands
-     * the vector as necessary to accomodate accesses through
+     * the vector as necessary to accommodate accesses through
      * operator[].
      */
     struct last_read_t {
@@ -376,7 +376,7 @@ protected:
       OBSERVED,
       /* Attempt to acquire a lock that is already locked */
       LOCK_FAIL,
-      /* Race between two successful blocking lock aquisitions (with an
+      /* Race between two successful blocking lock acquisitions (with an
        * unlock event in between) */
       LOCK_SUC,
       /* A nondeterministic event that can be performed differently */
@@ -653,12 +653,12 @@ protected:
    */
   void add_observed_race(int first, int second);
   void add_msgrev_race(int fst_conflict);
-  /* Add a race between two successful mutex aquisitions (lock and the
+  /* Add a race between two successful mutex acquisitions (lock and the
    * current event). Unlock is the unlock event between them.
    */
   void add_lock_suc_race(int lock, int unlock);
   /* Record that the currently executing event is being blocked trying
-   * to aquire mutex m, which is held by the lock event event.
+   * to acquire mutex m, which is held by the lock event event.
    */
   void add_lock_fail_race(const Mutex &m, int event);
   /* Check if two events in the current prefix are in conflict. */
@@ -685,7 +685,7 @@ protected:
                             IPid snd_pid, const SymEv &snd,
                             IPid thd_pid, const SymEv &thd) const;
   /* Reconstruct the vector cloc and symbolic event of a blocked attempt
-   * at aquiring a mutex recorded in race.
+   * at acquiring a mutex recorded in race.
    */
   Event reconstruct_lock_event(const Race &race) const;
   /* Computes a mapping between IPid and current local clock value
@@ -746,7 +746,7 @@ protected:
    * of the hoisted event must correctly indicate whether the
    * compare-exchange will succeed or fail, otherwise sleep and
    * wakeup-tree logic can break. This function updates all
-   * compare-exchange operations in one event es when preceeded by the
+   * compare-exchange operations in one event es when preceded by the
    * events prefix[0..i] ++ v
    */
   void recompute_cmpxhg_success(sym_ty &es, const std::vector<Branch> &v, int i)
