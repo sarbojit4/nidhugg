@@ -1049,7 +1049,7 @@ bool EventTraceBuilder::full_memory_conflict(){
     return true;
   }
 
-  /* See all pervious memory accesses */
+  /* See all previous memory accesses */
   VecSet<int> seen_accesses;
   for(auto it = mem.begin(); it != mem.end(); ++it){
     do_load(it->second);
@@ -1896,7 +1896,7 @@ void EventTraceBuilder::add_eom(unsigned second, unsigned first){
  * any other item. The sequence is modified in place and an iterator to
  * the position beyond the last included element is returned.
  *
- * Assumes less is transitive and asymetric (a strict partial order)
+ * Assumes less is transitive and asymmetric (a strict partial order)
  */
 template< class It, class LessFn >
 static It frontier_filter(It first, It last, LessFn less){
@@ -2558,7 +2558,7 @@ void EventTraceBuilder::do_race_detect() {
       insert_WS(v, i, sleep, sleep_trees, busy_n_hap_aft_witness, ongoing_msg);
       v_it = prefix.branch(i).pending_WSs.erase(v_it);
     }
-    /* Reverese races */
+    /* Reverse races */
     for (auto v : WSs[i]) {
       // for(Branch br:v) llvm::dbgs()<<"("<<threads[SPS.get_pid(br.spid)].cpid<<","<<br.index<<")";////////////
       // llvm::dbgs()<<"\n";///////////
@@ -2942,7 +2942,7 @@ conflict_with_rest_of_msg(unsigned j, const Branch &child,
   /* if there is messages from the same handler before(first_of_msgs) */
   /* and the message has more than one event */
 
-  /* check if events from the message occuring in WS are conflicting */
+  /* check if events from the message occurring in WS are conflicting */
   if(last_seen_msg_event > 0){
     for(VClock<IPid> clk : first_of_msgs){
       if(clk.lt(v[last_seen_msg_event].clock)){
@@ -3232,7 +3232,7 @@ remove_partial_msgs(std::vector<Branch> &v, const VClock<IPid> &second_br_clock,
     } else evts++;
   }
   
-  /* Last message in the handler is one happenning before an event in the clear_set */
+  /* Last message in the handler is one happening before an event in the clear_set */
   std::map<IPid, unsigned> guess;
   for(auto evts : clear_set) guess[evts.first] = 0;
   bool next = false;
