@@ -536,7 +536,7 @@ protected:
    */
   int replay_point;
 
-  /* End of wakeup seqence in the current execution, no longer follows the 
+  /* End of wakeup sequence in the current execution, no longer follows the 
    * wakeup tree
    */
   int end_of_ws;
