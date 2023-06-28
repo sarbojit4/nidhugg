@@ -1852,18 +1852,17 @@ SimpTraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs,
 
   for (auto s_it = sleepseqs.begin(); s_it != sleepseqs.end();) {
     bool conflict=false;
-    std::vector<Branch> sleep=*s_it;
-    for(auto it = sleep.begin(); it != sleep.end(); it++){
+    for(auto it = s_it->begin(); it != s_it->end(); it++){
       Branch s=*it;
       if (s.pid == p) {
 	// if (s.not_if_read) {
 	//   sleep.must_read.push_back(*s.not_if_read);
 	//   unordered_vector_delete(sleep.sleep, i);
 	// } else
-	if(sleep.size() == 1){
+	if(s_it->size() == 1){
 	  return obs_wake_res::BLOCK;
 	} else {
-	  sleep.erase(it);
+	  s_it->erase(it);
 	  break;
 	}
       } else if (do_events_conflict(p, sym, s.pid, s.sym)){
@@ -2713,9 +2712,6 @@ void SimpTraceBuilder::race_detect_optimal
   // for(auto br:v) llvm::dbgs()<<threads[br.pid].cpid<<",";//////////
   // llvm::dbgs()<<"\n";//////////////
 
-  /* Check if we have previously explored everything startable with v */
-  //if (!sequence_clears_sleep(v, isleep)) return;
-
   /* Do insertion into the wakeup tree */
   WakeupTreeRef<Branch> node = prefix.parent_at(i);
   if(!blocked_wakeup_sequence(v,isleepseqs)){
@@ -2778,7 +2774,7 @@ wakeup_sequence(const Race &race) const{
   VClock<IPid> exclude_clock
     (std::vector<int>(threads.size(), std::numeric_limits<int>::max()));
 
-  for (int k = i + 1; k < int(prefix.len()); ++k){
+  for (int k = i + 1; k <= j; ++k){
     assert(exclude == exclude_end || int_fast64_t(*exclude) >= k);
       const IID<IPid> &kiid = prefix[k].iid;
     if (exclude != exclude_end && *exclude == unsigned(k)) {
