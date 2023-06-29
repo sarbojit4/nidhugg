@@ -323,7 +323,7 @@ protected:
 	size(1), schedule(false), schedule_head(false) {}
     Branch (const Branch &base, sym_ty sym)
       : sym(std::move(sym)), pid(base.pid), alt(base.alt), size(base.size),
-	schedule(base.schedule), schedule_head(base.schedule_head) {}
+	schedule(false), schedule_head(false) {}
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
