@@ -2318,7 +2318,7 @@ void SimpTraceBuilder::compute_vclocks(){
                                   return r.kind == Race::NONDET;
                                 });
 
-    auto end = partition(races.begin(), races.end(),
+    auto end = partition(first_pair, races.end(),
 			 [this,schedule_heads](const Race &r){
 			   if(r.second_event < end_of_ws) return false;
 			   else if(prefix.branch(r.first_event).schedule){
@@ -2344,19 +2344,7 @@ void SimpTraceBuilder::compute_vclocks(){
         }
       }
     } while (changed);
-    auto new_end = partition(first_pair, end,
-			     [this,schedule_heads](const Race &r){
-			       for(int head : schedule_heads)
-				 if(r.first_event < head &&
-				    !prefix[head].clock.lt(prefix[r.second_event].clock))
-				   return false;
-			       return true;
-			     });
-    for (auto it = new_end; it != end; ++it){
-      prefix[i].clock += prefix[it->first_event].clock;
-    }
     if(prefix.branch(i).schedule_head) schedule_heads.push_back(i);
-    end = new_end;
     /* Then filter out subsumed */
     auto fill = frontier_filter
       (first_pair, end,
@@ -2415,10 +2403,18 @@ void SimpTraceBuilder::compute_vclocks(){
       }
     }
     prefix[i].happens_after_later.clear();
+    auto new_end = partition(first_pair, fill,
+			     [this,schedule_heads](const Race &r){
+			       for(int head : schedule_heads)
+				 if(r.first_event < head && head < r.second_event &&
+				    !prefix[head].clock.lt(prefix[r.second_event].clock))
+				   return false;
+			       return true;
+			     });
 
     /* Now delete the subsumed races. We delayed doing this to avoid
      * iterator invalidation. */
-    races.resize(fill - races.begin(), races[0]);
+    races.resize(new_end - races.begin(), races[0]);
   }
 
   has_vclocks = true;
