@@ -180,6 +180,11 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   /* Create a new Event */
   sym_idx = 0;
 
+  if(prefix_idx > 0){
+    for(auto seq : curbranch().sleepseqs)
+      if(seq.size() == 1) threads[seq.front().pid].sleeping = true;
+  }
+
   /* Find an available thread (auxiliary or real).
    *
    * Prioritize auxiliary before real, and older before younger
@@ -331,10 +336,10 @@ bool SimpTraceBuilder::reset(){
   int doneseq_end=0;
   std::vector<Branch> doneseq;
   for(i = int(prefix.len())-1; 0 <= i; --i){
+    if(prefix.branch(i).schedule_head && event_is_load(prefix[i].sym)) doneseq_end=i;
     if(prefix.children_after(i)){
       break;
     }
-    if(prefix.branch(i).schedule_head && event_is_load(prefix[i].sym)) doneseq_end=i;
   }
 
   if(i < 0){
@@ -351,6 +356,7 @@ bool SimpTraceBuilder::reset(){
     uint64_t sleep_branch_trace_count =
       prefix[i].sleep_branch_trace_count + estimate_trace_count(i+1);
     Event prev_evt = std::move(prefix[i]);
+    bool is_schedule = prefix.branch(i).schedule;
     while (ssize_t(prefix.len()) > i) prefix.delete_last();
 
     const Branch &br = prefix.first_child();
@@ -367,7 +373,7 @@ bool SimpTraceBuilder::reset(){
 
     evt.sym = br.sym; /* For replay sanity assertions only */
     evt.doneseqs = prev_evt.doneseqs;
-    if(br.pid != prev_evt.iid.get_pid() && doneseq.size()){
+    if(br.pid != prev_evt.iid.get_pid() && doneseq.size() && is_schedule){
       evt.doneseqs.push_back(std::move(doneseq));
     }
     evt.sleep_branch_trace_count = sleep_branch_trace_count;
@@ -789,7 +795,7 @@ void SimpTraceBuilder::do_atomic_store(const SymData &sd){
     if(is_update && threads[tipid].store_buffer.front().last_rowe >= 0){
       bi.last_read[tipid/2] = threads[tipid].store_buffer.front().last_rowe;
     }
-    wakeup(Access::W,b);
+    // wakeup(Access::W,b);
   }
 
   if(is_update){ /* Remove pending store from buffer */
@@ -1064,7 +1070,7 @@ void SimpTraceBuilder::do_load(const SymAddrSize &ml){
 
     /* Register load in memory */
     mem[b].last_read[ipid/2] = prefix_idx;
-    wakeup(Access::R,b);
+    //wakeup(Access::R,b);
   }
 
   seen_accesses.insert(last_full_memory_conflict);
@@ -1903,6 +1909,7 @@ bool SimpTraceBuilder::blocked_wakeup_sequence(std::vector<Branch> &seq,
          && it != seq.cend(); ++it) {
     state = obs_sleep_wake(isleepseqs, it->pid, it->sym);
   }
+  seq.back().sleepseqs=std::move(isleepseqs);
   /* Redundant */
   return (state == obs_wake_res::BLOCK);
 }
@@ -1920,6 +1927,15 @@ bool SimpTraceBuilder::blocked_wakeup_sequence(std::vector<Branch> &seq,
 //   /* Redundant */
 //   return (state == obs_wake_res::CLEAR);
 // }
+
+void SimpTraceBuilder::update_sleepseqs(){
+  if(prefix_idx == 0) return;
+  for(auto th : threads) th.sleeping = false;
+  obs_sleep_wake(prefix.branch(prefix_idx-1).sleepseqs,
+   		 curev().iid.get_pid(), curev().sym);
+  curbranch().sleepseqs = std::move(prefix.branch(prefix_idx-1).sleepseqs);
+  prefix.branch(prefix_idx-1).sleepseqs.shrink_to_fit();
+}
 
 template <class Iter>
 static void rev_recompute_data
@@ -2930,80 +2946,6 @@ bool SimpTraceBuilder::has_pending_store(IPid pid, SymAddr ml) const {
 #endif
 
 void SimpTraceBuilder::wakeup(Access::Type type, SymAddr ml){
-  IPid pid = curev().iid.get_pid();
-  IFDEBUG(sym_ty ev);
-  std::vector<IPid> wakeup; // Wakeup these
-  switch(type){
-  case Access::W_ALL_MEMORY:
-    {
-      IFDEBUG(ev.push_back(SymEv::Fullmem()));
-      for(unsigned p = 0; p < threads.size(); ++p){
-        if(threads[p].sleep_full_memory_conflict ||
-           threads[p].sleep_accesses_w.size()){
-          wakeup.push_back(p);
-        }else{
-          for(SymAddr b : threads[p].sleep_accesses_r){
-            if(!has_pending_store(p,b)){
-              wakeup.push_back(p);
-              break;
-            }
-          }
-        }
-      }
-      break;
-    }
-  case Access::R:
-    {
-      IFDEBUG(ev.push_back(SymEv::Load(SymAddrSize(ml,1))));
-      for(unsigned p = 0; p < threads.size(); ++p){
-        if(threads[p].sleep_full_memory_conflict ||
-           (int(p) != pid+1 &&
-            threads[p].sleep_accesses_w.count(ml))){
-          wakeup.push_back(p);
-        }
-      }
-      break;
-    }
-  case Access::W:
-    {
-      /* We don't pick the right value, but it should not matter */
-      IFDEBUG(ev.push_back(SymEv::Store({SymAddrSize(ml,1), 1})));
-      for(unsigned p = 0; p < threads.size(); ++p){
-        if(threads[p].sleep_full_memory_conflict ||
-           (int(p) + 1 != pid &&
-            (threads[p].sleep_accesses_w.count(ml) ||
-             (threads[p].sleep_accesses_r.count(ml) &&
-              !has_pending_store(p,ml))))){
-          wakeup.push_back(p);
-        }
-      }
-      break;
-    }
-  default:
-    throw std::logic_error("SimpTraceBuilder::wakeup: Unknown type of memory access.");
-  }
-
-#ifndef NDEBUG
-  if (conf.dpor_algorithm != Configuration::SOURCE) {
-    VecSet<IPid> wakeup_set(wakeup);
-    for (unsigned p = 0; p < threads.size(); ++p){
-      if (!threads[p].sleeping) continue;
-      assert(threads[p].sleep_sym);
-      assert(bool(wakeup_set.count(p))
-             == do_events_conflict(pid, ev, p, *threads[p].sleep_sym));
-    }
-  }
-#endif
-
-  for(IPid p : wakeup){
-    assert(threads[p].sleeping);
-    threads[p].sleep_accesses_r.clear();
-    threads[p].sleep_accesses_w.clear();
-    threads[p].sleep_full_memory_conflict = false;
-    threads[p].sleep_sym = nullptr;
-    threads[p].sleeping = false;
-    curev().wakeup.insert(p);
-  }
 }
 
 bool SimpTraceBuilder::has_cycle(IID<IPid> *loc) const{

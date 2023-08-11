@@ -319,11 +319,11 @@ protected:
   class Branch{
   public:
     Branch (IPid pid, int alt = 0, sym_ty sym = {})
-      : sym(std::move(sym)), pid(pid), alt(alt),
-	size(1), schedule(false), schedule_head(false) {}
+      : sym(std::move(sym)), pid(pid), alt(alt), size(1),
+	schedule(false), schedule_head(false) {sleepseqs.shrink_to_fit();}
     Branch (const Branch &base, sym_ty sym)
       : sym(std::move(sym)), pid(base.pid), alt(base.alt), size(base.size),
-	schedule(false), schedule_head(false) {}
+	schedule(false), schedule_head(false) {sleepseqs.shrink_to_fit();}
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
@@ -341,6 +341,7 @@ protected:
     int size;
     bool schedule;
     bool schedule_head;
+    std::vector<std::vector<Branch>> sleepseqs;
     bool operator<(const Branch &b) const{
       return pid < b.pid || (pid == b.pid && alt < b.alt);
     }
@@ -505,6 +506,8 @@ protected:
    * events that are determined in advance to be executed.
    */
   WakeupTreeExplorationBuffer<Branch, Event> prefix;
+  std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
+  std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
 
   /* The number of threads that have been dry run since the last
    * non-dry run event was scheduled.
@@ -563,6 +566,12 @@ protected:
   }
 
   const Branch &curbranch() const {
+    assert(0 <= prefix_idx);
+    assert(prefix_idx < int(prefix.len()));
+    return prefix.branch(prefix_idx);
+  }
+
+  Branch &curbranch() {
     assert(0 <= prefix_idx);
     assert(prefix_idx < int(prefix.len()));
     return prefix.branch(prefix_idx);
@@ -795,6 +804,7 @@ protected:
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
                              const sleepseqs_t &sleep) const;
+  void update_sleepseqs();
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);
