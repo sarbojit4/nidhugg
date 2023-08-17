@@ -174,6 +174,8 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
         for (SymEv &e : b.sym) e.purge_data();
         prefix.set_last_branch(std::move(b));
       }
+      obs_sleep_wake(prefix.branch(prefix_idx).sleepseqs,
+   		 curev().iid.get_pid(), curev().sym);
     }
   }
 
@@ -181,6 +183,7 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   sym_idx = 0;
 
   if(prefix_idx > 0){
+    for(auto &th : threads) th.sleeping = false;
     for(auto seq : curbranch().sleepseqs)
       if(seq.size() == 1) threads[seq.front().pid].sleeping = true;
   }
