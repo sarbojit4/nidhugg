@@ -376,7 +376,7 @@ bool SimpTraceBuilder::reset(){
 
     evt.sym = br.sym; /* For replay sanity assertions only */
     evt.doneseqs = prev_evt.doneseqs;
-    if(br.pid != prev_evt.iid.get_pid() && doneseq.size() && is_schedule){
+    if(doneseq.size() && is_schedule){
       evt.doneseqs.push_back(std::move(doneseq));
     }
     evt.sleep_branch_trace_count = sleep_branch_trace_count;
@@ -639,7 +639,7 @@ void SimpTraceBuilder::debug_print() const {
     iid_map_step_rev(iid_map, prefix.branch(i));
     for (auto it = node.begin(); it != node.end(); ++it) {
       Branch b = it.branch();
-      if (b == prefix.branch(i)) continue; /* Only print others */
+      if(it == node.begin()) continue;
       wut_string_add_node(lines, iid_map, i, it.branch(), it.node());
     }
   }
@@ -1932,8 +1932,6 @@ bool SimpTraceBuilder::blocked_wakeup_sequence(std::vector<Branch> &seq,
 // }
 
 void SimpTraceBuilder::update_sleepseqs(){
-  if(prefix_idx == 0) return;
-  for(auto th : threads) th.sleeping = false;
   obs_sleep_wake(prefix.branch(prefix_idx-1).sleepseqs,
    		 curev().iid.get_pid(), curev().sym);
   curbranch().sleepseqs = std::move(prefix.branch(prefix_idx-1).sleepseqs);
