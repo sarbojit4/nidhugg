@@ -688,7 +688,6 @@ bool SimpTraceBuilder::spawn(){
 }
 
 bool SimpTraceBuilder::store(const SymData &sd){
-  // if(dryrun) return true;
   curev().may_conflict = true; /* prefix_idx might become bad otherwise */
   IPid ipid = curev().iid.get_pid();
   threads[ipid].store_buffer.push_back(PendingStore(sd.get_ref(),prefix_idx,last_md));
@@ -728,16 +727,6 @@ static VecSet<int> to_vecset_and_clear
 
 void SimpTraceBuilder::do_atomic_store(const SymData &sd){
   const SymAddrSize &ml = sd.get_ref();
-  // if(dryrun){
-  //   assert(prefix_idx+1 < int(prefix.len()));
-  //   assert(dry_sleepers <= prefix[prefix_idx+1].doneseqs.size());
-  //   IPid pid = prefix[prefix_idx+1].doneseqs[dry_sleepers-1].front().pid;
-  //   VecSet<SymAddr> &A = threads[pid].sleep_accesses_w;
-  //   for(SymAddr b : ml){
-  //     A.insert(b);
-  //   }
-  //   return;
-  // }
   IPid ipid = curev().iid.get_pid();
   curev().may_conflict = true;
   bool is_update = ipid % 2;
@@ -1033,16 +1022,6 @@ bool SimpTraceBuilder::load(const SymAddrSize &ml){
 }
 
 void SimpTraceBuilder::do_load(const SymAddrSize &ml){
-  // if(dryrun){
-  //   assert(prefix_idx+1 < int(prefix.len()));
-  //   assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-  //   IPid pid = prefix[prefix_idx+1].doneseqs[dry_sleepers-1].front().pid;
-  //   VecSet<SymAddr> &A = threads[pid].sleep_accesses_r;
-  //   for(SymAddr b : ml){
-  //     A.insert(b);
-  //   }
-  //   return;
-  // }
   curev().may_conflict = true;
   IPid ipid = curev().iid.get_pid();
 
@@ -1387,7 +1366,6 @@ void SimpTraceBuilder::observe_memory(SymAddr ml, ByteInfo &m,
 }
 
 bool SimpTraceBuilder::fence(){
-  // if(dryrun) return true;
   IPid ipid = curev().iid.get_pid();
   assert(ipid % 2 == 0);
   assert(threads[ipid].store_buffer.empty());
@@ -1398,7 +1376,6 @@ bool SimpTraceBuilder::fence(){
 bool SimpTraceBuilder::join(int tgt_proc){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Join(tgt_proc))) return false;
-  // if(dryrun) return true;
   assert(threads[tgt_proc*2].store_buffer.empty());
   add_happens_after_thread(prefix_idx, tgt_proc*2);
   add_happens_after_thread(prefix_idx, tgt_proc*2+1);
@@ -1408,13 +1385,6 @@ bool SimpTraceBuilder::join(int tgt_proc){
 bool SimpTraceBuilder::mutex_lock(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MLock(ml))) return false;
-  // if(dryrun){
-  //   assert(prefix_idx+1 < int(prefix.len()));
-  //   assert(dry_sleepers <= prefix[prefix_idx+1].doneseqs.size());
-  //   IPid pid = prefix[prefix_idx+1].doneseqs[dry_sleepers-1].front().pid;
-  //   threads[pid].sleep_accesses_w.insert(ml.addr);
-  //   return true;
-  // }
   if (!fence()) return false;
   if(!conf.mutex_require_init && !mutexes.count(ml.addr)){
     // Assume static initialization
@@ -1457,13 +1427,6 @@ bool SimpTraceBuilder::mutex_lock_fail(const SymAddrSize &ml){
 bool SimpTraceBuilder::mutex_trylock(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MLock(ml))) return false;
-  // if(dryrun){
-  //   assert(prefix_idx+1 < int(prefix.len()));
-  //   assert(dry_sleepers <= prefix[prefix_idx+1].doneseqs.size());
-  //   IPid pid = prefix[prefix_idx+1].doneseqs[dry_sleepers-1].front().pid;
-  //   threads[pid].sleep_accesses_w.insert(ml.addr);
-  //   return true;
-  // }
   if (!fence()) return false;
   if(!conf.mutex_require_init && !mutexes.count(ml.addr)){
     // Assume static initialization
@@ -1485,13 +1448,6 @@ bool SimpTraceBuilder::mutex_trylock(const SymAddrSize &ml){
 bool SimpTraceBuilder::mutex_unlock(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MUnlock(ml))) return false;
-  // if(dryrun){
-  //   assert(prefix_idx+1 < int(prefix.len()));
-  //   assert(dry_sleepers <= prefix[prefix_idx+1].doneseqs.size());
-  //   IPid pid = prefix[prefix_idx+1].doneseqs[dry_sleepers-1].front().pid;
-  //   threads[pid].sleep_accesses_w.insert(ml.addr);
-  //   return true;
-  // }
   if (!fence()) return false;
   if(!conf.mutex_require_init && !mutexes.count(ml.addr)){
     // Assume static initialization
@@ -1512,13 +1468,6 @@ bool SimpTraceBuilder::mutex_unlock(const SymAddrSize &ml){
 bool SimpTraceBuilder::mutex_init(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MInit(ml))) return false;
-  // if(dryrun){
-  //   assert(prefix_idx+1 < int(prefix.len()));
-  //   assert(dry_sleepers <= prefix[prefix_idx+1].doneseqs.size());
-  //   IPid pid = prefix[prefix_idx+1].doneseqs[dry_sleepers-1].front().pid;
-  //   threads[pid].sleep_accesses_w.insert(ml.addr);
-  //   return true;
-  // }
   if (!fence()) return false;
   Mutex &mutex = mutexes[ml.addr];
   see_events({mutex.last_access, last_full_memory_conflict});
@@ -1530,13 +1479,6 @@ bool SimpTraceBuilder::mutex_init(const SymAddrSize &ml){
 bool SimpTraceBuilder::mutex_destroy(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MDelete(ml))) return false;
-  // if(dryrun){
-  //   assert(prefix_idx+1 < int(prefix.len()));
-  //   assert(dry_sleepers <= prefix[prefix_idx+1].doneseqs.size());
-  //   IPid pid = prefix[prefix_idx+1].doneseqs[dry_sleepers-1].front().pid;
-  //   threads[pid].sleep_accesses_w.insert(ml.addr);
-  //   return true;
-  // }
   if (!fence()) return false;
   if(!conf.mutex_require_init && !mutexes.count(ml.addr)){
     // Assume static initialization
@@ -2751,7 +2693,6 @@ wakeup_sequence(const Race &race) const{
 
   v.back().schedule = true;
   v.back().schedule_head = true;
-  
   return v;
 }
 
