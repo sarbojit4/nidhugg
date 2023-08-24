@@ -795,7 +795,6 @@ protected:
    * executed, it will never block, and thus has no return value.
    */
   void obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const;
-  void race_detect(const Race&, const struct obs_sleep&);
   void race_detect_optimal(const Race&, const sleepseqs_t&);
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Branch> wakeup_sequence(const Race&) const;
