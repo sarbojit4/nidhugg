@@ -2233,7 +2233,8 @@ void SimpTraceBuilder::compute_vclocks(){
       prefix[r.second_event].races.emplace_back(std::move(r));
     } else {
       assert(r.second_event == int(prefix.len()));
-      final_lock_fail_races.emplace_back(std::move(r));
+      if (!prefix.branch(r.first_event).schedule)
+	final_lock_fail_races.emplace_back(std::move(r));
     }
   }
   lock_fail_races = std::move(final_lock_fail_races);
@@ -2285,7 +2286,10 @@ void SimpTraceBuilder::compute_vclocks(){
 			   } else return true;
 			 });
     for (auto it = end; it != races.end(); ++it){
-      prefix[i].clock += prefix[it->first_event].clock;
+      if (it->kind == Race::LOCK_SUC)
+	prefix[i].clock += prefix[it->unlock_event].clock;
+      else
+	prefix[i].clock += prefix[it->first_event].clock;
     }
     bool changed;
     do {
@@ -2649,7 +2653,7 @@ wakeup_sequence(const Race &race) const{
       ++exclude;
     } else if (prefix[k].clock.intersects_below(exclude_clock)) {
       /* continue */
-    } else if (prefix[k].clock.lt(prefix[j].clock)) {
+    } else if (prefix[k].clock.lt(prefix[j].clock) && !first.clock.leq(prefix[k].clock)) {
       v.emplace_back(branch_with_symbolic_data(k));
       v.back().schedule = true;
     } else if (race.kind == Race::OBSERVED && k != j) {
