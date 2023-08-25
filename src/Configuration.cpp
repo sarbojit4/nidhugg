@@ -344,7 +344,7 @@ void Configuration::check_commandline(){
 	 || cl_dpor_algorithm == Configuration::SIMP_DPOR)
         && cl_memory_model != Configuration::SC) {
       Debug::warn("Configuration::check_commandline:dpor:mm")
-        << "WARNING: Optimal Reads-From-SMC not implemented for memory model " << mm << ".\n";
+        << "WARNING: Optimal Reads-From-SMC and Simplified DPOR not implemented for memory model " << mm << ".\n";
     }
 
     if (cl_c11 && cl_memory_model != Configuration::SC) {
