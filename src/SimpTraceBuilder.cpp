@@ -636,6 +636,7 @@ void SimpTraceBuilder::debug_print() const {
     iid_map_step_rev(iid_map, prefix.branch(i));
     for (auto it = node.begin(); it != node.end(); ++it) {
       Branch b = it.branch();
+      //if (b == prefix.branch(i)) continue; /* Only print others */
       if(it == node.begin()) continue;
       wut_string_add_node(lines, iid_map, i, it.branch(), it.node());
     }
