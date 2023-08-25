@@ -135,9 +135,6 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   assert(!replay);
   /* Create a new Event */
 
-  // TEMP: Until we have a SymEv for store()
-  // assert(prefix_idx < 0 || !!curev().sym.size() == curev().may_conflict);
-
   /* Should we merge the last two events? */
   if(prefix.len() > 1 &&
      prefix[prefix.len()-1].iid.get_pid()
@@ -195,18 +192,18 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
    */
   const unsigned sz = threads.size();
   unsigned p;
-  for(p = 1; p < sz; p += 2){ // Loop through auxiliary threads
-    if(threads[p].available && !threads[p].sleeping &&
-       (conf.max_search_depth < 0 || threads[p].last_event_index() < conf.max_search_depth)){
-      threads[p].event_indices.push_back(++prefix_idx);
-      assert(prefix_idx == int(prefix.len()));
-      prefix.push(Branch(IPid(p)),
-                  Event(IID<IPid>(IPid(p),threads[p].last_event_index())));
-      *proc = p/2;
-      *aux = 0;
-      return true;
-    }
-  }
+  // for(p = 1; p < sz; p += 2){ // Loop through auxiliary threads
+  //   if(threads[p].available && !threads[p].sleeping &&
+  //      (conf.max_search_depth < 0 || threads[p].last_event_index() < conf.max_search_depth)){
+  //     threads[p].event_indices.push_back(++prefix_idx);
+  //     assert(prefix_idx == int(prefix.len()));
+  //     prefix.push(Branch(IPid(p)),
+  //                 Event(IID<IPid>(IPid(p),threads[p].last_event_index())));
+  //     *proc = p/2;
+  //     *aux = 0;
+  //     return true;
+  //   }
+  // }
 
   for(p = 0; p < sz; p += 2){ // Loop through real threads
     if(threads[p].available && !threads[p].sleeping &&
@@ -1433,7 +1430,6 @@ bool SimpTraceBuilder::mutex_trylock(const SymAddrSize &ml){
     mutexes[ml.addr] = Mutex();
   }
   assert(mutexes.count(ml.addr));
-  wakeup(Access::W,ml.addr);
   Mutex &mutex = mutexes[ml.addr];
   see_events({mutex.last_access,last_full_memory_conflict});
 
@@ -1455,7 +1451,6 @@ bool SimpTraceBuilder::mutex_unlock(const SymAddrSize &ml){
   }
   assert(mutexes.count(ml.addr));
   Mutex &mutex = mutexes[ml.addr];
-  wakeup(Access::W,ml.addr);
   assert(0 <= mutex.last_access);
 
   see_events({mutex.last_access,last_full_memory_conflict});
@@ -2384,14 +2379,6 @@ void SimpTraceBuilder::compute_vclocks(){
 }
 
 bool SimpTraceBuilder::record_symbolic(SymEv event){
-  // if(dryrun) {
-  //   assert(prefix_idx+1 < int(prefix.len()));
-  //   assert(dry_sleepers <= prefix[prefix_idx+1].sleep.size());
-  //   IPid pid = prefix[prefix_idx+1].sleep[dry_sleepers-1];
-  //   assert(threads[pid].sleep_sym);
-  //   threads[pid].sleep_sym->push_back(event);
-  //   return true;
-  // }
   if (!replay) {
     assert(sym_idx == curev().sym.size());
     /* New event */
