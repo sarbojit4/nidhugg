@@ -42,6 +42,7 @@ SimpTraceBuilder::SimpTraceBuilder(const Configuration &conf) : TSOPSOTraceBuild
   last_full_memory_conflict = -1;
   last_md = 0;
   replay_point = 0;
+  end_of_ws = 0;  
 }
 
 SimpTraceBuilder::~SimpTraceBuilder(){
