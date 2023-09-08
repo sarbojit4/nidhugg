@@ -20,6 +20,7 @@
 #include "TraceBuilder.h"
 
 TraceBuilder::TraceBuilder(const Configuration &C) : conf(C) {
+  killed_by_sleepset = 0;
 }
 
 TraceBuilder::~TraceBuilder(){

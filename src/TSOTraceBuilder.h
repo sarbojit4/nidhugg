@@ -493,6 +493,7 @@ protected:
     uint64_t sleep_branch_trace_count;
   };
 
+  std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
   /* The fixed prefix of events in the current execution. This may be
    * either the complete sequence of events executed thus far in the
    * execution, or the events executed followed by the subsequent

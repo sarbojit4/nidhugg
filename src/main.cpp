@@ -129,6 +129,8 @@ int main(int argc, char *argv[]){
       if (res.sleepset_blocked_trace_count > 0)
         std::cout << "Sleepset-blocked trace count: "
                   << res.sleepset_blocked_trace_count << std::endl;
+      std::cout << "Sleepset-killed WS count: "
+                  << res.killed_by_sleepset << std::endl;
       if(res.has_errors()){
         errors_detected = true;
         std::cout << "\n Error detected:\n"

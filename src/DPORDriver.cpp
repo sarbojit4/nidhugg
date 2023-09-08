@@ -477,6 +477,7 @@ DPORDriver::Result DPORDriver::run(){
   if(conf.print_progress){
     llvm::dbgs() << ESC_char << "[K\n";
   }
+  res.killed_by_sleepset = TB->killed_by_sleepset;
 
   delete TB;
 

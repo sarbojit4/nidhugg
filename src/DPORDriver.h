@@ -128,6 +128,7 @@ public:
     uint64_t assume_blocked_trace_count;
     /* The number of explored assume-blocked traces */
     uint64_t await_blocked_trace_count;
+    uint64_t killed_by_sleepset;
 
     bool has_errors() const { return error_trace && error_trace->has_errors(); }
   };

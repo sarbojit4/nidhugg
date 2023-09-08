@@ -2577,6 +2577,8 @@ void SimpTraceBuilder::race_detect_optimal
       for (SymEv &e : ve.sym) e.purge_data();
       node = node.put_child(std::move(ve));
     }
+  } else {
+    killed_by_sleepset++;
   }
 }
 

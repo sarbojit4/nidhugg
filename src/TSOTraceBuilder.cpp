@@ -298,6 +298,13 @@ Trace *TSOTraceBuilder::get_trace() const{
 }
 
 bool TSOTraceBuilder::reset(){
+  // llvm::dbgs() << " =============================\n";
+  // llvm::dbgs() << " Trace:=====> \n";
+  // for(auto p : currtrace){
+  //   llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
+  // 		<<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
+  // }
+  // currtrace.clear();
   compute_vclocks();
 
   do_race_detect();
@@ -2119,6 +2126,7 @@ void TSOTraceBuilder::see_events(const VecSet<int> &seen_accesses){
   for(int i : seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
+    // currtrace.emplace(prefix[i].iid, curev().iid);
     add_noblock_race(i);
   }
 }
@@ -2663,7 +2671,11 @@ void TSOTraceBuilder::race_detect_optimal
   std::vector<Branch> v = wakeup_sequence(race);
 
   /* Check if we have previously explored everything startable with v */
-  if (!sequence_clears_sleep(v, isleep)) return;
+  if (!sequence_clears_sleep(v, isleep)){
+    killed_by_sleepset++;
+    // llvm::dbgs()<<killed_by_sleepset<<"Hoppa\n";//////////
+    return;
+  }
 
   /* Do insertion into the wakeup tree */
   WakeupTreeRef<Branch> node = prefix.parent_at(i);
