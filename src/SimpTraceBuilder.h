@@ -339,9 +339,9 @@ protected:
     int alt;
     /* The number of events in this sequence. */
     int size;
+    std::vector<std::vector<Branch>> sleepseqs;
     bool schedule;
     bool schedule_head;
-    std::vector<std::vector<Branch>> sleepseqs;
     bool operator<(const Branch &b) const{
       return pid < b.pid || (pid == b.pid && alt < b.alt);
     }
@@ -482,15 +482,6 @@ protected:
      * event sequence.
      */
     sleepseqs_t doneseqs;
-    /* The events that the threads in sleep will perform as their next step,
-     * as determined by dry running.
-     * sleep and sleep_evs are of the same size and correspond pairwise.
-     */
-    std::vector<sym_ty> sleep_evs;
-    /* The set of sleeping threads that wake up during or after this
-     * event sequence.
-     */
-    VecSet<IPid> wakeup;
     /* For each previous IID that has been explored at this position
      * with the exact same prefix, some number of traces (both sleep
      * set blocked and otherwise) have been
