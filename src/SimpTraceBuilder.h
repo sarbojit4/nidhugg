@@ -33,6 +33,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include<list>
 
 typedef llvm::SmallVector<SymEv,1> sym_ty;
 
@@ -482,6 +483,7 @@ protected:
      * event sequence.
      */
     sleepseqs_t doneseqs;
+    std::list<std::vector<Branch>> schedules;
     /* For each previous IID that has been explored at this position
      * with the exact same prefix, some number of traces (both sleep
      * set blocked and otherwise) have been
@@ -496,7 +498,11 @@ protected:
    * execution, or the events executed followed by the subsequent
    * events that are determined in advance to be executed.
    */
-  WakeupTreeExplorationBuffer<Branch, Event> prefix;
+  typedef struct{
+    Branch branch;
+    Event event;
+  } Execstep;
+  std::vector<Execstep> prefix;
   std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
   std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
 
@@ -547,25 +553,25 @@ protected:
   Event &curev() {
     assert(0 <= prefix_idx);
     assert(prefix_idx < int(prefix.len()));
-    return prefix[prefix_idx];
+    return prefix[prefix_idx].event;
   }
 
   const Event &curev() const {
     assert(0 <= prefix_idx);
     assert(prefix_idx < int(prefix.len()));
-    return prefix[prefix_idx];
+    return prefix[prefix_idx].event;
   }
 
   const Branch &curbranch() const {
     assert(0 <= prefix_idx);
     assert(prefix_idx < int(prefix.len()));
-    return prefix.branch(prefix_idx);
+    return prefix[prefix_idx].branch;
   }
 
   Branch &curbranch() {
     assert(0 <= prefix_idx);
     assert(prefix_idx < int(prefix.len()));
-    return prefix.branch(prefix_idx);
+    return prefix[prefix_idx].branch;
   }
 
   /* Symbolic events in Branches in the wakeup tree do not record the
@@ -574,7 +580,7 @@ protected:
    * with data of memory accesses in the symbolic events.
    */
   Branch branch_with_symbolic_data(unsigned index) const {
-    return Branch(prefix.branch(index), prefix[index].sym);
+    return Branch(prefix[index].branch, prefix[index].event.sym);
   }
 
   IID<CPid> get_iid(unsigned i) const;
