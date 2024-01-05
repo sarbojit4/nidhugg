@@ -2677,7 +2677,7 @@ wakeup_sequence(const Race &race) const{
       ++exclude;
     } else if (prefix[k].event.clock.intersects_below(exclude_clock)) {
       /* continue */
-    } else if (prefix[k].event.clock.lt(prefix[j].event.clock) && !first.clock.leq(prefix[k].event.clock)) {
+    } else if (prefix[k].event.clock.lt(second.clock) && !first.clock.leq(prefix[k].event.clock)) {
       v.emplace_back(branch_with_symbolic_data(k));
       v.back().schedule = true;
     } else if (race.kind == Race::OBSERVED && k != j) {
