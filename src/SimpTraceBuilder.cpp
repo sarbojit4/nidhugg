@@ -307,9 +307,9 @@ bool SimpTraceBuilder::reset(){
   // }
   // Traces.insert(std::move(currtrace));
   // currtrace.clear();
-//   compute_vclocks();
+  compute_vclocks();
 
-//   reorganize_races();
+  reorganize_races();
   
 //   while(true){
 //     if(do_race_detect()) break;
@@ -2375,17 +2375,17 @@ void SimpTraceBuilder::compute_vclocks(){
 			       return true;
 			     });
     // for (auto it = races.begin(); it != new_end; ++it){
-      // llvm::dbgs()<<"Race (<"<<threads[prefix[it->first_event].iid.get_pid()].cpid<<","
-      // 		  <<prefix[it->first_event].iid.get_index()<<">,<"
-      // 		  <<threads[prefix[i].iid.get_pid()].cpid
-		  // <<prefix[i].iid.get_index()<<">)\n";/////////
+    //   llvm::dbgs()<<"Race (<"<<threads[prefix[it->first_event].iid.get_pid()].cpid<<","
+    // 		  <<prefix[it->first_event].iid.get_index()<<">,<"
+    // 		  <<threads[prefix[i].iid.get_pid()].cpid
+    // 		  <<prefix[i].iid.get_index()<<">)\n";/////////
     //   llvm::dbgs()<<it->kind<<it->second_event<<end_of_ws<<"\n";////////////
     //   for(int head : schedule_heads)
     // 	llvm::dbgs()<<head<<"\n";//////////
     // }
-    // for (auto it = new_end; it != end; ++it){
-    //   prefix[i].clock += prefix[it->first_event].clock;
-    // }
+    for (auto it = new_end; it != end; ++it){
+      prefix[i].clock += prefix[it->first_event].clock;
+    }
 
     /* Now delete the subsumed races. We delayed doing this to avoid
      * iterator invalidation. */
@@ -2550,9 +2550,9 @@ void SimpTraceBuilder::reorganize_races() {
 
   /* Bucket sort races by first_event index */
   for (unsigned i = 0; i < prefix.size(); ++i){
-    prefix[i].races.clear();
     for (const Race &r : prefix[i].races)
       prefix[r.first_event].races.push_back(std::move(r));
+    prefix[i].races.clear();
   }
   for (const Race &r : lock_fail_races)
     prefix[r.first_event].races.push_back(std::move(r));
