@@ -57,7 +57,7 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   if(replay){
     /* Are we done with the current Event? */
     if(0 <= prefix_idx && threads[curev().iid.get_pid()].last_event_index() <
-       curev().iid.get_index() + curbranch().size - 1){
+       curev().iid.get_index() + curev().size - 1){
       /* Continue executing the current Event */
       IPid pid = curev().iid.get_pid();
       *proc = pid/2;
@@ -87,26 +87,25 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
              || (errors.size() && errors.back()->get_location()
                  == IID<CPid>(threads[curbranch().pid].cpid,
                               curev().iid.get_index())));
-      dry_sleepers = 0;
       sym_idx = 0;
       ++prefix_idx;
       IPid pid;
-      if (prefix[prefix_idx].event.iid != IID<IPid>()) {
+      if (prefix[prefix_idx].iid != IID<IPid>()) {
         /* The event is already in prefix */
         pid = curev().iid.get_pid();
         curev().happens_after.clear();
       } else {
         /* We are replaying from the wakeup tree */
-        pid = prefix[prefix_idx].branch.pid;
-        prefix[prefix_idx].event =
+        pid = prefix[prefix_idx].iid.get_pid();
+        prefix[prefix_idx] =
           Event(IID<IPid>(pid,threads[pid].last_event_index() + 1),
                  /* Jump a few hoops to get the next Branch before
                   * calling enter_first_child() */
-		prefix[prefix_idx].branch.sym);
+		prefix[prefix_idx].sym);
       }
       *proc = pid/2;
       *aux = pid % 2 - 1;
-      *alt = curbranch().alt;
+      *alt = curev().alt;
       assert(threads[pid].available);
       threads[pid].event_indices.push_back(prefix_idx);
       assert(!threads[pid].sleeping);
@@ -119,40 +118,35 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
 
   /* Should we merge the last two events? */
   if(prefix.size() > 1 &&
-     prefix[prefix.size()-1].event.iid.get_pid()
-     == prefix[prefix.size()-2].event.iid.get_pid() &&
-     !prefix[prefix.size()-1].event.may_conflict &&
-     prefix[prefix.size()-1].event.doneseqs.empty() &&
-     prefix[prefix.size()-1].event.schedules.size() == 0){
+     prefix[prefix.size()-1].iid.get_pid()
+     == prefix[prefix.size()-2].iid.get_pid() &&
+     !prefix[prefix.size()-1].may_conflict &&
+     prefix[prefix.size()-1].doneseqs.empty() &&
+     prefix[prefix.size()-1].schedules.size() == 0){
     assert(curev().sym.empty()); /* Would need to be copied */
-    assert(curbranch().sym.empty()); /* Can't happen */
-    unsigned size = curbranch().size;
+    unsigned size = curev().size;
     prefix.pop_back();
     --prefix_idx;
-    Branch b = curbranch();
-    b.size += size;
-    prefix[prefix_idx].branch = std::move(b);
+    curev().size += size;
     assert(int(threads[curev().iid.get_pid()].event_indices.back()) == prefix_idx + 1);
     threads[curev().iid.get_pid()].event_indices.back() = prefix_idx;
   } else {
     /* Copy symbolic events to wakeup tree */
     if (prefix.size() > 0) {
-      if (!curbranch().sym.empty()) {
+      if (!curev().sym.empty()) {
 #ifndef NDEBUG
         sym_ty expected = curev().sym;
         if (conf.dpor_algorithm == Configuration::OBSERVERS)
           clear_observed(expected);
-        assert(curbranch().sym == expected);
+        assert(curev().sym == expected);
 #endif
       } else {
-        Branch b = curbranch();
-        b.sym = curev().sym;
+        Event &event = curev();
         if (conf.dpor_algorithm == Configuration::OBSERVERS)
-          clear_observed(b.sym);
-        for (SymEv &e : b.sym) e.purge_data();
-        prefix[prefix_idx].branch = std::move(b);
+          clear_observed(event.sym);
+        for (SymEv &e : event.sym) e.purge_data();
       }
-      obs_sleep_wake(prefix[prefix_idx].branch.sleepseqs,
+      obs_sleep_wake(prefix[prefix_idx].sleepseqs,
    		 curev().iid.get_pid(), curev().sym);
     }
   }
@@ -162,7 +156,7 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
 
   if(prefix_idx > 0){
     for(auto &th : threads) th.sleeping = false;
-    for(auto seq : curbranch().sleepseqs)
+    for(auto seq : curev().sleepseqs)
       if(seq.size() == 1) threads[seq.front().pid].sleeping = true;
   }
 
@@ -191,8 +185,7 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
        (conf.max_search_depth < 0 || threads[p].last_event_index() < conf.max_search_depth)){
       threads[p].event_indices.push_back(++prefix_idx);
       assert(prefix_idx == int(prefix.size()));
-      prefix.push_back(Execstep{Branch(IPid(p)),
-	  Event(IID<IPid>(IPid(p),threads[p].last_event_index()))});
+      prefix.push_back(Event(IID<IPid>(IPid(p),threads[p].last_event_index())));
       *proc = p/2;
       *aux = -1;
       return true;
@@ -204,11 +197,11 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
 
 void SimpTraceBuilder::refuse_schedule(){
   assert(prefix_idx == int(prefix.size())-1);
-  assert(prefix.back().branch.size == 1);
-  assert(!prefix.back.event.may_conflict);
-  assert(prefix.back.event.doneseqs.empty());
+  assert(prefix.back().size == 1);
+  assert(!prefix.back.may_conflict);
+  assert(prefix.back.doneseqs.empty());
   assert(prefix[prefix_idx].schedules.size() == 0);
-  IPid last_pid = prefix.back().event.iid.get_pid();
+  IPid last_pid = prefix.back().iid.get_pid();
   prefix.pop_back();
   assert(int(threads[last_pid].event_indices.back()) == prefix_idx);
   threads[last_pid].event_indices.pop_back();
@@ -233,7 +226,7 @@ void SimpTraceBuilder::cancel_replay(){
   replay = false;
   while (prefix_idx + 1 < int(prefix.size())) prefix.pop_back();
   if (prefix_idx < prefix.size()) {
-    prefix.back().event = Event(IID<IPid>());
+    prefix.back() = Event(IID<IPid>());
     prefix.pop_back();
   }
 }
@@ -274,8 +267,8 @@ Trace *SimpTraceBuilder::get_trace() const{
   SrcLocVectorBuilder cmp_md;
   std::vector<Error*> errs;
   for(unsigned i = 0; i < prefix.size(); ++i){
-    cmp.push_back(IID<CPid>(threads[prefix[i].event.iid.get_pid()].cpid,prefix[i].event.iid.get_index()));
-    cmp_md.push_from(prefix[i].event.md);
+    cmp.push_back(IID<CPid>(threads[prefix[i].iid.get_pid()].cpid,prefix[i].iid.get_index()));
+    cmp_md.push_from(prefix[i].md);
   }
   for(unsigned i = 0; i < errors.size(); ++i){
     errs.push_back(errors[i]->clone());
@@ -314,9 +307,14 @@ bool SimpTraceBuilder::reset(){
   // }
   // Traces.insert(std::move(currtrace));
   // currtrace.clear();
-  compute_vclocks();
+//   compute_vclocks();
 
-  do_race_detect();
+//   reorganize_races();
+  
+//   while(true){
+//     if(do_race_detect()) break;
+//     // backtrack;
+//   }
 
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === SimpTraceBuilder reset ===\n";
@@ -324,95 +322,96 @@ bool SimpTraceBuilder::reset(){
     llvm::dbgs() << " =============================\n";
   }
 
-#ifndef NDEBUG
-  /* The if-statement is just so we can control which test cases need to
-   *  satisfy this assertion for now. Eventually, all should.
-   */
-  if(conf.dpor_algorithm != Configuration::SOURCE){
-    check_symev_vclock_equiv();
-  }
-#endif
+// #ifndef NDEBUG
+//   /* The if-statement is just so we can control which test cases need to
+//    *  satisfy this assertion for now. Eventually, all should.
+//    */
+//   if(conf.dpor_algorithm != Configuration::SOURCE){
+//     check_symev_vclock_equiv();
+//   }
+// #endif
 
-  int i;
-  int doneseq_end=0;
-  std::vector<Branch> doneseq;
-  for(i = int(prefix.size())-1; 0 <= i; --i){
-    if(prefix[i].branch.schedule_head && event_is_load(prefix[i].event.sym)) doneseq_end=i;
-    if(prefix[i].event.schedules.size()){
-      break;
-    }
-  }
+//   int i;
+//   int doneseq_end=0;
+//   std::vector<Branch> doneseq;
+//   for(i = int(prefix.size())-1; 0 <= i; --i){
+//     if(prefix[i].branch.schedule_head && event_is_load(prefix[i].sym)) doneseq_end=i;
+//     if(prefix[i].schedules.size()){
+//       break;
+//     }
+//   }
 
-  if(i < 0){
-    /* No more branching is possible. */
-    return false;
-  }
-  replay_point = i;
+//   if(i < 0){
+//     /* No more branching is possible. */
+//     return false;
+//   }
+//   replay_point = i;
 
-  /* Setup the new Event at prefix[i] */
-  {
-    for(int j = i; j <=doneseq_end; j++)
-      doneseq.push_back(branch_with_symbolic_data(j));
+//   /* Setup the new Event at prefix[i] */
+//   {
+//     for(int j = i; j <=doneseq_end; j++)
+//       // doneseq.push_back(branch_with_symbolic_data(j));
 
-    uint64_t sleep_branch_trace_count =
-      prefix[i].event.sleep_branch_trace_count + estimate_trace_count(i+1);
-    Event prev_evt = std::move(prefix[i].event);
-    bool is_schedule = prefix[i].branch.schedule;
-    while (ssize_t(prefix.size()) > i) prefix.pop_back();
+//     uint64_t sleep_branch_trace_count =
+//       prefix[i].sleep_branch_trace_count + estimate_trace_count(i+1);
+//     Event prev_evt = std::move(prefix[i]);
+//     bool is_schedule = prefix[i].branch.schedule;
+//     while (ssize_t(prefix.size()) > i) prefix.pop_back();
 
-    std::vector<Branch> schedule = prev_evt.schedules.front();
-    const Branch &br = schedule[0];
+//     std::vector<Branch> schedule = prev_evt.schedules.front();
+//     const Branch &br = schedule[0];
 
-    /* Find the index of br.pid. */
-    int br_idx = 1;
-    for(int j = i-1; br_idx == 1 && 0 <= j; --j){
-      if(prefix[j].event.iid.get_pid() == br.pid){
-        br_idx = prefix[j].event.iid.get_index() + prefix[j].branch.size;
-      }
-    }
+//     /* Find the index of br.pid. */
+//     int br_idx = 1;
+//     for(int j = i-1; br_idx == 1 && 0 <= j; --j){
+//       if(prefix[j].iid.get_pid() == br.pid){
+//         br_idx = prefix[j].iid.get_index() + prefix[j].size;
+//       }
+//     }
 
-    Event evt(IID<IPid>(br.pid,br_idx));
+//     Event evt(IID<IPid>(br.pid,br_idx));
 
-    evt.sym = br.sym; /* For replay sanity assertions only */
-    evt.doneseqs = prev_evt.doneseqs;
-    if(doneseq.size() && is_schedule){
-      evt.doneseqs.push_back(std::move(doneseq));
-    }
-    evt.sleep_branch_trace_count = sleep_branch_trace_count;
+//     evt.sym = br.sym; /* For replay sanity assertions only */
+//     evt.doneseqs = prev_evt.doneseqs;
+//     if(doneseq.size() && is_schedule){
+//       evt.doneseqs.push_back(std::move(doneseq));
+//     }
+//     evt.sleep_branch_trace_count = sleep_branch_trace_count;
 
-    for(auto branch : schedule) prefix.emplace_back(Execstep{branch, Event(IID<IPid>())});
-    prev_evt.schedules.pop_front();
-    evt.schedules = std::move(prev_evt.schedules);
-    prefix[i].event = std::move(evt); 
- }
+//     for(auto branch : schedule) prefix.emplace_back(ExecStep{branch, Event(IID<IPid>())});
+//     prev_evt.schedules.pop_front();
+//     evt.schedules = std::move(prev_evt.schedules);
+//     prefix[i] = std::move(evt); 
+//  }
 
-  CPS = CPidSystem();
-  threads.clear();
-  threads.push_back(Thread(CPid(),-1));
-  threads.push_back(Thread(CPS.new_aux(CPid()),-1));
-  threads[1].available = false; // Store buffer is empty.
-  mutexes.clear();
-  cond_vars.clear();
-  mem.clear();
-  blocked_awaits.clear();
-  last_full_memory_conflict = -1;
-  prefix_idx = -1;
-  dryrun = false;
-  replay = true;
-  dry_sleepers = 0;
-  last_md = 0;
-  reset_cond_branch_log();
-  has_vclocks = false;
+//   CPS = CPidSystem();
+//   threads.clear();
+//   threads.push_back(Thread(CPid(),-1));
+//   threads.push_back(Thread(CPS.new_aux(CPid()),-1));
+//   threads[1].available = false; // Store buffer is empty.
+//   mutexes.clear();
+//   cond_vars.clear();
+//   mem.clear();
+//   blocked_awaits.clear();
+//   last_full_memory_conflict = -1;
+//   prefix_idx = -1;
+//   dryrun = false;
+//   replay = true;
+//   dry_sleepers = 0;
+//   last_md = 0;
+//   reset_cond_branch_log();
+//   has_vclocks = false;
 
-  return true;
+  // return true;
+  return false;
 }
 
 IID<CPid> SimpTraceBuilder::get_iid() const{
   return get_iid(prefix_idx);
 }
 IID<CPid> SimpTraceBuilder::get_iid(unsigned i) const{
-  IPid pid = prefix[i].event.iid.get_pid();
-  int idx = prefix[i].event.iid.get_index();
+  IPid pid = prefix[i].iid.get_pid();
+  int idx = prefix[i].iid.get_index();
   return IID<CPid>(threads[pid].cpid,idx);
 }
 
@@ -422,18 +421,18 @@ static std::string rpad(std::string s, int n){
 }
 
 std::string SimpTraceBuilder::iid_string(std::size_t pos) const{
-  return iid_string(prefix[pos].branch, prefix[pos].event.iid.get_index());
+  return iid_string(prefix[pos], prefix[pos].iid.get_index());
 }
 
-std::string SimpTraceBuilder::iid_string(const Branch &branch, int index) const{
+std::string SimpTraceBuilder::iid_string(const Event &event, int index) const{
   std::stringstream ss;
-  ss << "(" << threads[branch.pid].cpid << "," << index;
-  if(branch.size > 1){
-    ss << "-" << index + branch.size - 1;
+  ss << "(" << threads[event.iid.get_pid()].cpid << "," << index;
+  if(event.size > 1){
+    ss << "-" << index + event.size - 1;
   }
   ss << ")";
-  if(branch.alt != 0){
-    ss << "-alt:" << branch.alt;
+  if(event.alt != 0){
+    ss << "-alt:" << event.alt;
   }
   return ss.str();
 }
@@ -466,40 +465,40 @@ std::string SimpTraceBuilder::oslp_string(const sleepseqs_t &os) const {
 /* For debug-printing the wakeup tree; adds a node and its children to lines */
 void SimpTraceBuilder::wut_string_add_node
 (std::vector<std::string> &lines, std::vector<int> &iid_map,
- unsigned line, Branch branch, WakeupTreeRef<Branch> node) const{
-  unsigned offset = 2 + ((lines.size() < line)?0:lines[line].size());
+ unsigned line, Event event, WakeupTreeRef<Branch> node) const{
+  // unsigned offset = 2 + ((lines.size() < line)?0:lines[line].size());
 
-  std::vector<std::pair<Branch,WakeupTreeRef<Branch>>> nodes({{branch,node}});
-  iid_map_step(iid_map, branch);
-  unsigned l = line;
-  WakeupTreeRef<Branch> n = node;
-  Branch b = branch;
-  while (n.size()) {
-    b = n.begin().branch();
-    n = n.begin().node();
-    ++l;
-    nodes.push_back({b,n});
-    iid_map_step(iid_map, b);
-    if (l < lines.size()) offset = std::max(offset, unsigned(lines[l].size()));
-  }
-  if (lines.size() < l+1) lines.resize(l+1, "");
-  /* First node needs different padding, so we do it here */
-  lines[line] += " ";
-  while(lines[line].size() < offset) lines[line] += "-";
+  // std::vector<std::pair<Branch,WakeupTreeRef<Branch>>> nodes({{branch,node}});
+  // iid_map_step(iid_map, event);
+  // unsigned l = line;
+  // WakeupTreeRef<Branch> n = node;
+  // Branch b = branch;
+  // while (n.size()) {
+  //   b = n.begin().branch();
+  //   n = n.begin().node();
+  //   ++l;
+  //   nodes.push_back({b,n});
+  //   iid_map_step(iid_map, b);
+  //   if (l < lines.size()) offset = std::max(offset, unsigned(lines[l].size()));
+  // }
+  // if (lines.size() < l+1) lines.resize(l+1, "");
+  // /* First node needs different padding, so we do it here */
+  // lines[line] += " ";
+  // while(lines[line].size() < offset) lines[line] += "-";
 
-  while(nodes.size()) {
-    l = line+nodes.size()-1;
-    b = nodes.back().first;
-    n = nodes.back().second;
-    for (auto ci = n.begin(); ci != n.end(); ++ci) {
-      if (ci == n.begin()) continue;
-      wut_string_add_node(lines, iid_map, l+1, ci.branch(), ci.node());
-    }
-    iid_map_step_rev(iid_map, b);
-    while(lines[l].size() < offset) lines[l] += " ";
-    lines[l] += " " + iid_string(b, iid_map[b.pid]);
-    nodes.pop_back();
-  }
+  // while(nodes.size()) {
+  //   l = line+nodes.size()-1;
+  //   b = nodes.back().first;
+  //   n = nodes.back().second;
+  //   for (auto ci = n.begin(); ci != n.end(); ++ci) {
+  //     if (ci == n.begin()) continue;
+  //     wut_string_add_node(lines, iid_map, l+1, ci.branch(), ci.node());
+  //   }
+  //   iid_map_step_rev(iid_map, b);
+  //   while(lines[l].size() < offset) lines[l] += " ";
+  //   lines[l] += " " + iid_string(b, iid_map[b.pid]);
+  //   nodes.pop_back();
+  // }
 }
 
 static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
@@ -529,11 +528,11 @@ void SimpTraceBuilder::check_symev_vclock_equiv() const {
    */
   std::vector<unsigned> frontier;
   for (unsigned i = 0; i < prefix.size(); ++i) {
-    const Event &e = prefix[i].event;
+    const Event &e = prefix[i];
     const IPid pid = e.iid.get_pid();
     const Event *prev
       = (e.iid.get_index() == 1 ? nullptr
-         : &prefix[find_process_event(pid, e.iid.get_index()-1)].event);
+         : &prefix[find_process_event(pid, e.iid.get_index()-1)]);
     if (i == prefix.size() - 1 && errors.size() &&
         errors.back()->get_location()
         == IID<CPid>(threads[pid].cpid, e.iid.get_index())) {
@@ -544,24 +543,24 @@ void SimpTraceBuilder::check_symev_vclock_equiv() const {
     }
     for (unsigned j = i-1; j != unsigned(-1); --j) {
       bool iafterj = false;
-      if (prefix[j].event.iid.get_pid() == pid
-          || do_events_conflict(e, prefix[j].event)) {
+      if (prefix[j].iid.get_pid() == pid
+          || do_events_conflict(e, prefix[j])) {
         iafterj = true;
-        if (!prev || !prefix[j].event.clock.leq(prev->clock)) {
+        if (!prev || !prefix[j].clock.leq(prev->clock)) {
           frontier.push_back(j);
         }
-      } else if (prev && prefix[j].event.clock.leq(prev->clock)) {
+      } else if (prev && prefix[j].clock.leq(prev->clock)) {
         iafterj = true;
       } else {
         for (unsigned k : frontier) {
-          if (prefix[j].event.clock.leq(prefix[k].event.clock)) {
+          if (prefix[j].clock.leq(prefix[k].clock)) {
             iafterj = true;
             break;
           }
         }
       }
 
-      if (iafterj != prefix[j].event.clock.leq(e.clock)) {
+      if (iafterj != prefix[j].clock.leq(e.clock)) {
         if (iafterj) {
           llvm::dbgs() << "SymEv thinks " << i << " happens after " << j
                        << " but vclock does not\n";
@@ -573,21 +572,21 @@ void SimpTraceBuilder::check_symev_vclock_equiv() const {
         int iid_offs = 0;
         int clock_offs = 0;
         for(unsigned k = 0; k < prefix.size(); ++k){
-          IPid ipid = prefix[k].event.iid.get_pid();
+          IPid ipid = prefix[k].iid.get_pid();
           ix_offs = std::max(ix_offs,int(std::to_string(k).size()));
           iid_offs = std::max(iid_offs,2*ipid+int(iid_string(k).size()));
-          clock_offs = std::max(clock_offs,int(prefix[k].event.clock.to_string().size()));
+          clock_offs = std::max(clock_offs,int(prefix[k].clock.to_string().size()));
         }
 
         for(unsigned k = 0; k < prefix.size(); ++k){
-          IPid ipid = prefix[k].event.iid.get_pid();
+          IPid ipid = prefix[k].iid.get_pid();
           llvm::dbgs() << rpad("",ix_offs-int(std::to_string(k).size()))
                        << (k == i || k == j ? ANSIRed : "") << k
                        << (k == i || k == j ? ANSIRst : "")
                        << ":" << rpad("",2+ipid*2)
                        << rpad(iid_string(k),iid_offs-ipid*2)
-                       << " " << rpad(prefix[k].event.clock.to_string(),clock_offs)
-                       << " " << events_to_string(prefix[k].event.sym)
+                       << " " << rpad(prefix[k].clock.to_string(),clock_offs)
+                       << " " << events_to_string(prefix[k].sym)
                        << "\n";
         }
         if(errors.size()){
@@ -598,7 +597,7 @@ void SimpTraceBuilder::check_symev_vclock_equiv() const {
           }
         }
       }
-      assert(iafterj == prefix[j].event.clock.leq(e.clock));
+      assert(iafterj == prefix[j].clock.leq(e.clock));
     }
 
     /* Cleanup */
@@ -615,69 +614,69 @@ void SimpTraceBuilder::debug_print() const {
   sleepseqs_t sleepseqs;
 
   for(unsigned i = 0; i < prefix.size(); ++i){
-    IPid ipid = prefix[i].event.iid.get_pid();
+    IPid ipid = prefix[i].iid.get_pid();
     iid_offs = std::max(iid_offs,2*ipid+int(iid_string(i).size()));
     symev_offs = std::max(symev_offs,
-                          int(events_to_string(prefix[i].event.sym).size()));
-    obs_sleep_add(sleepseqs, prefix[i].event);
+                          int(events_to_string(prefix[i].sym).size()));
+    obs_sleep_add(sleepseqs, prefix[i]);
     lines.push_back(" SLP:" + oslp_string(sleepseqs));
-    obs_sleep_wake(sleepseqs, ipid, prefix[i].event.sym);
+    obs_sleep_wake(sleepseqs, ipid, prefix[i].sym);
   }
-  for(const auto &ab : blocked_awaits) {
-    for (const auto &pa : ab.second) {
-      IPid ipid = pa.first;
-      const auto &a = pa.second;
-      iid_offs = std::max(iid_offs,2*ipid+int(iid_string(Branch(ipid),a.index).size()));
-      symev_offs = std::max(symev_offs,
-                            int(a.ev.to_string().size()));
-      lines.push_back("");
-    }
-  }
+  // for(const auto &ab : blocked_awaits) {
+  //   for (const auto &pa : ab.second) {
+  //     IPid ipid = pa.first;
+  //     const auto &a = pa.second;
+  //     iid_offs = std::max(iid_offs,2*ipid+int(iid_string(Branch(ipid),a.index).size()));
+  //     symev_offs = std::max(symev_offs,
+  //                           int(a.ev.to_string().size()));
+  //     lines.push_back("");
+  //   }
+  // }
 
-  /* Add wakeup tree */
-  std::vector<int> iid_map = iid_map_at(prefix.size());
-  for(int i = prefix.size()-1; 0 <= i; --i){
-    auto schedules = prefix[i].event.schedules;
-    for (auto it = schedules.begin(); it != schedules.end(); ++it) {
-      //Branch b = it.branch();
-      //if (b == prefix.branch(i)) continue; /* Only print others */
-      //if(it == node.begin()) continue;
-      // TODO: Write a function to print schedules
-      // wut_string_add_node(lines, iid_map, i, it.branch(), it.node());
-    }
-  }
+  // /* Add wakeup tree */
+  // std::vector<int> iid_map = iid_map_at(prefix.size());
+  // for(int i = prefix.size()-1; 0 <= i; --i){
+  //   auto schedules = prefix[i].schedules;
+  //   for (auto it = schedules.begin(); it != schedules.end(); ++it) {
+  //     //Branch b = it.branch();
+  //     //if (b == prefix.branch(i)) continue; /* Only print others */
+  //     //if(it == node.begin()) continue;
+  //     // TODO: Write a function to print schedules
+  //     // wut_string_add_node(lines, iid_map, i, it.branch(), it.node());
+  //   }
+  // }
 
   unsigned i = 0;
   for(; i < prefix.size(); ++i){
-    IPid ipid = prefix[i].event.iid.get_pid();
+    IPid ipid = prefix[i].iid.get_pid();
     llvm::dbgs() << rpad("",2+ipid*2)
                  << rpad(iid_string(i),iid_offs-ipid*2)
-                 << " " << rpad(events_to_string(prefix[i].event.sym),symev_offs)
-                 << lines[i]
-		 << (prefix[i].branch.schedule_head ? "[o]" : prefix[i].branch.schedule ? "[]" : "")
+                 << " " << rpad(events_to_string(prefix[i].sym),symev_offs)
+		 << lines[i]
+		 << (prefix[i].schedule_head ? "[o]" : prefix[i].schedule ? "[]" : "")
 		 << "\n";
   }
-  for(const auto &ab : blocked_awaits) {
-    for (const auto &pb : ab.second) {
-      IPid ipid = pb.first;
-      const auto &b = pb.second;
-      llvm::dbgs() << " b"
-                   << rpad("",ipid*2)
-                   << rpad(iid_string(Branch(ipid),b.index),iid_offs-ipid*2)
-                   << " " << rpad(b.ev.to_string(),symev_offs)
-                   << lines[i++] << "\n";
-    }
-  }
+  // for(const auto &ab : blocked_awaits) {
+  //   for (const auto &pb : ab.second) {
+  //     IPid ipid = pb.first;
+  //     const auto &b = pb.second;
+  //     llvm::dbgs() << " b"
+  //                  << rpad("",ipid*2)
+  //                  << rpad(iid_string(Branch(ipid),b.index),iid_offs-ipid*2)
+  //                  << " " << rpad(b.ev.to_string(),symev_offs)
+  //                  << lines[i++] << "\n";
+  //   }
+  // }
   for (; i < lines.size(); ++i){
     llvm::dbgs() << std::string(2+iid_offs + 1+symev_offs, ' ') << lines[i] << "\n";
   }
-  if(errors.size()){
-    llvm::dbgs() << "Errors:\n";
-    for(unsigned i = 0; i < errors.size(); ++i){
-      llvm::dbgs() << "  Error #" << i+1 << ": "
-                   << errors[i]->to_string() << "\n";
-    }
-  }
+  // if(errors.size()){
+  //   llvm::dbgs() << "Errors:\n";
+  //   for(unsigned i = 0; i < errors.size(); ++i){
+  //     llvm::dbgs() << "  Error #" << i+1 << ": "
+  //                  << errors[i]->to_string() << "\n";
+  //   }
+  // }
 }
 
 bool SimpTraceBuilder::spawn(){
@@ -744,7 +743,7 @@ void SimpTraceBuilder::do_atomic_store(const SymData &sd){
     const PendingStore &pst = threads[tipid].store_buffer.front();
     assert(pst.store_event != (unsigned)prefix_idx);
     add_happens_after(prefix_idx, pst.store_event);
-    curev().origin_iid = prefix[pst.store_event].event.iid;
+    curev().origin_iid = prefix[pst.store_event].iid;
     curev().md = pst.md;
   }else{ // Add the clock of the auxiliary thread (because of fence semantics)
     assert(threads[tipid].store_buffer.empty());
@@ -764,9 +763,9 @@ void SimpTraceBuilder::do_atomic_store(const SymData &sd){
 
     for(int i : bi.last_read){
       if (i < 0) continue;
-      const IPid last_read_pid = prefix[i].event.iid.get_pid();
+      const IPid last_read_pid = prefix[i].iid.get_pid();
       if(last_read_pid != tipid) seen_accesses.insert(i);
-      if (lu >= 0 && i > lu && prefix[lu].event.iid.get_pid() != last_read_pid+1)
+      if (lu >= 0 && i > lu && prefix[lu].iid.get_pid() != last_read_pid+1)
         lu_before_read = true;
     }
 
@@ -774,7 +773,7 @@ void SimpTraceBuilder::do_atomic_store(const SymData &sd){
       bi.unordered_updates.clear();
       bi.before_unordered.clear(); // No need to add loads (?)
     } else if(0 <= lu) {
-      sym_ty &lu_sym = prefix[lu].event.sym;
+      sym_ty &lu_sym = prefix[lu].sym;
       if (lu_sym.size() != 1
           || lu_sym[0].kind != SymEv::UNOBS_STORE
           || lu_sym[0].addr() != ml) {
@@ -866,9 +865,9 @@ bool SimpTraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
 
     for(int i : bi.last_read){
       if (i < 0) continue;
-      const IPid last_read_pid = prefix[i].event.iid.get_pid();
+      const IPid last_read_pid = prefix[i].iid.get_pid();
       if(last_read_pid != ipid) seen_accesses.insert(i);
-      if (lu >= 0 && i > lu && prefix[lu].event.iid.get_pid() != last_read_pid+1)
+      if (lu >= 0 && i > lu && prefix[lu].iid.get_pid() != last_read_pid+1)
         lu_before_read = true;
     }
 
@@ -876,12 +875,12 @@ bool SimpTraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
       bi.unordered_updates.clear();
       bi.before_unordered.clear();
     } else if(0 <= lu) {
-      IPid lu_tipid = prefix[lu].event.iid.get_pid() & ~0x1;
+      IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
       if(lu_tipid == ipid && ml != lu_ml && lu != prefix_idx){
         add_happens_after(prefix_idx, lu);
       }
 
-      sym_ty &lu_sym = prefix[lu].event.sym;
+      sym_ty &lu_sym = prefix[lu].sym;
       if (lu_sym.size() != 1
           || lu_sym[0].kind != SymEv::RMW
           || !rmwaction_commutes(conf, lu_sym[0].rmw_kind(),
@@ -953,7 +952,7 @@ bool SimpTraceBuilder::xchg_await(const SymData &sd, AwaitCond cond) {
     assert(lu < int(prefix.size()));
 
     for(int i : bi.last_read){
-      if(0 <= i && prefix[i].event.iid.get_pid() != ipid) {
+      if(0 <= i && prefix[i].iid.get_pid() != ipid) {
         /* A lot of these will be redundant. We should consider how to
          * make this more efficient. */
         if (awaitcond_satisfied_before(i, ml, cond)) {
@@ -969,7 +968,7 @@ bool SimpTraceBuilder::xchg_await(const SymData &sd, AwaitCond cond) {
       bi.unordered_updates.clear();
       bi.before_unordered.clear();
     } else if(0 <= lu) {
-      IPid lu_tipid = prefix[lu].event.iid.get_pid() & ~0x1;
+      IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
       if(lu_tipid == ipid && ml != lu_ml && lu != prefix_idx){
         add_happens_after(prefix_idx, lu);
       }
@@ -1048,7 +1047,7 @@ void SimpTraceBuilder::do_load(const SymAddrSize &ml){
     int lu = mem[b].last_update;
     const SymAddrSize &lu_ml = mem[b].last_update_ml;
     if(0 <= lu){
-      IPid lu_tipid = prefix[lu].event.iid.get_pid() & ~0x1;
+      IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
       if(lu_tipid == ipid && ml != lu_ml && lu != prefix_idx){
         add_happens_after(prefix_idx, lu);
       }
@@ -1175,7 +1174,7 @@ bool SimpTraceBuilder::do_await(unsigned j, const IID<IPid> &iid, const SymEv &e
   std::vector<unsigned> unordered_accesses;
   for (unsigned i = j;;) {
     if (i-- == 0) break;
-    const Event &ie = prefix[i].event;
+    const Event &ie = prefix[i];
     if (std::any_of(ie.sym.begin(), ie.sym.end(),
                     [](const SymEv &e) { return e.kind == SymEv::FULLMEM; })) {
       invalid_input_error
@@ -1194,9 +1193,9 @@ bool SimpTraceBuilder::do_await(unsigned j, const IID<IPid> &iid, const SymEv &e
         Debug::warn("SimpTracebuilder::do_await:exponential")
           << "WARNING: Scaling exponentially on a large number of independent writes\n";
       const auto &not_excluded = [this](const std::vector<unsigned> &exclude, unsigned e) {
-        const auto &eclock = prefix[e].event.clock;
+        const auto &eclock = prefix[e].clock;
         for (unsigned x : exclude) {
-          if (eclock.includes(prefix[x].event.iid)) return false;
+          if (eclock.includes(prefix[x].iid)) return false;
         }
         return true;
       };
@@ -1225,12 +1224,12 @@ bool SimpTraceBuilder::do_await(unsigned j, const IID<IPid> &iid, const SymEv &e
           return;
         } else {
           const unsigned ke = unordered_accesses[k-1];
-          if (prefix[ke].event.clock.includes(ie.iid)) { //  ie.clock.includes(prefix[ke].iid))
+          if (prefix[ke].clock.includes(ie.iid)) { //  ie.clock.includes(prefix[ke].iid))
             /* ke is not in notdep(i) */
             try_subsequences(k-1);
             return;
           }
-          if (!(above_clock.includes(prefix[ke].event.iid))) {
+          if (!(above_clock.includes(prefix[ke].iid))) {
             exclude.push_back(ke);
             try_subsequences(k-1);
             assert(exclude.back() == ke);
@@ -1334,14 +1333,14 @@ void SimpTraceBuilder::observe_memory(SymAddr ml, ByteInfo &m,
   IPid ipid = curev().iid.get_pid();
   int lu = m.last_update;
   if(0 <= lu){
-    IPid lu_tipid = prefix[lu].event.iid.get_pid() & ~0x1;
+    IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
     if(lu_tipid != ipid){
       seen_accesses.insert(lu);
     }
     bool did_observe_store = false;
     if (conf.dpor_algorithm == Configuration::OBSERVERS) {
       /* Update last_update to be an observed store */
-      did_observe_store = observe_store(prefix[lu].event.sym, ml);
+      did_observe_store = observe_store(prefix[lu].sym, ml);
       if (did_observe_store) {
         /* Add races */
         for (const std::pair<IPid,unsigned> &u : m.unordered_updates) {
@@ -1540,19 +1539,19 @@ bool SimpTraceBuilder::cond_signal(const SymAddrSize &ml){
   if(cond_var.waiters.size() > 1){
     if (!register_alternatives(cond_var.waiters.size())) return false;
   }
-  assert(0 <= curbranch().alt);
-  assert(cond_var.waiters.empty() || curbranch().alt < int(cond_var.waiters.size()));
+  assert(0 <= curev().alt);
+  assert(cond_var.waiters.empty() || curev().alt < int(cond_var.waiters.size()));
   if(cond_var.waiters.size()){
     /* Wake up the alt:th waiter. */
-    int i = cond_var.waiters[curbranch().alt];
+    int i = cond_var.waiters[curev().alt];
     assert(0 <= i && i < prefix_idx);
-    IPid ipid = prefix[i].event.iid.get_pid();
+    IPid ipid = prefix[i].iid.get_pid();
     assert(!threads[ipid].available);
     threads[ipid].available = true;
     seen_events.insert(i);
 
     /* Remove waiter from cond_var.waiters */
-    for(int j = curbranch().alt; j < int(cond_var.waiters.size())-1; ++j){
+    for(int j = curev().alt; j < int(cond_var.waiters.size())-1; ++j){
       cond_var.waiters[j] = cond_var.waiters[j+1];
     }
     cond_var.waiters.pop_back();
@@ -1586,7 +1585,7 @@ bool SimpTraceBuilder::cond_broadcast(const SymAddrSize &ml){
   VecSet<int> seen_events = {last_full_memory_conflict};
   for(int i : cond_var.waiters){
     assert(0 <= i && i < prefix_idx);
-    IPid ipid = prefix[i].event.iid.get_pid();
+    IPid ipid = prefix[i].iid.get_pid();
     assert(!threads[ipid].available);
     threads[ipid].available = true;
     seen_events.insert(i);
@@ -1611,7 +1610,7 @@ bool SimpTraceBuilder::cond_wait(const SymAddrSize &cond_ml, const SymAddrSize &
       return false;
     }
     Mutex &mtx = it->second;
-    if(!dryrun && (mtx.last_lock < 0 || prefix[mtx.last_lock].event.iid.get_pid() != curev().iid.get_pid())){
+    if(!dryrun && (mtx.last_lock < 0 || prefix[mtx.last_lock].iid.get_pid() != curev().iid.get_pid())){
       pthreads_error("cond_wait called with mutex which is not locked by the same thread.");
       return false;
     }
@@ -1696,8 +1695,8 @@ int SimpTraceBuilder::cond_destroy(const SymAddrSize &ml){
 bool SimpTraceBuilder::register_alternatives(int alt_count){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Nondet(alt_count))) return false;
-  if(curbranch().alt == 0) {
-    for(int i = curbranch().alt+1; i < alt_count; ++i){
+  if(curev().alt == 0) {
+    for(int i = curev().alt+1; i < alt_count; ++i){
       curev().races.push_back(Race::Nondet(prefix_idx, i));
     }
   }
@@ -1849,38 +1848,24 @@ static void clear_observed(sym_ty &syms){
   }
 }
 
-bool SimpTraceBuilder::blocked_wakeup_sequence(std::vector<Branch> &seq,
+bool SimpTraceBuilder::blocked_wakeup_sequence(std::vector<Event> &seq,
 			     const sleepseqs_t &sleepseqs){
   sleepseqs_t isleepseqs = sleepseqs;
   obs_wake_res state = obs_wake_res::CONTINUE;
   for (auto it = seq.cbegin(); state == obs_wake_res::CONTINUE
          && it != seq.cend(); ++it) {
-    state = obs_sleep_wake(isleepseqs, it->pid, it->sym);
+    state = obs_sleep_wake(isleepseqs, it->iid.get_pid(), it->sym);
   }
   seq.back().sleepseqs=std::move(isleepseqs);
   /* Redundant */
   return (state == obs_wake_res::BLOCK);
 }
 
-// bool SimpTraceBuilder::
-// sequence_clears_sleep(const std::vector<Branch> &seq,
-//                       const struct obs_sleep &sleep_const) const{
-//   /* We need a writable copy */
-//   struct obs_sleep isleep = sleep_const;
-//   obs_wake_res state = obs_wake_res::CONTINUE;
-//   for (auto it = seq.cbegin(); state == obs_wake_res::CONTINUE
-//          && it != seq.cend(); ++it) {
-//     state = obs_sleep_wake(isleep, it->pid, it->sym);
-//   }
-//   /* Redundant */
-//   return (state == obs_wake_res::CLEAR);
-// }
-
 void SimpTraceBuilder::update_sleepseqs(){
-  obs_sleep_wake(prefix[prefix_idx-1].branch.sleepseqs,
+  obs_sleep_wake(prefix[prefix_idx-1].sleepseqs,
    		 curev().iid.get_pid(), curev().sym);
-  curbranch().sleepseqs = std::move(prefix[prefix_idx-1].branch.sleepseqs);
-  prefix[prefix_idx-1].branch.sleepseqs.shrink_to_fit();
+  curev().sleepseqs = std::move(prefix[prefix_idx-1].sleepseqs);
+  prefix[prefix_idx-1].sleepseqs.shrink_to_fit();
 }
 
 template <class Iter>
@@ -1979,7 +1964,7 @@ bool SimpTraceBuilder::awaitcond_satisfied_before
 
   for (unsigned j = i; !needed.empty();) {
     if (j-- == 0) break;
-    const sym_ty &js = prefix[j].event.sym;
+    const sym_ty &js = prefix[j].sym;
     rev_recompute_data(data, needed, js.end(), js.begin());
   }
 
@@ -1998,14 +1983,14 @@ bool SimpTraceBuilder::awaitcond_satisfied_by
   /* Last comes seq */
   for (unsigned j = seq.size(); !needed.empty();) {
     if (j-- == 0) break;
-    const sym_ty &js = prefix[seq[j]].event.sym;
+    const sym_ty &js = prefix[seq[j]].sym;
     recompute_scan_rev(ml, needed, stack, js.end(), js.begin());
   }
 
   /* Then comes then prefix[:i] */
   for (unsigned j = i; !needed.empty();) {
     if (j-- == 0) break;
-    const sym_ty &js = prefix[j].event.sym;
+    const sym_ty &js = prefix[j].sym;
     recompute_scan_rev(ml, needed, stack, js.end(), js.begin());
   }
 
@@ -2030,7 +2015,7 @@ void SimpTraceBuilder::recompute_cmpxhg_success
         rev_recompute_data(data, needed, vb.sym.end(), vb.sym.begin());
       }
       for (int k = i-1; !needed.empty() && (k >= 0); --k){
-        const sym_ty &ps = prefix[k].event.sym;
+        const sym_ty &ps = prefix[k].sym;
         rev_recompute_data(data, needed, ps.end(), ps.begin());
       }
 
@@ -2152,7 +2137,7 @@ void SimpTraceBuilder::add_observed_race(int first, int second){
   assert(do_events_conflict(first, second));
   assert(do_events_conflict(second, prefix_idx));
 
-  std::vector<Race> &races = prefix[second].event.races;
+  std::vector<Race> &races = prefix[second].races;
   if (races.size()) {
     const Race &prev = races.back();
     if (prev.kind == Race::OBSERVED
@@ -2172,7 +2157,7 @@ void SimpTraceBuilder::add_happens_after(unsigned second, unsigned first){
   assert(first < second);
   assert((int_fast64_t)second <= prefix_idx);
 
-  std::vector<unsigned> &vec = prefix[second].event.happens_after;
+  std::vector<unsigned> &vec = prefix[second].happens_after;
   if (vec.size() && vec.back() == first) return;
 
   vec.push_back(first);
@@ -2234,10 +2219,10 @@ void SimpTraceBuilder::compute_vclocks(){
   std::vector<Race> final_lock_fail_races;
   for (Race &r : lock_fail_races){
     if (r.second_event < int(prefix.size())) {
-      prefix[r.second_event].event.races.emplace_back(std::move(r));
+      prefix[r.second_event].races.emplace_back(std::move(r));
     } else {
       assert(r.second_event == int(prefix.size()));
-      if (!prefix[r.first_event].branch.schedule)
+      if (!prefix[r.first_event].schedule)
 	final_lock_fail_races.emplace_back(std::move(r));
     }
   }
@@ -2245,28 +2230,28 @@ void SimpTraceBuilder::compute_vclocks(){
 
   std::vector<int>schedule_heads;
   for (unsigned i = 0; i < prefix.size(); i++){
-    IPid ipid = prefix[i].event.iid.get_pid();
-    if (prefix[i].event.iid.get_index() > 1) {
-      unsigned last = find_process_event(prefix[i].event.iid.get_pid(), prefix[i].event.iid.get_index()-1);
-      prefix[i].event.clock = prefix[last].event.clock;
+    IPid ipid = prefix[i].iid.get_pid();
+    if (prefix[i].iid.get_index() > 1) {
+      unsigned last = find_process_event(prefix[i].iid.get_pid(), prefix[i].iid.get_index()-1);
+      prefix[i].clock = prefix[last].clock;
     } else {
-      prefix[i].event.clock = VClock<IPid>();
+      prefix[i].clock = VClock<IPid>();
     }
-    prefix[i].event.clock[ipid] = prefix[i].event.iid.get_index();
+    prefix[i].clock[ipid] = prefix[i].iid.get_index();
 
     /* First add the non-reversible edges */
-    for (unsigned j : prefix[i].event.happens_after){
+    for (unsigned j : prefix[i].happens_after){
       assert(j < i);
-      prefix[i].event.clock += prefix[j].event.clock;
+      prefix[i].clock += prefix[j].clock;
     }
 
     /* Generate await races (with stores, races with loads are handled eagerly) */
-    std::vector<Race> &races = prefix[i].event.races;
-    if (std::any_of(prefix[i].event.sym.begin(), prefix[i].event.sym.end(),
+    std::vector<Race> &races = prefix[i].races;
+    if (std::any_of(prefix[i].sym.begin(), prefix[i].sym.end(),
                     [](const SymEv &e) { return e.has_cond(); })) {
-      const SymEv &aw = prefix[i].event.sym[0];
-      assert(prefix[i].event.sym.size() == 1);
-      do_await(i, prefix[i].event.iid, aw, prefix[i].event.clock, races);
+      const SymEv &aw = prefix[i].sym[0];
+      assert(prefix[i].sym.size() == 1);
+      do_await(i, prefix[i].iid, aw, prefix[i].clock, races);
     }
 
     /* Now we want add the possibly reversible edges, but first we must
@@ -2285,16 +2270,16 @@ void SimpTraceBuilder::compute_vclocks(){
     auto end = partition(first_pair, races.end(),
 			 [this,schedule_heads](const Race &r){
 			   if(r.second_event < end_of_ws) return false;
-			   else if(prefix[r.first_event].branch.schedule){
+			   else if(prefix[r.first_event].schedule){
 			     return false;
 			   } else return true;
 			 });
     for (auto it = end; it != races.end(); ++it){
       //llvm::dbgs()<<it->first_event<<it->second_event<<prefix.branch(it->first_event).schedule<<"\n";
       if (it->kind == Race::LOCK_SUC)
-	prefix[i].event.clock += prefix[it->unlock_event].event.clock;
+	prefix[i].clock += prefix[it->unlock_event].clock;
       else
-	prefix[i].event.clock += prefix[it->first_event].event.clock;
+	prefix[i].clock += prefix[it->first_event].clock;
     }
     // for (auto it = first_pair; it != end; ++it){
       // llvm::dbgs()<<"Race (<"<<threads[prefix[it->first_event].iid.get_pid()].cpid<<","
@@ -2313,16 +2298,16 @@ void SimpTraceBuilder::compute_vclocks(){
       end = partition
         (first_pair, end,
          [this,i](const Race &r){
-          return !prefix[r.first_event].event.clock.leq(prefix[i].event.clock);
+          return !prefix[r.first_event].clock.leq(prefix[i].clock);
          });
       for (auto it = end; it != oldend; ++it){
         if (it->kind == Race::LOCK_SUC){
-          prefix[i].event.clock += prefix[it->unlock_event].event.clock;
+          prefix[i].clock += prefix[it->unlock_event].clock;
           changed = true;
         }
       }
     } while (changed);
-    if(prefix[i].branch.schedule_head) schedule_heads.push_back(i);
+    if(prefix[i].schedule_head) schedule_heads.push_back(i);
     /* Then filter out subsumed */
     auto fill = frontier_filter
       (first_pair, end,
@@ -2339,13 +2324,13 @@ void SimpTraceBuilder::compute_vclocks(){
           const std::vector<unsigned> &fx = f.exclude, &sx = s.exclude;
           assert(std::is_sorted(fx.begin(), fx.end()));
           assert(std::is_sorted(sx.begin(), sx.end()));
-          if (!prefix[se].event.clock.includes(prefix[fe].event.iid)) return false;
+          if (!prefix[se].clock.includes(prefix[fe].iid)) return false;
           /* fe h-b se */
 
           for (auto si = sx.begin(), fi = fx.begin(); si != sx.end(); ++si) {
             while (fi != fx.end() && *fi < *si) { ++fi; }
             if (fi != fx.end() && *fi == *si) { ++fi; continue; }
-            if (prefix[*si].event.clock.includes(prefix[fe].event.iid)) continue;
+            if (prefix[*si].clock.includes(prefix[fe].iid)) continue;
             return false;
           }
           return true;
@@ -2360,32 +2345,32 @@ void SimpTraceBuilder::compute_vclocks(){
           return s.witness_event <= f.witness_event;
         }
         int se = s.kind == Race::LOCK_SUC ? s.unlock_event : s.first_event;
-        return prefix[se].event.clock.includes(prefix[f.first_event].event.iid);
+        return prefix[se].clock.includes(prefix[f.first_event].iid);
        });
     /* Add clocks of remaining (reversible) races */
     for (auto it = first_pair; it != fill; ++it){
       if (it->kind == Race::LOCK_SUC){
-        assert(prefix[it->first_event].event.clock.leq
-               (prefix[it->unlock_event].event.clock));
-        prefix[i].event.clock += prefix[it->unlock_event].event.clock;
+        assert(prefix[it->first_event].clock.leq
+               (prefix[it->unlock_event].clock));
+        prefix[i].clock += prefix[it->unlock_event].clock;
       }else if (it->kind != Race::LOCK_FAIL){
-        prefix[i].event.clock += prefix[it->first_event].event.clock;
+        prefix[i].clock += prefix[it->first_event].clock;
       }
     }
-    assert(prefix[i].event.happens_after_later.empty()
-           || (prefix[i].event.sym.size() == 1
-               && prefix[i].event.sym[0].has_cond()));
-    for (int b : prefix[i].event.happens_after_later) {
-      if (b != -1 && !prefix[i].event.clock.includes(prefix[b].event.iid)) {
-        prefix[i].event.clock += prefix[b].event.clock;
+    assert(prefix[i].happens_after_later.empty()
+           || (prefix[i].sym.size() == 1
+               && prefix[i].sym[0].has_cond()));
+    for (int b : prefix[i].happens_after_later) {
+      if (b != -1 && !prefix[i].clock.includes(prefix[b].iid)) {
+        prefix[i].clock += prefix[b].clock;
       }
     }
-    prefix[i].event.happens_after_later.clear();
+    prefix[i].happens_after_later.clear();
     auto new_end = partition(first_pair, fill,
 			     [this,schedule_heads](const Race &r){
 			       for(int head : schedule_heads)
 				 if(r.first_event < head && head < r.second_event &&
-				    !prefix[head].event.clock.lt(prefix[r.second_event].event.clock))
+				    !prefix[head].clock.lt(prefix[r.second_event].clock))
 				   return false;
 			       return true;
 			     });
@@ -2436,7 +2421,7 @@ bool SimpTraceBuilder::record_symbolic(SymEv event){
 }
 
 bool SimpTraceBuilder::do_events_conflict(int i, int j) const{
-  return do_events_conflict(prefix[i].event, prefix[j].event);
+  return do_events_conflict(prefix[i], prefix[j]);
 }
 
 bool SimpTraceBuilder::do_events_conflict
@@ -2542,9 +2527,7 @@ bool SimpTraceBuilder::is_observed_conflict
   return symev_does_load(thd) && thd.addr().overlaps(snd.addr());
 }
 
-void SimpTraceBuilder::do_race_detect() {
-  assert(has_vclocks);
-
+void SimpTraceBuilder::reorganize_races() {
   /* Compute all races of blocked awaits. */
   for (const auto &ab : blocked_awaits) {
     for (const auto &pb : ab.second) {
@@ -2559,186 +2542,182 @@ void SimpTraceBuilder::do_race_detect() {
         /* Can we optimise do_await to not include these guys in the
          * first place? */
         // XXX: What about other events in include?
-        assert (!clock.includes(prefix[r.first_event].event.iid));
+        assert (!clock.includes(prefix[r.first_event].iid));
         lock_fail_races.push_back(std::move(r));
       }
     }
   }
 
   /* Bucket sort races by first_event index */
-  std::vector<std::vector<const Race*>> races(prefix.size());
-  for (const Race &r : lock_fail_races) races[r.first_event].push_back(&r);
   for (unsigned i = 0; i < prefix.size(); ++i){
-    for (const Race &r : prefix[i].event.races) races[r.first_event].push_back(&r);
+    prefix[i].races.clear();
+    for (const Race &r : prefix[i].races)
+      prefix[r.first_event].races.push_back(std::move(r));
   }
-
-  /* Do race detection */
-  sleepseqs_t sleepseqs;
-  for (unsigned i = 0; i < races.size(); ++i){
-    obs_sleep_add(sleepseqs, prefix[i].event);
-    // llvm::dbgs()<<i<<sleepseqs.size()<<":\n";/////////////////
-    // for(auto slp : sleepseqs)
-    //   llvm::dbgs()<<"Sleep"<<threads[slp.front().pid].cpid
-    // 		  <<threads[slp.back().pid].cpid<<"\n";///////////////
-    for (const Race *race : races[i]) {
-      assert(race->first_event == int(i));
-      race_detect_optimal(*race, (const sleepseqs_t&)sleepseqs);
-    }
-    obs_sleep_wake(sleepseqs, prefix[i].event);
-  }
-
-  for (unsigned i = 0; i < prefix.size(); ++i) prefix[i].event.races.clear();
-  lock_fail_races.clear();
+  for (const Race &r : lock_fail_races)
+    prefix[r.first_event].races.push_back(std::move(r));
 }
 
-void SimpTraceBuilder::race_detect_optimal
-(const Race &race, const sleepseqs_t &isleepseqs){
-  const int i = race.first_event;
-  // llvm::dbgs()<<"Race (<"<<threads[prefix[i].event.iid.get_pid()].cpid<<","
-  // 	      <<prefix[i].event.iid.get_index()<<">,<"
-  // 	      <<threads[prefix[race.second_event].event.iid.get_pid()].cpid
-  // 	      <<prefix[race.second_event].event.iid.get_index()<<">)\n";/////////
-  std::vector<Branch> v = wakeup_sequence(race);
-  // for(auto br:v) llvm::dbgs()<<threads[br.pid].cpid<<br.schedule_head<<",";//////////
-  // llvm::dbgs()<<"\n";//////////////
-  // for(auto seq : isleepseqs){
-  //   for(auto br : seq){
-  //     llvm::dbgs()<<br.pid<<",";
+bool SimpTraceBuilder::do_race_detect() {
+  // assert(has_vclocks);
+
+  // /* Do race detection */
+  // sleepseqs_t sleepseqs;
+  // for (unsigned i = 0; i < prefix.size(); ++i){
+  //   obs_sleep_add(sleepseqs, prefix[i]);
+  //   // llvm::dbgs()<<i<<sleepseqs.size()<<":\n";/////////////////
+  //   // for(auto slp : sleepseqs)
+  //   //   llvm::dbgs()<<"Sleep"<<threads[slp.front().pid].cpid
+  //   // 		  <<threads[slp.back().pid].cpid<<"\n";///////////////
+  //   while(!prefix[i].races.empty()) {
+  //     Race race = prefix[i].races.back();
+  //     prefix[i].races.pop_back();
+  //     assert(race->first_event == int(i));
+  //     const int i = race.first_event;
+  //     // llvm::dbgs()<<"Race (<"<<threads[prefix[i].iid.get_pid()].cpid<<","
+  //     // 	      <<prefix[i].iid.get_index()<<">,<"
+  //     // 	      <<threads[prefix[race.second_event].iid.get_pid()].cpid
+  //     // 	      <<prefix[race.second_event].iid.get_index()<<">)\n";/////////
+  //     std::vector<Event> v = wakeup_sequence(race);
+  //     // for(auto br:v) llvm::dbgs()<<threads[br.pid].cpid<<br.schedule_head<<",";//////////
+  //     // llvm::dbgs()<<"\n";//////////////
+  //     // for(auto seq : isleepseqs){
+  //     //   for(auto br : seq){
+  //     //     llvm::dbgs()<<br.pid<<",";
+  //     //   }
+  //     //   llvm::dbgs()<<"\n";/////////
+  //     // }
+  //     /* Do insertion into the wakeup tree */
+  //     if(!blocked_wakeup_sequence(v,sleepseqs)){
+  // 	// llvm::dbgs()<<"Inserting WS\n";///////////
+  // 	std::vector<Event>
+  // 	return true;
+  //     } 
+  //     killed_by_sleepset++;
   //   }
-  //   llvm::dbgs()<<"\n";/////////
+  //   obs_sleep_wake(sleepseqs, prefix[i]);
   // }
-  /* Do insertion into the wakeup tree */
-  if(!blocked_wakeup_sequence(v,isleepseqs)){
-    // llvm::dbgs()<<"Inserting WS\n";///////////
-    prefix[i].event.schedules.push_back(std::move(v));
-  } else {
-    killed_by_sleepset++;
-  }
+  return false;
 }
 
-std::vector<SimpTraceBuilder::Branch> SimpTraceBuilder::
+std::vector<SimpTraceBuilder::Event> SimpTraceBuilder::
 wakeup_sequence(const Race &race) const{
-  const int i = race.first_event;
-  const int j = race.second_event;
+  // const int i = race.first_event;
+  // const int j = race.second_event;
 
-  const Event &first = prefix[i].event;
-  Event second({-1,0});
-  Branch second_br(-1);
-  std::vector<unsigned>::const_iterator exclude{};
-  std::vector<unsigned>::const_iterator exclude_end = exclude;
-  if (race.is_fail_kind()) {
-    second = reconstruct_blocked_event(race);
-    /* XXX: Lock events don't have alternatives, right? */
-    second_br = Branch(second.iid.get_pid());
-    second_br.sym = std::move(second.sym);
-  } else if (race.kind == Race::NONDET) {
-    second = first;
-    second_br = branch_with_symbolic_data(i);
-    second_br.alt = race.alternative;
-  } else {
-    second = prefix[j].event;
-    second.doneseqs.clear();
-    second_br = branch_with_symbolic_data(j);
-  }
-  if (race.kind != Race::OBSERVED) {
-    /* Only replay the racy event. */
-    second_br.size = 1;
-  }
-  if (race.kind == Race::SEQUENCE) {
-    exclude = race.exclude.begin();
-    exclude_end = race.exclude.end();
-    if (conf.debug_print_on_reset)
-      llvm::dbgs() << "SEQUENCE race with " << exclude_end - exclude << " exclusions\n";
-  }
+  // const Event &first = prefix[i];
+  // Event second({-1,0});
+  // std::vector<unsigned>::const_iterator exclude{};
+  // std::vector<unsigned>::const_iterator exclude_end = exclude;
+  // if (race.is_fail_kind()) {
+  //   second = reconstruct_blocked_event(race);
+  //   /* XXX: Lock events don't have alternatives, right? */
+  // } else if (race.kind == Race::NONDET) {
+  //   second = first;
+  //   second.alt = race.alternative;
+  // } else {
+  //   second = prefix[j];
+  //   second.doneseqs.clear();
+  // }
+  // if (race.kind != Race::OBSERVED) {
+  //   /* Only replay the racy event. */
+  //   second.size = 1;
+  // }
+  // if (race.kind == Race::SEQUENCE) {
+  //   exclude = race.exclude.begin();
+  //   exclude_end = race.exclude.end();
+  //   if (conf.debug_print_on_reset)
+  //     llvm::dbgs() << "SEQUENCE race with " << exclude_end - exclude << " exclusions\n";
+  // }
 
-  /* v is the subsequence of events in prefix come after prefix[i],
-   * but do not "happen after" (i.e. their vector clocks are not strictly
-   * greater than prefix[i].clock), followed by the second event.
-   *
-   * It is the sequence we want to insert into the wakeup tree.
-   */
-  std::vector<Branch> v;
-  std::vector<const Event*> observers;
-  std::vector<Branch> notobs;
+  // /* v is the subsequence of events in prefix come after prefix[i],
+  //  * but do not "happen after" (i.e. their vector clocks are not strictly
+  //  * greater than prefix[i].clock), followed by the second event.
+  //  *
+  //  * It is the sequence we want to insert into the wakeup tree.
+  //  */
+  std::vector<Event> v;
+  // std::vector<const Event*> observers;
+  // std::vector<Branch> notobs;
 
-  /* A below-clock including all excluded events */
-  VClock<IPid> exclude_clock
-    (std::vector<int>(threads.size(), std::numeric_limits<int>::max()));
+  // /* A below-clock including all excluded events */
+  // VClock<IPid> exclude_clock
+  //   (std::vector<int>(threads.size(), std::numeric_limits<int>::max()));
 
-  for (int k = i + 1; k <= j; ++k){
-    assert(exclude == exclude_end || int_fast64_t(*exclude) >= k);
-      const IID<IPid> &kiid = prefix[k].event.iid;
-    if (exclude != exclude_end && *exclude == unsigned(k)) {
-      /* XXX: We could just build the exclude clock in advance, and rely
-       * on the second branch
-       */
-      exclude_clock[kiid.get_pid()]
-        = std::min(exclude_clock[kiid.get_pid()], kiid.get_index());
-      ++exclude;
-    } else if (prefix[k].event.clock.intersects_below(exclude_clock)) {
-      /* continue */
-    } else if (prefix[k].event.clock.lt(second.clock) && !first.clock.leq(prefix[k].event.clock)) {
-      v.emplace_back(branch_with_symbolic_data(k));
-      v.back().schedule = true;
-    } else if (race.kind == Race::OBSERVED && k != j) {
-      if (!std::any_of(observers.begin(), observers.end(),
-                       [this,k](const Event* o){
-                         return o->clock.leq(prefix[k].event.clock); })){
-        if (is_observed_conflict(first, second, prefix[k].event)){
-          assert(!observers.empty() || k == race.witness_event);
-          observers.push_back(&prefix[k].event);
-        } else if (race.kind == Race::OBSERVED) {
-          notobs.emplace_back(branch_with_symbolic_data(k));
-	  notobs.back().schedule = true;
-        }
-      }
-    }
-  }
-  if (race.kind == Race::NONBLOCK) {
-    recompute_cmpxhg_success(second_br.sym, v, i);
-  }
-  v.push_back(std::move(second_br));
-  if (race.kind == Race::OBSERVED) {
-    int k = race.witness_event;
-    Branch first_br = branch_with_symbolic_data(i);
-    Branch witness_br = branch_with_symbolic_data(k);
-    /* Only replay the racy event. */
-    witness_br.size = 1;
-    first_br.schedule=true;
-    witness_br.schedule=true;
+  // for (int k = i + 1; k <= j; ++k){
+  //   assert(exclude == exclude_end || int_fast64_t(*exclude) >= k);
+  //     const IID<IPid> &kiid = prefix[k].iid;
+  //   if (exclude != exclude_end && *exclude == unsigned(k)) {
+  //     /* XXX: We could just build the exclude clock in advance, and rely
+  //      * on the second branch
+  //      */
+  //     exclude_clock[kiid.get_pid()]
+  //       = std::min(exclude_clock[kiid.get_pid()], kiid.get_index());
+  //     ++exclude;
+  //   } else if (prefix[k].clock.intersects_below(exclude_clock)) {
+  //     /* continue */
+  //   } else if (prefix[k].clock.lt(second.clock) && !first.clock.leq(prefix[k].clock)) {
+  //     v.emplace_back(branch_with_symbolic_data(k));
+  //     v.back().schedule = true;
+  //   } else if (race.kind == Race::OBSERVED && k != j) {
+  //     if (!std::any_of(observers.begin(), observers.end(),
+  //                      [this,k](const Event* o){
+  //                        return o->clock.leq(prefix[k].clock); })){
+  //       if (is_observed_conflict(first, second, prefix[k])){   
+  // 	  assert(!observers.empty() || k == race.witness_event);
+  //         observers.push_back(&prefix[k]);
+  //       } else if (race.kind == Race::OBSERVED) {
+  //         notobs.emplace_back(branch_with_symbolic_data(k));
+  // 	  notobs.back().schedule = true;
+  //       }
+  //     }
+  //   }
+  // }
+  // if (race.kind == Race::NONBLOCK) {
+  //   recompute_cmpxhg_success(second_br.sym, v, i);
+  // }
+  // v.push_back(std::move(second_br));
+  // if (race.kind == Race::OBSERVED) {
+  //   int k = race.witness_event;
+  //   Branch first_br = branch_with_symbolic_data(i);
+  //   Branch witness = prefix[k];
+  //   /* Only replay the racy event. */
+  //   witness_br.size = 1;
+  //   first_br.schedule=true;
+  //   witness_br.schedule=true;
 
-    v.emplace_back(std::move(first_br));
-    v.insert(v.end(), std::make_move_iterator(notobs.begin()),
-             std::make_move_iterator(notobs.end()));
-    notobs.clear(); /* Since their states are undefined after std::move */
-    v.emplace_back(std::move(witness_br));
-  }
+  //   v.emplace_back(std::move(first_br));
+  //   v.insert(v.end(), std::make_move_iterator(notobs.begin()),
+  //            std::make_move_iterator(notobs.end()));
+  //   notobs.clear(); /* Since their states are undefined after std::move */
+  //   v.emplace_back(std::move(witness_br));
+  // }
 
-  if (conf.dpor_algorithm == Configuration::OBSERVERS) {
-    /* Recompute observed states on events in v */
-    recompute_observed(v);
-  }
+  // if (conf.dpor_algorithm == Configuration::OBSERVERS) {
+  //   /* Recompute observed states on events in v */
+  //   recompute_observed(v);
+  // }
 
-  v.back().schedule = true;
-  v.back().schedule_head = true;
+  // v.back().schedule = true;
+  // v.back().schedule_head = true;
   return v;
 }
 
 std::vector<int> SimpTraceBuilder::iid_map_at(int event) const{
   std::vector<int> map(threads.size(), 1);
   for (int i = 0; i < event; ++i) {
-    iid_map_step(map, prefix[i].branch);
+    iid_map_step(map, prefix[i]);
   }
   return map;
 }
 
-void SimpTraceBuilder::iid_map_step(std::vector<int> &iid_map, const Branch &event) const{
-  if (iid_map.size() <= unsigned(event.pid)) iid_map.resize(event.pid+1, 1);
-  iid_map[event.pid] += event.size;
+void SimpTraceBuilder::iid_map_step(std::vector<int> &iid_map, const Event &event) const{
+  if (iid_map.size() <= unsigned(event.iid.get_pid())) iid_map.resize(event.iid.get_pid()+1, 1);
+  iid_map[event.iid.get_pid()] += event.size;
 }
 
-void SimpTraceBuilder::iid_map_step_rev(std::vector<int> &iid_map, const Branch &event) const{
-  iid_map[event.pid] -= event.size;
+void SimpTraceBuilder::iid_map_step_rev(std::vector<int> &iid_map, const Event &event) const{
+  iid_map[event.iid.get_pid()] -= event.size;
 }
 
 VClock<int> SimpTraceBuilder::reconstruct_blocked_clock(IID<IPid> event) const {
@@ -2749,7 +2728,7 @@ VClock<int> SimpTraceBuilder::reconstruct_blocked_clock(IID<IPid> event) const {
   IPid p = event.get_pid();
   if (event.get_index() != 1) {
     int last = find_process_event(p, event.get_index()-1);
-    ret = prefix[last].event.clock;
+    ret = prefix[last].clock;
   }
   /* Recompute the clock of this mutex_lock_fail */
   ++ret[p];
@@ -2764,11 +2743,11 @@ reconstruct_blocked_event(const Race &race) const {
   ret.clock = reconstruct_blocked_clock(race.second_process);
 
   if (race.kind == Race::LOCK_FAIL) {
-    assert(std::any_of(prefix[race.first_event].event.sym.begin(),
-                       prefix[race.first_event].event.sym.end(),
+    assert(std::any_of(prefix[race.first_event].sym.begin(),
+                       prefix[race.first_event].sym.end(),
                        [](const SymEv &e){ return e.kind == SymEv::M_LOCK
                            || e.kind == SymEv::FULLMEM; }));
-    ret.sym = prefix[race.first_event].event.sym;
+    ret.sym = prefix[race.first_event].sym;
   } else {
     assert(race.kind == Race::SEQUENCE);
     ret.sym = {race.ev};
@@ -2786,10 +2765,10 @@ try_find_process_event(IPid pid, int index) const{
 
   unsigned k = threads[pid].event_indices[index-1];
   assert(k < prefix.size());
-  assert(prefix[k].branch.size > 0);
-  assert(prefix[k].event.iid.get_pid() == pid
-         && prefix[k].event.iid.get_index() <= index
-         && (prefix[k].event.iid.get_index() + prefix[k].branch.size) > index);
+  assert(prefix[k].size > 0);
+  assert(prefix[k].iid.get_pid() == pid
+         && prefix[k].iid.get_index() <= index
+         && (prefix[k].iid.get_index() + prefix[k].size) > index);
 
   return {true, k};
 }
@@ -2799,10 +2778,10 @@ inline unsigned SimpTraceBuilder::find_process_event(IPid pid, int index) const{
   assert(index >= 1 && index <= int(threads[pid].event_indices.size()));
   unsigned k = threads[pid].event_indices[index-1];
   assert(k < prefix.size());
-  assert(prefix[k].branch.size > 0);
-  assert(prefix[k].event.iid.get_pid() == pid
-         && prefix[k].event.iid.get_index() <= index
-         && (prefix[k].event.iid.get_index() + prefix[k].branch.size) > index);
+  assert(prefix[k].size > 0);
+  assert(prefix[k].iid.get_pid() == pid
+         && prefix[k].iid.get_index() <= index
+         && (prefix[k].iid.get_index() + prefix[k].size) > index);
 
   return k;
 }
@@ -2842,11 +2821,11 @@ bool SimpTraceBuilder::has_cycle(IID<IPid> *loc) const{
    */
   std::vector<std::vector<stupd_t> > stores(proc_count);
   for(int i = 0; i < pfx_size; ++i){
-    if(prefix[i].event.iid.get_pid() % 2){ // Update
-      assert(prefix[i].event.origin_iid.get_pid()
-             == prefix[i].event.iid.get_pid()-1);
-      stores[prefix[i].event.iid.get_pid() / 2].push_back
-        ({prefix[i].event.origin_iid.get_index(),i});
+    if(prefix[i].iid.get_pid() % 2){ // Update
+      assert(prefix[i].origin_iid.get_pid()
+             == prefix[i].iid.get_pid()-1);
+      stores[prefix[i].iid.get_pid() / 2].push_back
+        ({prefix[i].origin_iid.get_index(),i});
     }
   }
 
@@ -2870,7 +2849,7 @@ bool SimpTraceBuilder::has_cycle(IID<IPid> *loc) const{
   while(true){
     // Advance pfx_index to the right Event in prefix
     while(procs[proc].pfx_index < pfx_size &&
-          prefix[procs[proc].pfx_index].event.iid.get_pid() != proc*2){
+          prefix[procs[proc].pfx_index].iid.get_pid() != proc*2){
       ++procs[proc].pfx_index;
     }
     if(pfx_size <= procs[proc].pfx_index){
@@ -2884,13 +2863,12 @@ bool SimpTraceBuilder::has_cycle(IID<IPid> *loc) const{
     }
 
     int next_pc = procs[proc].pc+1;
-    const Event &evt = prefix[procs[proc].pfx_index].event;
-    const Branch &branch = prefix[procs[proc].pfx_index].branch;
+    const Event &evt = prefix[procs[proc].pfx_index];
 
     if(!procs[proc].blocked){
       assert(evt.iid.get_pid() == 2*proc);
       assert(evt.iid.get_index() <= next_pc);
-      assert(next_pc < evt.iid.get_index() + branch.size);
+      assert(next_pc < evt.iid.get_index() + evt.size);
       procs[proc].block_clock = evt.clock;
       assert(procs[proc].block_clock[proc*2] <= next_pc);
       procs[proc].block_clock[proc*2] = next_pc;
@@ -2898,7 +2876,7 @@ bool SimpTraceBuilder::has_cycle(IID<IPid> *loc) const{
          stores[proc][procs[proc].store_index].store == next_pc){
         // This is a store. Also consider the update's clock.
         procs[proc].block_clock
-          += prefix[stores[proc][procs[proc].store_index].update].event.clock;
+          += prefix[stores[proc][procs[proc].store_index].update].clock;
         ++procs[proc].store_index;
       }
     }
@@ -2929,7 +2907,7 @@ bool SimpTraceBuilder::has_cycle(IID<IPid> *loc) const{
       assert(next_pc == procs[proc].block_clock[proc*2]);
 
       // Advance pc to next interesting event
-      next_pc = evt.iid.get_index() + branch.size - 1;
+      next_pc = evt.iid.get_index() + evt.size - 1;
       if(procs[proc].store_index < int(stores[proc].size()) &&
          stores[proc][procs[proc].store_index].store-1 < next_pc){
         next_pc = stores[proc][procs[proc].store_index].store-1;
@@ -2937,7 +2915,7 @@ bool SimpTraceBuilder::has_cycle(IID<IPid> *loc) const{
       assert(procs[proc].pc <= next_pc);
       procs[proc].pc = next_pc;
 
-      if(next_pc + 1 == evt.iid.get_index() + branch.size){
+      if(next_pc + 1 == evt.iid.get_index() + evt.size){
         // We are done with this Event
         ++procs[proc].pfx_index;
       }
@@ -2956,7 +2934,7 @@ bool SimpTraceBuilder::has_cycle(IID<IPid> *loc) const{
         if(0 < procs[i].store_index && stores[i][procs[i].store_index-1].store == next_pc){
           if(stores[i][procs[i].store_index-1].update > upd_idx){
             upd_idx = stores[i][procs[i].store_index-1].update;
-            *loc = prefix[upd_idx].event.iid;
+            *loc = prefix[upd_idx].iid;
           }
         }
       }
@@ -2976,9 +2954,9 @@ long double SimpTraceBuilder::estimate_trace_count(int idx) const{
 
   long double count = 1;
   for(int i = int(prefix.size())-1; idx <= i; --i){
-    count += prefix[i].event.sleep_branch_trace_count;
-    count += std::max(0, int(prefix[i].event.schedules.size()))
-      * (count / (1 + prefix[i].event.doneseqs.size()));
+    count += prefix[i].sleep_branch_trace_count;
+    count += std::max(0, int(prefix[i].schedules.size()))
+      * (count / (1 + prefix[i].doneseqs.size()));
   }
 
   return count;

@@ -322,9 +322,6 @@ protected:
     Branch (IPid pid, int alt = 0, sym_ty sym = {})
       : sym(std::move(sym)), pid(pid), alt(alt), size(1),
 	schedule(false), schedule_head(false) {sleepseqs.shrink_to_fit();}
-    Branch (const Branch &base, sym_ty sym)
-      : sym(std::move(sym)), pid(base.pid), alt(base.alt), size(base.size),
-	schedule(false), schedule_head(false) {sleepseqs.shrink_to_fit();}
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
@@ -431,7 +428,8 @@ protected:
     blocked_awaits;
 
   typedef std::vector<std::vector<Branch>> sleepseqs_t;
-
+  struct ExecStep;
+  
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts
    * with other events, and if the sequence has a conflicting event,
@@ -439,9 +437,10 @@ protected:
    */
   class Event{
   public:
-    Event(const IID<IPid> &iid, sym_ty sym = {})
-      : iid(iid), origin_iid(iid), md(0), clock(), may_conflict(false),
-        sym(std::move(sym)), sleep_branch_trace_count(0) {}
+    Event(const IID<IPid> &iid, sym_ty sym = {}, int alt = 0)
+      : iid(iid), origin_iid(iid), alt(alt), size(1), md(0), clock(),
+	may_conflict(false), sym(std::move(sym)), schedule(false),
+	schedule_head(false), sleep_branch_trace_count(0) {}
     /* The identifier for the first event in this event sequence. */
     IID<IPid> iid;
     /* The IID of the program instruction which is the origin of this
@@ -449,6 +448,8 @@ protected:
      * instruction. For other instructions origin_iid == iid.
      */
     IID<IPid> origin_iid;
+    int alt;
+    size_t size;
     /* Metadata corresponding to the first event in this sequence. */
     const llvm::MDNode *md;
     /* The clock of the first event in this sequence. Only computed
@@ -483,7 +484,11 @@ protected:
      * event sequence.
      */
     sleepseqs_t doneseqs;
+    sleepseqs_t sleepseqs;
+    void *backtrack_seq;
     std::list<std::vector<Branch>> schedules;
+    bool schedule;
+    bool schedule_head;
     /* For each previous IID that has been explored at this position
      * with the exact same prefix, some number of traces (both sleep
      * set blocked and otherwise) have been
@@ -498,18 +503,13 @@ protected:
    * execution, or the events executed followed by the subsequent
    * events that are determined in advance to be executed.
    */
-  typedef struct{
+  struct ExecStep{
     Branch branch;
     Event event;
-  } Execstep;
-  std::vector<Execstep> prefix;
+  };
+  std::vector<Event> prefix;
   std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
   std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
-
-  /* The number of threads that have been dry run since the last
-   * non-dry run event was scheduled.
-   */
-  int dry_sleepers;
 
   /* The index into prefix corresponding to the last event that was
    * scheduled. Has the value -1 when no events have been scheduled.
@@ -553,34 +553,13 @@ protected:
   Event &curev() {
     assert(0 <= prefix_idx);
     assert(prefix_idx < int(prefix.len()));
-    return prefix[prefix_idx].event;
+    return prefix[prefix_idx];
   }
 
   const Event &curev() const {
     assert(0 <= prefix_idx);
     assert(prefix_idx < int(prefix.len()));
-    return prefix[prefix_idx].event;
-  }
-
-  const Branch &curbranch() const {
-    assert(0 <= prefix_idx);
-    assert(prefix_idx < int(prefix.len()));
-    return prefix[prefix_idx].branch;
-  }
-
-  Branch &curbranch() {
-    assert(0 <= prefix_idx);
-    assert(prefix_idx < int(prefix.len()));
-    return prefix[prefix_idx].branch;
-  }
-
-  /* Symbolic events in Branches in the wakeup tree do not record the
-   * data of memory accesses as these can change between executions.
-   * branch_with_symbolic_data(i) returns a Branch of the event i, but
-   * with data of memory accesses in the symbolic events.
-   */
-  Branch branch_with_symbolic_data(unsigned index) const {
-    return Branch(prefix[index].branch, prefix[index].event.sym);
+    return prefix[prefix_idx];
   }
 
   IID<CPid> get_iid(unsigned i) const;
@@ -617,7 +596,7 @@ protected:
   /* Pretty-prints the iid of prefix[pos]. */
   std::string iid_string(std::size_t pos) const;
   /* Pretty-prints the iid <branch.pid, index>. */
-  std::string iid_string(const Branch &branch, int index) const;
+  std::string iid_string(const Event &event, int index) const;
   /* Pretty prints the wakeup tree subtree rooted at <branch,node>
    * into the buffer lines starting at line line.
    * iid_map needs to be an iid_map at <branch,node>. It is restored to
@@ -625,7 +604,7 @@ protected:
    */
   void wut_string_add_node(std::vector<std::string> &lines,
                            std::vector<int> &iid_map,
-                           unsigned line, Branch branch,
+                           unsigned line, Event event,
                            WakeupTreeRef<Branch> node) const;
 #ifndef NDEBUG
   void check_symev_vclock_equiv() const;
@@ -681,9 +660,9 @@ protected:
    */
   std::vector<int> iid_map_at(int event) const;
   /* Plays an iid_map forward by one event. */
-  void iid_map_step(std::vector<int> &iid_map, const Branch &event) const;
+  void iid_map_step(std::vector<int> &iid_map, const Event &event) const;
   /* Reverses an iid_map by one event. */
-  void iid_map_step_rev(std::vector<int> &iid_map, const Branch &event) const;
+  void iid_map_step_rev(std::vector<int> &iid_map, const Event &event) const;
   /* Add clocks and branches.
    *
    * All elements e in seen should either be indices into prefix, or
@@ -709,11 +688,12 @@ protected:
   void compute_vclocks();
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
+  void reorganize_races();
   /* Perform planning of future executions. Requires the trace to be
    * maximal or sleepset blocked, and that the vector clocks have been
    * computed.
    */
-  void do_race_detect();
+  bool do_race_detect();
   /* Records a symbolic representation of the current event.
    *
    * During replay, events are checked against the replay log. If a mismatch is
@@ -792,14 +772,10 @@ protected:
    * executed, it will never block, and thus has no return value.
    */
   void obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const;
-  void race_detect_optimal(const Race&, const sleepseqs_t&);
   /* Compute the wakeup sequence for reversing a race. */
-  std::vector<Branch> wakeup_sequence(const Race&) const;
-  bool blocked_wakeup_sequence(std::vector<Branch> &seq,
+  std::vector<Event> wakeup_sequence(const Race&) const;
+  bool blocked_wakeup_sequence(std::vector<Event> &seq,
 			       const sleepseqs_t &sleepseqs);
-  /* Checks if a sequence of events will clear a sleep set. */
-  bool sequence_clears_sleep(const std::vector<Branch> &seq,
-                             const sleepseqs_t &sleep) const;
   void update_sleepseqs();
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
