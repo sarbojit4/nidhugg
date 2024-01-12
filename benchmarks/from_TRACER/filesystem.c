@@ -14,9 +14,9 @@
 #define NUMBLOCKS  26
 #define NUMINODE  32
 
-#ifndef NUM_THREADS
-#  warning "NUM_THREADS was not defined"
-#  define NUM_THREADS 16
+#ifndef N
+#  warning "N was not defined"
+#  define N 16
 #endif
 
 #define LOOP 10
@@ -26,7 +26,7 @@ atomic_int inode[NUMINODE];
 pthread_mutex_t  lockb[NUMBLOCKS];
 atomic_int busy[NUMBLOCKS];
 
-pthread_t  tids[NUM_THREADS];
+pthread_t  tids[N];
 
 // thread code
 void *thread_routine(void * arg)
@@ -56,7 +56,7 @@ void *thread_routine(void * arg)
 	return NULL;
 }
 
-int arg[NUM_THREADS];
+int arg[N];
 int main(int argc, char *argv[])
 {
   	int i;
@@ -74,13 +74,13 @@ int main(int argc, char *argv[])
   	}
 
   	// create threads
-  	for (i = 0; i < NUM_THREADS; i++){
+  	for (i = 0; i < N; i++){
     	arg[i] = i;
     	pthread_create(&tids[i], NULL, thread_routine, &arg[i]);
   	}
 
 
-  	for (i = 0; i < NUM_THREADS; i++){
+  	for (i = 0; i < N; i++){
     	pthread_join(tids[i], NULL);
   	} 
 

@@ -14,24 +14,37 @@ blame() {
 }
 
 get_traces() {
+    if grep -Eq '^Error detected' $1; then
+        echo -n "\bug{}"
+    fi
+
     pat='^Number of complete executions explored: '
     if grep -Eq "$pat" $1; then
-        grep -E "$pat" $1 | cut -d' ' -f6
+        count=$(grep -E "$pat" $1 | cut -d' ' -f6)
+        if grep -Eq '^Number of blocked executions seen:' $1; then
+            count="$count"+$(grep -E '^Number of blocked executions seen: ' $1 | cut -d' ' -f6)
+        fi
+        printf "%s\n" "$count"
     elif grep -Eq 'Fully\+partially executed traces: ' $1; then
 	grep -E 'Fully\+partially executed traces: ' $1 | cut -d' ' -f5
     elif grep -Eq 'Total executions: ' $1; then
         grep -E 'Total executions: ' $1 | cut -d' ' -f3
     elif grep -Eq '^Trace count: ' $1; then
         count=$(grep -E '^Trace count: ' $1 | cut -d' ' -f3)
+        bc=0
         if grep -Eq '^Assume-blocked trace count: ' $1; then
-            count=$(printf "%d+%d\n" "$count" \
-                           $(grep -E '^Assume-blocked trace count: ' $1 | cut -d' ' -f4) | bc)
+            bc=$(echo "$bc"+$(grep -E '^Assume-blocked trace count: ' $1 | cut -d' ' -f4) | bc)
+        fi
+        if grep -Eq '^Await-blocked trace count: ' $1; then
+            bc=$(echo "$bc"+$(grep -E '^Await-blocked trace count: ' $1 | cut -d' ' -f4) | bc)
+        fi
+        if [ $bc -ne 0 ]; then
+            count="$count"+$bc
         fi
         if grep -Eq '^Sleepset-blocked trace count: ' $1; then
-            count=$(printf "%d+%d\n" "$count" \
-                           $(grep -E '^Sleepset-blocked trace count: ' $1 | cut -d' ' -f4) | bc)
+            count="$count"+$(grep -E '^Sleepset-blocked trace count: ' $1 | cut -d' ' -f4)"ssb"
         fi
-        printf "%d\n" "$count"
+        printf "%s\n" "$count"
     else
         blame $1
     fi
@@ -72,53 +85,108 @@ case $verb in
         bench=$1
         tool=$2
         N=$3
-        T=$4
-        shift 4
-        echo -e "benchmark\tn\tt\ttool\ttraces\ttime\tspeedup\tmem"
+        shift 3
+        echo -e "benchmark\tn\ttool\ttraces\ttime\tmem"
         for n in $N; do
-            for t in $T; do
-                f="${tool}_${n}_${t}.txt"
-                f1="${tool}_${n}_1.txt"
-                printf "%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\n" $bench $n $t $tool \
-                       $(get_traces "$f") $(get_time "$f") \
-                       $(get_speedup "$f" "$f1") $(get_mem "$f")
-            done
+            f="${tool}_${n}.txt"
+            traces=$(get_traces "$f")
+            printf "%s\t%d\t%s" $bench $n $tool
+            if [ x"$traces" = xerr ]; then
+                err='{\error}'
+                printf "\t%s\t%s\t%s\n" "$err" "$err" "$err"
+            else
+                printf "\t%s\t%s\t%s\n" "$traces" $(get_time "$f") \
+                       $(get_mem "$f")
+            fi
         done
         ;;
     wide)
         bench=$1
         tools=$2
         N=$3
-        T=$4
-        natools=$5
-        shift 5
-        echo -ne "benchmark\tn\tt"
-        for tool in $tools $natools; do
-            echo -ne "\t${tool}_traces\t${tool}_time\t${tool}_speedup\t${tool}_mem"
+        shift 3
+        echo -ne "benchmark\tn"
+        for tool in $tools; do
+            echo -ne "\t${tool}_traces"
+        done
+        for tool in $tools; do
+            echo -ne "\t${tool}_time"
+        done
+        for tool in $tools; do
+            echo -ne "\t${tool}_mem"
         done
         echo ''
         for n in $N; do
-            for t in $T; do
-                printf "%s\t%d\t%d" $bench $n $t
-                for tool in $tools; do
-                    f="${tool}_${n}_${t}.txt"
-                    f1="${tool}_${n}_1.txt"
-                    traces=$(get_traces "$f")
-                    if [ x"$traces" = xerr ]; then
-                        err='{\error}'
-                        printf "\t%s\t%s\t%s\t%s" "$err" "$err" "$err" "$err"
-                    else
-                        printf "\t%s\t%s\t%s\t%s" "$traces" $(get_time "$f") \
-                               $(get_speedup "$f" "$f1") $(get_mem "$f")
-                    fi
-                done
-                na='{\notavail}'
-                for tool in $natools; do printf "\t%s\t%s\t%s\t%s" "$na" "$na" "$na" "$na"; done
-                printf "\n"
+            printf "%s\t%d" $bench $n
+            for tool in $tools; do
+                f="${tool}_${n}.txt"
+                traces=$(get_traces "$f")
+                if [ x"$traces" = xerr ]; then
+                    err='{\error}'
+                    printf "\t%s" "$err"
+                else
+                    printf "\t%s" "$traces"
+                fi
             done
+            for tool in $tools; do
+                f="${tool}_${n}.txt"
+                traces=$(get_traces "$f")
+                if [ x"$traces" = xerr ]; then
+                    err='{\error}'
+                    printf "\t%s" "$err"
+                else
+                    printf "\t%s" $(get_time "$f") 
+                           
+                fi
+            done
+            for tool in $tools; do
+                f="${tool}_${n}.txt"
+                traces=$(get_traces "$f")
+                if [ x"$traces" = xerr ]; then
+                    err='{\error}'
+                    printf "\t%s" "$err"
+                else
+                    printf "\t%s" $(get_mem "$f")
+                fi
+            done
+            printf "\n"
         done
         ;;
+    all_merge)
+        arg=0
+	for dir in $@
+	do
+	    ofile=$dir/wide.txt
+	    line_no=1
+            echo $ofile
+	    while read line
+	    do
+		if [ $line_no = 1 ]; then line_no=0
+		else
+                    outline=""
+		    col_no=0
+		    for col in $line
+		    do
+			if [ $col_no = 0 ]; then
+			    bench_name="\bench{"$col
+			elif [ $col_no = 1 ]; then
+			    outline=$outline$bench_name"("$col")}"
+			else
+			    outline=$outline" & "$col
+			fi
+		        col_no=$((col_no+1))
+		    done
+                    outline=$outline" \\\\"
+		    echo $outline >> all_merged.txt
+		fi
+	    done < $ofile
+	done
+	;;
     *)
         echo "Unknown verb $verb" >&2
         exit 1
 esac
+
+
+
+

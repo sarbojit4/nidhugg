@@ -2383,9 +2383,9 @@ void SimpTraceBuilder::compute_vclocks(){
     //   for(int head : schedule_heads)
     // 	llvm::dbgs()<<head<<"\n";//////////
     // }
-    for (auto it = new_end; it != end; ++it){
-      prefix[i].clock += prefix[it->first_event].clock;
-    }
+    // for (auto it = new_end; it != end; ++it){
+    //   prefix[i].clock += prefix[it->first_event].clock;
+    // }
 
     /* Now delete the subsumed races. We delayed doing this to avoid
      * iterator invalidation. */
