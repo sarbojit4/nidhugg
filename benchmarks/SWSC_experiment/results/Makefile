@@ -1,4 +1,9 @@
- SUBDIRS =  benchmarks/asserts/from_DCDPOR/parker		\
+ SUBDIRS =  
+
+	benchmarks/asserts/from_DPU/dispatcher				\
+	benchmarks/asserts/from_DPU/poke					\
+	benchmarks/asserts/from_DPU/multiprodcon			\
+#benchmarks/asserts/from_DCDPOR/parker		\
 	benchmarks/asserts/from_OBSERVERS/floating_read	\
 	benchmarks/asserts/from_OBSERVERS/fib_bench		\
 	benchmarks/asserts/from_SATCHECK/dekker			\
@@ -10,9 +15,6 @@
 	benchmarks/asserts/from_TRACER/dijkstra			\
 	benchmarks/asserts/from_TRACER/peterson			\
 	benchmarks/asserts/from_TRACER/pgsql				\
-	benchmarks/asserts/from_DPU/dispatcher				\
-	benchmarks/asserts/from_DPU/poke					\
-	benchmarks/asserts/from_DPU/multiprodcon			\
 	benchmarks/asserts/SV-COMP/indexer					\
 	benchmarks/asserts/SV-COMP/lamport					\
 	benchmarks/asserts/SV-COMP/szymanski				\

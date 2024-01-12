@@ -1,4 +1,4 @@
-/* Adapted from: https://svn.sosy-lab.org/software/sv-benchmarks/trunk/c/pthread/fib_bench_true-unreach-call.c */
+/* Adapted from: https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks/-/blob/main/c/pthread/fib_safe.h */
 
 #include <assert.h>
 #include <stdatomic.h>
@@ -11,28 +11,32 @@ atomic_int i, j;
 #  define N 3
 #endif
 
-void *t1(void* arg){
-  int k = 0;
+#define TIMES 2*N+2
 
-  for (k = 0; k < N; k++)
+int p, q;
+
+void *t1(void* arg){
+  for (p = 0; p < N; p++) {
     atomic_store(&i, atomic_load(&i) + atomic_load(&j));
+  }
 
   return NULL;
 }
 
 void *t2(void* arg){
-  int k = 0;
-
-  for (k = 0; k < N; k++)
+  for (q = 0; q < N; q++)
     atomic_store(&j, atomic_load(&j) + atomic_load(&i));
 
   return NULL;
 }
 
+int cur = 1, prev = 0, next = 0;
+int x;
+
 int fib(int n) {
-    int cur = 1, prev = 0;
-    while(n--) {
-	int next = prev+cur;
+  //int cur = 1, prev = 0;
+    for (x = 0; x < TIMES; x++) {
+	next = prev+cur;
 	prev = cur;
 	cur = next;
     }
