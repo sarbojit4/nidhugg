@@ -2102,7 +2102,7 @@ void SimpTraceBuilder::see_events(const VecSet<int> &seen_accesses){
   for(int i : seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
-    // currtrace.emplace(prefix[i].iid, curev().iid);
+    // currtrace.emplace(prefix[i].event.iid, curev().iid);
     add_noblock_race(i);
   }
 }
@@ -2247,7 +2247,8 @@ void SimpTraceBuilder::compute_vclocks(){
   for (unsigned i = 0; i < prefix.size(); i++){
     IPid ipid = prefix[i].event.iid.get_pid();
     if (prefix[i].event.iid.get_index() > 1) {
-      unsigned last = find_process_event(prefix[i].event.iid.get_pid(), prefix[i].event.iid.get_index()-1);
+      unsigned last = find_process_event(prefix[i].event.iid.get_pid(),
+					 prefix[i].event.iid.get_index()-1);
       prefix[i].event.clock = prefix[last].event.clock;
     } else {
       prefix[i].event.clock = VClock<IPid>();
@@ -2281,7 +2282,8 @@ void SimpTraceBuilder::compute_vclocks(){
                                 [](const Race &r){
                                   return r.kind == Race::NONDET;
                                 });
-
+    
+    /* remove races where the first event is inside a schedule */
     auto end = partition(first_pair, races.end(),
 			 [this,schedule_heads](const Race &r){
 			   if(r.second_event < end_of_ws) return false;
@@ -2293,7 +2295,7 @@ void SimpTraceBuilder::compute_vclocks(){
       //llvm::dbgs()<<it->first_event<<it->second_event<<prefix.branch(it->first_event).schedule<<"\n";
       if (it->kind == Race::LOCK_SUC)
 	prefix[i].event.clock += prefix[it->unlock_event].event.clock;
-      else
+      else if (it->kind != Race::LOCK_FAIL)
 	prefix[i].event.clock += prefix[it->first_event].event.clock;
     }
     // for (auto it = first_pair; it != end; ++it){
@@ -2306,6 +2308,7 @@ void SimpTraceBuilder::compute_vclocks(){
       // for(int head : schedule_heads)
       // 	llvm::dbgs()<<head<<"\n";//////////
     // }
+    /* Remove the races where the first_event--hb-->e--po-->second_event */
     bool changed;
     do {
       auto oldend = end;
@@ -2359,9 +2362,24 @@ void SimpTraceBuilder::compute_vclocks(){
            */
           return s.witness_event <= f.witness_event;
         }
+	/* Remove races where f.first_event--hb-->e--rf/co/fr-->s.second_event */
         int se = s.kind == Race::LOCK_SUC ? s.unlock_event : s.first_event;
         return prefix[se].event.clock.includes(prefix[f.first_event].event.iid);
        });
+    auto new_end = partition(first_pair, fill,
+			     [this,schedule_heads](const Race &r){
+			       int s = (r.kind != Race::LOCK_FAIL) ?
+				 r.second_event :
+				 find_process_event(prefix[r.second_event].event.iid.get_pid(),
+						    prefix[r.second_event].event.iid.get_index()-1);
+			       for(int head : schedule_heads)
+				 if(r.first_event < head &&
+				    head < r.second_event &&
+				    !prefix[head].event.clock.
+				    lt(prefix[s].event.clock))
+				   return false;
+			       return true;
+			     });
     /* Add clocks of remaining (reversible) races */
     for (auto it = first_pair; it != fill; ++it){
       if (it->kind == Race::LOCK_SUC){
@@ -2381,14 +2399,6 @@ void SimpTraceBuilder::compute_vclocks(){
       }
     }
     prefix[i].event.happens_after_later.clear();
-    auto new_end = partition(first_pair, fill,
-			     [this,schedule_heads](const Race &r){
-			       for(int head : schedule_heads)
-				 if(r.first_event < head && head < r.second_event &&
-				    !prefix[head].event.clock.lt(prefix[r.second_event].event.clock))
-				   return false;
-			       return true;
-			     });
     // for (auto it = races.begin(); it != new_end; ++it){
       // llvm::dbgs()<<"Race (<"<<threads[prefix[it->first_event].iid.get_pid()].cpid<<","
       // 		  <<prefix[it->first_event].iid.get_index()<<">,<"
