@@ -205,9 +205,9 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
 void SimpTraceBuilder::refuse_schedule(){
   assert(prefix_idx == int(prefix.size())-1);
   assert(prefix.back().branch.size == 1);
-  assert(!prefix.back.event.may_conflict);
-  assert(prefix.back.event.doneseqs.empty());
-  assert(prefix[prefix_idx].schedules.size() == 0);
+  assert(!prefix.back().event.may_conflict);
+  assert(prefix.back().event.doneseqs.empty());
+  assert(prefix[prefix_idx].event.schedules.size() == 0);
   IPid last_pid = prefix.back().event.iid.get_pid();
   prefix.pop_back();
   assert(int(threads[last_pid].event_indices.back()) == prefix_idx);

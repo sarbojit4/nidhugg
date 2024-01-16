@@ -552,25 +552,25 @@ protected:
 
   Event &curev() {
     assert(0 <= prefix_idx);
-    assert(prefix_idx < int(prefix.len()));
+    assert(prefix_idx < int(prefix.size()));
     return prefix[prefix_idx].event;
   }
 
   const Event &curev() const {
     assert(0 <= prefix_idx);
-    assert(prefix_idx < int(prefix.len()));
+    assert(prefix_idx < int(prefix.size()));
     return prefix[prefix_idx].event;
   }
 
   const Branch &curbranch() const {
     assert(0 <= prefix_idx);
-    assert(prefix_idx < int(prefix.len()));
+    assert(prefix_idx < int(prefix.size()));
     return prefix[prefix_idx].branch;
   }
 
   Branch &curbranch() {
     assert(0 <= prefix_idx);
-    assert(prefix_idx < int(prefix.len()));
+    assert(prefix_idx < int(prefix.size()));
     return prefix[prefix_idx].branch;
   }
 
