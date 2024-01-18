@@ -310,6 +310,7 @@ protected:
    * actual pthread_cond_t object.
    */
   std::map<SymAddr,CondVar> cond_vars;
+  class Event;
 
   /* A Branch object is a pair of an IPid p and an alternative index
    * (see Event::alt below) i. It will be tagged on an event in the
@@ -322,6 +323,10 @@ protected:
     Branch (IPid pid, int alt = 0, sym_ty sym = {})
       : sym(std::move(sym)), pid(pid), alt(alt), size(1),
 	schedule(false), schedule_head(false) {sleepseqs.shrink_to_fit();}
+    Branch (const Event &base, sym_ty sym)
+      : sym(std::move(sym)), pid(base.iid.get_pid()), alt(base.alt), size(base.size),
+	schedule(false), schedule_head(false) {sleepseqs.shrink_to_fit();}
+
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
@@ -439,8 +444,11 @@ protected:
   public:
     Event(const IID<IPid> &iid, sym_ty sym = {}, int alt = 0)
       : iid(iid), origin_iid(iid), alt(alt), size(1), md(0), clock(),
-	may_conflict(false), sym(std::move(sym)), schedule(false),
-	schedule_head(false), sleep_branch_trace_count(0) {}
+	may_conflict(false), sym(std::move(sym)), prev_br(nullptr),
+	schedule(false), schedule_head(false), sleep_branch_trace_count(0) {}
+    ~Event(){
+      prev_br.reset();
+    }
     /* The identifier for the first event in this event sequence. */
     IID<IPid> iid;
     /* The IID of the program instruction which is the origin of this
@@ -485,8 +493,7 @@ protected:
      */
     sleepseqs_t doneseqs;
     sleepseqs_t sleepseqs;
-    void *backtrack_seq;
-    std::list<std::vector<Branch>> schedules;
+    std::shared_ptr<std::vector<Event>> prev_br;
     bool schedule;
     bool schedule_head;
     /* For each previous IID that has been explored at this position
@@ -496,6 +503,26 @@ protected:
      * explored traces.
      */
     uint64_t sleep_branch_trace_count;
+    void delete_data_from_schedule_event(){
+      md = nullptr;
+      clock=VClock<IPid>();
+      happens_after.clear();
+      happens_after.shrink_to_fit();
+      races.clear();
+      races.shrink_to_fit();
+      happens_after_later.clear();
+      doneseqs.clear();
+      doneseqs.shrink_to_fit();
+      sleepseqs.clear();
+      sleepseqs.shrink_to_fit();
+      prev_br.reset();
+    }
+    void delete_data_from_history_event(){
+      md = nullptr;
+      happens_after.clear();
+      happens_after.shrink_to_fit();
+      happens_after_later.clear();
+    }
   };
 
   /* The fixed prefix of events in the current execution. This may be
@@ -503,10 +530,6 @@ protected:
    * execution, or the events executed followed by the subsequent
    * events that are determined in advance to be executed.
    */
-  struct ExecStep{
-    Branch branch;
-    Event event;
-  };
   std::vector<Event> prefix;
   std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
   std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
@@ -560,6 +583,15 @@ protected:
     assert(0 <= prefix_idx);
     assert(prefix_idx < int(prefix.size()));
     return prefix[prefix_idx];
+  }
+
+  /* Symbolic events in Branches in the wakeup tree do not record the
+   * data of memory accesses as these can change between executions.
+   * branch_with_symbolic_data(i) returns a Branch of the event i, but
+   * with data of memory accesses in the symbolic events.
+   */
+  Branch branch_with_symbolic_data(unsigned index) const {
+    return Branch(prefix[index], prefix[index].sym);
   }
 
   IID<CPid> get_iid(unsigned i) const;
@@ -694,6 +726,7 @@ protected:
    * computed.
    */
   bool do_race_detect();
+  bool backtrack_to_previous_branch();
   /* Records a symbolic representation of the current event.
    *
    * During replay, events are checked against the replay log. If a mismatch is
@@ -710,7 +743,7 @@ protected:
    * compare-exchange operations in one event es when preceded by the
    * events prefix[0..i] ++ v
    */
-  void recompute_cmpxhg_success(sym_ty &es, const std::vector<Branch> &v, int i)
+  void recompute_cmpxhg_success(sym_ty &es, const std::vector<Event> &v, int i)
     const;
   /* Recompute the observation states on the symbolic events in v. */
   void recompute_observed(std::vector<Branch> &v) const;
