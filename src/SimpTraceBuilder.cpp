@@ -2457,15 +2457,15 @@ bool SimpTraceBuilder::do_race_detect() {
 	//   doneseq.push_back(branch_with_symbolic_data(j));
 
 	/* Setup the new branch at prefix[i] */
-	{
-	  std::shared_ptr<std::vector<Event>>
-	    prev_branch(new std::vector<Event>(prefix.begin()+i, prefix.end()));
-	  current_branch_count += prefix.size()-i;
-	  std::vector<Event> prev_br(prefix.begin()+i, prefix.end());
-	  while (ssize_t(prefix.size()) > i) prefix.pop_back();
-	  prefix.insert(prefix.end(), v.begin(), v.end());
-	  prefix[i].prev_br = prev_branch;
-	}
+	std::shared_ptr<std::vector<Event>>
+	  prev_branch(new std::vector<Event>(prefix.begin()+i, prefix.end()));
+	current_branch_count++;
+	std::vector<Event> prev_br(prefix.begin()+i, prefix.end());
+	sleepseqs_t doneseqs=std::move(prefix[i].doneseqs);
+	while (ssize_t(prefix.size()) > i) prefix.pop_back();
+	prefix.insert(prefix.end(), v.begin(), v.end());
+	prefix[i].prev_br = prev_branch;
+	prefix[i].doneseqs = std::move(doneseqs);
 	return true;
       }
       killed_by_sleepset++;
@@ -2481,22 +2481,22 @@ bool SimpTraceBuilder::backtrack_to_previous_branch(){
     if(prefix[i].prev_br != nullptr){
       bool flag = false;
       {
-	std::shared_ptr<std::vector<Event>> previous_branch = prefix[i].prev_br;
-	previous_branch->front().doneseqs = std::move(prefix[i].doneseqs);
 	std::vector<Branch> doneseq;
 	for(int j = i; j <=doneseq_end; j++)
 	  doneseq.push_back(branch_with_symbolic_data(j));
+	std::shared_ptr<std::vector<Event>> previous_branch = prefix[i].prev_br;
+	previous_branch->front().doneseqs = std::move(prefix[i].doneseqs);
 	if(doneseq.size())
-	  previous_branch->front().doneseqs.push_back(std::move(doneseq));	
+	  previous_branch->front().doneseqs.push_back(std::move(doneseq));
 	previous_branch->front().sleep_branch_trace_count =
 	  prefix[i].sleep_branch_trace_count + estimate_trace_count(i+1);
 	assert(i <= prefix.size());
 	while(i < prefix.size()) prefix.pop_back();
 	prefix.insert(prefix.end(), previous_branch->begin(), previous_branch->end());
-	current_branch_count -= previous_branch->size();
+	current_branch_count--;
       }
       return true;
-    }
+    }    
     if(prefix[i].schedule_head && event_is_load(prefix[i].sym)){
       doneseq_end = i;
     }
@@ -2586,22 +2586,22 @@ wakeup_sequence(const Race &race) const{
     recompute_cmpxhg_success(second.sym, v, i);
   }
   v.push_back(std::move(second));
-  v.back().schedule = true;
   v.back().delete_data_from_schedule_event();
+  v.back().schedule = true;
   if (race.kind == Race::OBSERVED) {
     int k = race.witness_event;
     /* Only replay the racy event. */
 
     v.push_back(prefix[i]);
-    v.back().schedule = true;
     v.back().delete_data_from_schedule_event();
+    v.back().schedule = true;
     v.insert(v.end(), std::make_move_iterator(notobs.begin()),
              std::make_move_iterator(notobs.end()));
     notobs.clear(); /* Since their states are undefined after std::move */
     v.push_back(prefix[k]);
+    v.back().delete_data_from_schedule_event();
     v.back().size = 1;
     v.back().schedule=true;
-    v.back().delete_data_from_schedule_event();
   }
 
   if (conf.dpor_algorithm == Configuration::OBSERVERS) {

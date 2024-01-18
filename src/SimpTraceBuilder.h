@@ -516,6 +516,7 @@ protected:
       sleepseqs.clear();
       sleepseqs.shrink_to_fit();
       prev_br.reset();
+      schedule=schedule_head=false;
     }
     void delete_data_from_history_event(){
       md = nullptr;
