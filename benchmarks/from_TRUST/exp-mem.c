@@ -31,7 +31,7 @@ void *thread_2(void *unused)
 	for (int i = 0u; i < N; i++)
 		pthread_join(t[i], NULL);
 
-	atomic_store_explicit(&x, 1, memory_order_seq_cst);
+	atomic_int a=atomic_load_explicit(&x, memory_order_seq_cst);
 	return NULL;
 }
 
