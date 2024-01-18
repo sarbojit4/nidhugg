@@ -21,6 +21,7 @@
 
 TraceBuilder::TraceBuilder(const Configuration &C) : conf(C) {
   killed_by_sleepset = 0;
+  current_branch_count = 0;
 }
 
 TraceBuilder::~TraceBuilder(){

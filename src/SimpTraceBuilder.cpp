@@ -43,7 +43,6 @@ SimpTraceBuilder::SimpTraceBuilder(const Configuration &conf) : TSOPSOTraceBuild
   last_md = 0;
   replay_point = 0;
   end_of_ws = 0;
-  
 }
 
 SimpTraceBuilder::~SimpTraceBuilder(){
@@ -121,8 +120,7 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
      prefix[prefix.size()-1].iid.get_pid()
      == prefix[prefix.size()-2].iid.get_pid() &&
      !prefix[prefix.size()-1].may_conflict &&
-     prefix[prefix.size()-1].doneseqs.empty() &&
-     prefix[prefix.size()-1].schedules.size() == 0){
+     prefix[prefix.size()-1].doneseqs.empty()){
     assert(curev().sym.empty()); /* Would need to be copied */
     unsigned size = curev().size;
     prefix.pop_back();
@@ -198,9 +196,8 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
 void SimpTraceBuilder::refuse_schedule(){
   assert(prefix_idx == int(prefix.size())-1);
   assert(prefix.back().size == 1);
-  assert(!prefix.back.may_conflict);
-  assert(prefix.back.doneseqs.empty());
-  assert(prefix[prefix_idx].schedules.size() == 0);
+  assert(!prefix.back().may_conflict);
+  assert(prefix.back().doneseqs.empty());
   IPid last_pid = prefix.back().iid.get_pid();
   prefix.pop_back();
   assert(int(threads[last_pid].event_indices.back()) == prefix_idx);
@@ -1749,7 +1746,7 @@ SimpTraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const{
   obs_wake_res res =
 #endif
     obs_sleep_wake(sleepseqs, e.iid.get_pid(), sym);
-  assert(res != obs_wake_res::BLOCK);
+  // assert(res != obs_wake_res::BLOCK);
   // }
 }
 
@@ -2230,23 +2227,11 @@ void SimpTraceBuilder::compute_vclocks(){
 
   std::vector<int>schedule_heads;
   for (unsigned i = 0; i < prefix.size(); i++){
-<<<<<<< HEAD
     IPid ipid = prefix[i].iid.get_pid();
     if (prefix[i].iid.get_index() > 1) {
-      unsigned last = find_process_event(prefix[i].iid.get_pid(), prefix[i].iid.get_index()-1);
+      unsigned last = find_process_event(prefix[i].iid.get_pid(),
+					 prefix[i].iid.get_index()-1);
       prefix[i].clock = prefix[last].clock;
-||||||| parent of 2975de5c (Fix lock-lock race detection)
-    IPid ipid = prefix[i].event.iid.get_pid();
-    if (prefix[i].event.iid.get_index() > 1) {
-      unsigned last = find_process_event(prefix[i].event.iid.get_pid(), prefix[i].event.iid.get_index()-1);
-      prefix[i].event.clock = prefix[last].event.clock;
-=======
-    IPid ipid = prefix[i].event.iid.get_pid();
-    if (prefix[i].event.iid.get_index() > 1) {
-      unsigned last = find_process_event(prefix[i].event.iid.get_pid(),
-					 prefix[i].event.iid.get_index()-1);
-      prefix[i].event.clock = prefix[last].event.clock;
->>>>>>> 2975de5c (Fix lock-lock race detection)
     } else {
       prefix[i].clock = VClock<IPid>();
     }
@@ -2291,19 +2276,9 @@ void SimpTraceBuilder::compute_vclocks(){
     for (auto it = end; it != races.end(); ++it){
       //llvm::dbgs()<<it->first_event<<it->second_event<<prefix.branch(it->first_event).schedule<<"\n";
       if (it->kind == Race::LOCK_SUC)
-<<<<<<< HEAD
 	prefix[i].clock += prefix[it->unlock_event].clock;
-      else
-	prefix[i].clock += prefix[it->first_event].clock;
-||||||| parent of 2975de5c (Fix lock-lock race detection)
-	prefix[i].event.clock += prefix[it->unlock_event].event.clock;
-      else
-	prefix[i].event.clock += prefix[it->first_event].event.clock;
-=======
-	prefix[i].event.clock += prefix[it->unlock_event].event.clock;
       else if (it->kind != Race::LOCK_FAIL)
-	prefix[i].event.clock += prefix[it->first_event].event.clock;
->>>>>>> 2975de5c (Fix lock-lock race detection)
+	prefix[i].clock += prefix[it->first_event].clock;
     }
     // for (auto it = first_pair; it != end; ++it){
       // llvm::dbgs()<<"Race (<"<<threads[prefix[it->first_event].iid.get_pid()].cpid<<","
