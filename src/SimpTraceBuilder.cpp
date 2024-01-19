@@ -2366,6 +2366,10 @@ void SimpTraceBuilder::compute_vclocks(){
         int se = s.kind == Race::LOCK_SUC ? s.unlock_event : s.first_event;
         return prefix[se].event.clock.includes(prefix[f.first_event].event.iid);
        });
+    for (auto it = first_pair; it != fill; ++it){
+      if (it->kind != Race::LOCK_SUC && it->kind != Race::LOCK_FAIL)
+	prefix[i].event.clock += prefix[it->first_event].event.clock;
+    }
     auto new_end = partition(first_pair, fill,
 			     [this,schedule_heads](const Race &r){
 			       int s = (r.kind != Race::LOCK_FAIL) ?
@@ -2386,8 +2390,6 @@ void SimpTraceBuilder::compute_vclocks(){
         assert(prefix[it->first_event].event.clock.leq
                (prefix[it->unlock_event].event.clock));
         prefix[i].event.clock += prefix[it->unlock_event].event.clock;
-      }else if (it->kind != Race::LOCK_FAIL){
-        prefix[i].event.clock += prefix[it->first_event].event.clock;
       }
     }
     assert(prefix[i].event.happens_after_later.empty()
