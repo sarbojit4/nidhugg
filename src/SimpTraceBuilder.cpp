@@ -2517,10 +2517,12 @@ wakeup_sequence(const Race &race) const{
     second = reconstruct_blocked_event(race);
     /* XXX: Lock events don't have alternatives, right? */
   } else if (race.kind == Race::NONDET) {
-    second = first;
+    second = event_with_symbolic_data(i);
+    second.clock = prefix[i].clock;
     second.alt = race.alternative;
   } else {
-    second = prefix[j];
+    second = event_with_symbolic_data(j);
+    second.clock = prefix[j].clock;
     second.doneseqs.clear();
   }
   if (race.kind != Race::OBSERVED) {
@@ -2564,8 +2566,7 @@ wakeup_sequence(const Race &race) const{
       /* continue */
     } else if (prefix[k].clock.lt(second.clock) &&
 	       !first.clock.leq(prefix[k].clock)) {
-      v.push_back(prefix[k]);
-      v.back().delete_data_from_schedule_event();
+      v.push_back(event_with_symbolic_data(k));
       v.back().schedule = true;
     } else if (race.kind == Race::OBSERVED && k != j) {
       if (!std::any_of(observers.begin(), observers.end(),
@@ -2575,8 +2576,7 @@ wakeup_sequence(const Race &race) const{
 	  assert(!observers.empty() || k == race.witness_event);
           observers.push_back(&prefix[k]);
         } else if (race.kind == Race::OBSERVED) {
-          notobs.emplace_back(prefix[k]);
-	  notobs.back().delete_data_from_schedule_event();
+          notobs.emplace_back(event_with_symbolic_data(k));
 	  notobs.back().schedule = true;
         }
       }
@@ -2586,20 +2586,18 @@ wakeup_sequence(const Race &race) const{
     recompute_cmpxhg_success(second.sym, v, i);
   }
   v.push_back(std::move(second));
-  v.back().delete_data_from_schedule_event();
+  //v.back().delete_data_from_schedule_event();
   v.back().schedule = true;
   if (race.kind == Race::OBSERVED) {
     int k = race.witness_event;
     /* Only replay the racy event. */
 
-    v.push_back(prefix[i]);
-    v.back().delete_data_from_schedule_event();
+    v.push_back(event_with_symbolic_data(i));
     v.back().schedule = true;
     v.insert(v.end(), std::make_move_iterator(notobs.begin()),
              std::make_move_iterator(notobs.end()));
     notobs.clear(); /* Since their states are undefined after std::move */
-    v.push_back(prefix[k]);
-    v.back().delete_data_from_schedule_event();
+    v.push_back(event_with_symbolic_data(k));
     v.back().size = 1;
     v.back().schedule=true;
   }

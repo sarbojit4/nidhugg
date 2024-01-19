@@ -442,10 +442,25 @@ protected:
    */
   class Event{
   public:
-    Event(const IID<IPid> &iid, sym_ty sym = {}, int alt = 0)
-      : iid(iid), origin_iid(iid), alt(alt), size(1), md(0), clock(),
+    Event(const IID<IPid> &iid, sym_ty sym = {}, int alt = 0, size_t size = 1)
+      : iid(iid), origin_iid(iid), alt(alt), size(size), md(0), clock(),
 	may_conflict(false), sym(std::move(sym)), prev_br(nullptr),
 	schedule(false), schedule_head(false), sleep_branch_trace_count(0) {}
+    void delete_data_from_schedule_event(){
+      md = nullptr;
+      clock=VClock<IPid>();
+      happens_after.clear();
+      happens_after.shrink_to_fit();
+      races.clear();
+      races.shrink_to_fit();
+      happens_after_later.clear();
+      doneseqs.clear();
+      doneseqs.shrink_to_fit();
+      sleepseqs.clear();
+      sleepseqs.shrink_to_fit();
+      prev_br.reset();
+      schedule=schedule_head=false;
+    }
     ~Event(){
       prev_br.reset();
     }
@@ -503,27 +518,6 @@ protected:
      * explored traces.
      */
     uint64_t sleep_branch_trace_count;
-    void delete_data_from_schedule_event(){
-      md = nullptr;
-      clock=VClock<IPid>();
-      happens_after.clear();
-      happens_after.shrink_to_fit();
-      races.clear();
-      races.shrink_to_fit();
-      happens_after_later.clear();
-      doneseqs.clear();
-      doneseqs.shrink_to_fit();
-      sleepseqs.clear();
-      sleepseqs.shrink_to_fit();
-      prev_br.reset();
-      schedule=schedule_head=false;
-    }
-    void delete_data_from_history_event(){
-      md = nullptr;
-      happens_after.clear();
-      happens_after.shrink_to_fit();
-      happens_after_later.clear();
-    }
   };
 
   /* The fixed prefix of events in the current execution. This may be
@@ -593,6 +587,13 @@ protected:
    */
   Branch branch_with_symbolic_data(unsigned index) const {
     return Branch(prefix[index], prefix[index].sym);
+  }
+
+  Event event_with_symbolic_data(unsigned index) const {
+    const Event &e = prefix[index];
+    Event re(e.iid, e.sym, e.alt, e.size);
+    re.origin_iid = e.origin_iid;
+    return re;
   }
 
   IID<CPid> get_iid(unsigned i) const;
