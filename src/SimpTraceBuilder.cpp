@@ -2554,7 +2554,8 @@ wakeup_sequence(const Race &race) const{
   VClock<IPid> exclude_clock
     (std::vector<int>(threads.size(), std::numeric_limits<int>::max()));
 
-  for (int k = i + 1; k <= j; ++k){
+  int end = std::min(j, (int)prefix.size());
+  for (int k = i + 1; k < end; ++k){
     assert(exclude == exclude_end || int_fast64_t(*exclude) >= k);
       const IID<IPid> &kiid = prefix[k].iid;
     if (exclude != exclude_end && *exclude == unsigned(k)) {
