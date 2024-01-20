@@ -2480,6 +2480,9 @@ bool SimpTraceBuilder::do_race_detect() {
 bool SimpTraceBuilder::backtrack_to_previous_branch(){
   int doneseq_end = 0;
   for(int i = prefix.size()-1; i > 0; i--){
+    if(prefix[i].schedule_head && event_is_load(prefix[i].sym)){
+      doneseq_end = i;
+    }
     if(prefix[i].prev_br != nullptr){
       bool flag = false;
       {
@@ -2498,9 +2501,6 @@ bool SimpTraceBuilder::backtrack_to_previous_branch(){
 	current_branch_count--;
       }
       return true;
-    }    
-    if(prefix[i].schedule_head && event_is_load(prefix[i].sym)){
-      doneseq_end = i;
     }
   }
   return false;
