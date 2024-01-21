@@ -120,6 +120,7 @@ public:
    */
   virtual long double estimate_trace_count() const { return 1; }
   int killed_by_sleepset;
+  int current_branch_count;
 
 protected:
   const Configuration &conf;

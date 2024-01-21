@@ -54,6 +54,7 @@ libnidhugg_a_SOURCES = \
   RFSCDecisionTree.cpp RFSCDecisionTree.h \
   RFSCTraceBuilder.cpp RFSCTraceBuilder.h \
   SimpTraceBuilder.cpp SimpTraceBuilder.h \
+  Simp2TraceBuilder.cpp Simp2TraceBuilder.h \
   RMWAction.cpp RMWAction.h \
   VClock.cpp VClock.h VClock.tcc \
   vecset.h vecset.tcc

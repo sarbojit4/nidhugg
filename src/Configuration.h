@@ -51,7 +51,8 @@ public:
     OPTIMAL,
     OBSERVERS,
     READS_FROM,
-    SIMP_DPOR
+    SIMP_DPOR,
+    SIMP2_DPOR
   };
   /* Assign default values to all configuration parameters. */
   Configuration(){
