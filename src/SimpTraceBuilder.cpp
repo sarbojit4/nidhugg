@@ -2307,8 +2307,7 @@ static bool symev_is_unobs_store(const SymEv &e) {
 }
 
 bool SimpTraceBuilder::do_symevs_conflict
-(IPid fst_pid, const SymEv &fst,
- IPid snd_pid, const SymEv &snd) const {
+(const SymEv &fst, const SymEv &snd) const {
   if (fst.kind == SymEv::NONDET || snd.kind == SymEv::NONDET) return false;
   if (fst.kind == SymEv::FULLMEM || snd.kind == SymEv::FULLMEM) return true;
   if (symev_is_load(fst) && symev_is_load(snd)) return false;
@@ -2340,7 +2339,7 @@ bool SimpTraceBuilder::do_events_conflict
   for (const SymEv &fe : fst) {
     if (symev_has_pid(fe) && fe.num() == (snd_pid / 2)) return true;
     for (const SymEv &se : snd) {
-      if (do_symevs_conflict(fst_pid, fe, snd_pid, se)) {
+      if (do_symevs_conflict(fe, se)) {
         return true;
       }
     }
@@ -2414,6 +2413,7 @@ void SimpTraceBuilder::reorganize_races() {
   /* Bucket sort races by first_event index */
   for (unsigned i = 0; i < prefix.size(); ++i){
     for (const Race &r : prefix[i].races){
+      assert(prefix[r.first_event].races.back().second_event > r.second_event);
       prefix[r.first_event].races.push_back(std::move(r));
     }
     prefix[i].races.clear();
@@ -2440,38 +2440,27 @@ bool SimpTraceBuilder::do_race_detect() {
       // 	      <<prefix[i].iid.get_index()<<">,<"
       // 	      <<threads[prefix[race.second_event].iid.get_pid()].cpid
       // 	      <<prefix[race.second_event].iid.get_index()<<">)\n";/////////
-      assert(race.first_event == int(i));
+      assert(race.first_event == (int) i);
       std::vector<Event> v = wakeup_sequence(race);
       /* Do insertion into the wakeup tree */
       if(!blocked_wakeup_sequence(v,sleepseqs)){
 	// llvm::dbgs()<<"Inserting WS\n";///////////
-
-	// int doneseq_end=0;
-	// std::vector<Branch> doneseq;
-	// for(int j = int(prefix.size())-1; i <= j; --j){
-	//   if(prefix[i].schedule_head && event_is_load(prefix[i].sym))
-	//     doneseq_end=i;
-	//   if(prefix[i].schedules.size()){
-	//     break;
-	//   }
-	// }
-	// for(int j = i; j <=doneseq_end; j++)
-	//   doneseq.push_back(branch_with_symbolic_data(j));
-
 	/* Setup the new branch at prefix[i] */
 	std::shared_ptr<std::vector<Event>>
 	  prev_branch(new std::vector<Event>(prefix.begin()+i, prefix.end()));
-	current_branch_count++;
 	std::vector<Event> prev_br(prefix.begin()+i, prefix.end());
 	sleepseqs_t doneseqs=std::move(prefix[i].doneseqs);
 	while (ssize_t(prefix.size()) > i) prefix.pop_back();
 	prefix.insert(prefix.end(), v.begin(), v.end());
-	prefix[i].prev_br = prev_branch;
+	prefix[i].prev_br = std::move(prev_branch);
 	prefix[i].doneseqs = std::move(doneseqs);
+	current_branch_count++;
 	return true;
       }
       killed_by_sleepset++;
     }
+    if(!prefix[i].schedule)
+      prefix[i].doneseqs.clear();
     obs_sleep_wake(sleepseqs, prefix[i]);
   }
   return false;
