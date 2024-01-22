@@ -2446,18 +2446,6 @@ bool Simp2TraceBuilder::do_race_detect() {
       if(!blocked_wakeup_sequence(v,sleepseqs)){
 	// llvm::dbgs()<<"Inserting WS\n";///////////
 
-	// int doneseq_end=0;
-	// std::vector<Branch> doneseq;
-	// for(int j = int(prefix.size())-1; i <= j; --j){
-	//   if(prefix[i].schedule_head && event_is_load(prefix[i].sym))
-	//     doneseq_end=i;
-	//   if(prefix[i].schedules.size()){
-	//     break;
-	//   }
-	// }
-	// for(int j = i; j <=doneseq_end; j++)
-	//   doneseq.push_back(branch_with_symbolic_data(j));
-
 	/* Setup the new branch at prefix[i] */
 	std::shared_ptr<std::vector<Event>>
 	  prev_branch(new std::vector<Event>(prefix.begin()+i, prefix.end()));
@@ -2490,14 +2478,15 @@ bool Simp2TraceBuilder::backtrack_to_previous_branch(){
 	for(int j = i; j <=doneseq_end; j++)
 	  doneseq.push_back(branch_with_symbolic_data(j));
 	std::shared_ptr<std::vector<Event>> previous_branch = prefix[i].prev_br;
-	previous_branch->front().doneseqs = std::move(prefix[i].doneseqs);
+        sleepseqs_t doneseqs = std::move(prefix[i].doneseqs);
 	if(doneseq.size())
-	  previous_branch->front().doneseqs.push_back(std::move(doneseq));
+	  doneseqs.push_back(std::move(doneseq));
 	previous_branch->front().sleep_branch_trace_count =
 	  prefix[i].sleep_branch_trace_count + estimate_trace_count(i+1);
 	assert(i <= prefix.size());
 	while(i < prefix.size()) prefix.pop_back();
 	prefix.insert(prefix.end(), previous_branch->begin(), previous_branch->end());
+	prefix[i].doneseqs = std::move(doneseqs);
 	current_branch_count--;
       }
       return true;

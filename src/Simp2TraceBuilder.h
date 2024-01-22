@@ -446,21 +446,6 @@ protected:
       : iid(iid), origin_iid(iid), alt(alt), size(size), md(0), clock(),
 	may_conflict(false), sym(std::move(sym)), prev_br(nullptr),
 	schedule(false), schedule_head(false), sleep_branch_trace_count(0) {}
-    void delete_data_from_schedule_event(){
-      md = nullptr;
-      clock=VClock<IPid>();
-      happens_after.clear();
-      happens_after.shrink_to_fit();
-      races.clear();
-      races.shrink_to_fit();
-      happens_after_later.clear();
-      doneseqs.clear();
-      doneseqs.shrink_to_fit();
-      sleepseqs.clear();
-      sleepseqs.shrink_to_fit();
-      prev_br.reset();
-      schedule=schedule_head=false;
-    }
     ~Event(){
       prev_br.reset();
     }
