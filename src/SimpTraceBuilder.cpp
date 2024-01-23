@@ -306,8 +306,6 @@ bool SimpTraceBuilder::reset(){
   // currtrace.clear();
   compute_vclocks();
 
-  reorganize_races();
-
   if(conf.debug_print_on_reset){
     llvm::dbgs() << " === SimpTraceBuilder reset ===\n";
     debug_print();
@@ -2389,62 +2387,45 @@ bool SimpTraceBuilder::is_observed_conflict
   return symev_does_load(thd) && thd.addr().overlaps(snd.addr());
 }
 
-void SimpTraceBuilder::reorganize_races() {
-  /* Compute all races of blocked awaits. */
-  for (const auto &ab : blocked_awaits) {
-    for (const auto &pb : ab.second) {
-      IID<IPid> iid(pb.first, pb.second.index);
-      std::vector<Race> races;
-      const SymEv &ev = pb.second.ev;
-      assert(!try_find_process_event(pb.first, iid.get_index()).first);
-      VClock<IPid> clock = reconstruct_blocked_clock(iid);
-      do_await(prefix.size(), iid, ev, clock, races);
-      for (Race &r : races) {
-        assert(r.first_event >= 0 && r.first_event < ssize_t(prefix.size()));
-        /* Can we optimise do_await to not include these guys in the
-         * first place? */
-        // XXX: What about other events in include?
-        assert (!clock.includes(prefix[r.first_event].iid));
-        lock_fail_races.push_back(std::move(r));
-      }
-    }
-  }
-
-  /* Bucket sort races by first_event index */
-  for (unsigned i = 0; i < prefix.size(); ++i){
-    for (const Race &r : prefix[i].races){
-      assert(prefix[r.first_event].races.back().second_event > r.second_event);
-      prefix[r.first_event].races.push_back(std::move(r));
-    }
-    prefix[i].races.clear();
-  }
-  for (const Race &r : lock_fail_races)
-    prefix[r.first_event].races.push_back(std::move(r));
-}
-
 bool SimpTraceBuilder::do_race_detect() {
   assert(has_vclocks);
 
   /* Do race detection */
-  sleepseqs_t sleepseqs;
-  for (unsigned i = 0; i < prefix.size(); ++i){
-    obs_sleep_add(sleepseqs, prefix[i]);
+  for (unsigned j = 0; j < prefix.size(); ++j){
     // llvm::dbgs()<<i<<sleepseqs.size()<<":\n";/////////////////
     // for(auto slp : sleepseqs)
     //   llvm::dbgs()<<"Sleep"<<threads[slp.front().pid].cpid
     // 		  <<threads[slp.back().pid].cpid<<"\n";///////////////
-    while(!prefix[i].races.empty()) {
-      Race race = prefix[i].races.back();
-      prefix[i].races.pop_back();
+    while(!prefix[j].races.empty()) {
+      Race race = prefix[j].races.back();
+      prefix[j].races.pop_back();
       // llvm::dbgs()<<"Race (<"<<threads[prefix[i].iid.get_pid()].cpid<<","
       // 	      <<prefix[i].iid.get_index()<<">,<"
       // 	      <<threads[prefix[race.second_event].iid.get_pid()].cpid
       // 	      <<prefix[race.second_event].iid.get_index()<<">)\n";/////////
-      assert(race.first_event == (int) i);
+      assert(race.second_event == (int) j);
       std::vector<Event> v = wakeup_sequence(race);
+      sleepseqs_t sleepseqs;
+      unsigned i = race.first_event;
+      for(unsigned k = 0; k < i; ++k){
+	obs_sleep_add(sleepseqs, prefix[k]);
+	obs_sleep_wake(sleepseqs, prefix[k]);
+      }
+      obs_sleep_add(sleepseqs, prefix[i]);
+
       /* Do insertion into the wakeup tree */
       if(!blocked_wakeup_sequence(v,sleepseqs)){
 	// llvm::dbgs()<<"Inserting WS\n";///////////
+	// std::vector<Branch> u;
+        // sym_ty sym;
+	// if(event_is_load(prefix[race.second_event].sym)){
+	//   for(int j = i+1, k = 0; j < prefix.size(); j++, k++){
+	//     if(prefix[i].iid.get_pid() == v[k].iid.get_pid()) k++;
+	//     else u.push_back(branch_with_symbolic_data(i));
+	//   }
+	//   sym = prefix[i].sym;
+	// }
+
 	/* Setup the new branch at prefix[i] */
 	std::shared_ptr<std::vector<Event>>
 	  prev_branch(new std::vector<Event>(prefix.begin()+i, prefix.end()));
@@ -2459,9 +2440,6 @@ bool SimpTraceBuilder::do_race_detect() {
       }
       killed_by_sleepset++;
     }
-    if(!prefix[i].schedule)
-      prefix[i].doneseqs.clear();
-    obs_sleep_wake(sleepseqs, prefix[i]);
   }
   return false;
 }
@@ -2480,7 +2458,7 @@ bool SimpTraceBuilder::backtrack_to_previous_branch(){
 	  doneseq.push_back(branch_with_symbolic_data(j));
 	std::shared_ptr<std::vector<Event>> previous_branch = prefix[i].prev_br;
 	previous_branch->front().doneseqs = std::move(prefix[i].doneseqs);
-	if(doneseq.size())
+	if(!doneseq.empty())
 	  previous_branch->front().doneseqs.push_back(std::move(doneseq));
 	previous_branch->front().sleep_branch_trace_count =
 	  prefix[i].sleep_branch_trace_count + estimate_trace_count(i+1);

@@ -707,7 +707,6 @@ protected:
   void compute_vclocks();
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
-  void reorganize_races();
   /* Perform planning of future executions. Requires the trace to be
    * maximal or sleepset blocked, and that the vector clocks have been
    * computed.
