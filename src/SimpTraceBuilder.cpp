@@ -1951,7 +1951,7 @@ void SimpTraceBuilder::see_events(const VecSet<int> &seen_accesses){
   for(int i : seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
-    // currtrace.emplace(prefix[i].event.iid, curev().iid);
+    // currtrace.emplace(prefix[i].iid, curev().iid);
     add_noblock_race(i);
   }
 }
@@ -2410,6 +2410,7 @@ bool SimpTraceBuilder::do_race_detect() {
       for(unsigned k = 0; k < i; ++k){
 	obs_sleep_add(sleepseqs, prefix[k]);
 	obs_sleep_wake(sleepseqs, prefix[k]);
+	prefix[k].doneseqs.push_back(std::vector<Branch>());
       }
       obs_sleep_add(sleepseqs, prefix[i]);
 
@@ -2435,6 +2436,10 @@ bool SimpTraceBuilder::do_race_detect() {
 	prefix.insert(prefix.end(), v.begin(), v.end());
 	prefix[i].prev_br = std::move(prev_branch);
 	prefix[i].doneseqs = std::move(doneseqs);
+	// if(!u.empty())
+	//   prefix.back().conflict_map.
+	//     emplace(prefix.back().conflict_map.end(),
+	// 	    u, std::vector<std::pair<IPid,sym_ty>>(), sym);
 	current_branch_count++;
 	return true;
       }
@@ -2466,6 +2471,16 @@ bool SimpTraceBuilder::backtrack_to_previous_branch(){
 	while(i < prefix.size()) prefix.pop_back();
 	prefix.insert(prefix.end(), previous_branch->begin(), previous_branch->end());
 	current_branch_count--;
+      }
+      // TODO: Make this part work for SEQUENCE race
+      /* Keep the doneseqs that came from reversing races from the backtracked sequence */
+      for(int j = 0; j < i; j++){
+	sleepseqs_t &doneseqs = prefix[j].doneseqs;
+	while(!doneseqs.empty() && !doneseqs.back().empty() &&
+	      i < find_process_event(doneseqs.back().back().pid,
+				     doneseqs.back().back().index))
+	  doneseqs.pop_back();
+	if(!doneseqs.empty()) doneseqs.pop_back();
       }
       return true;
     }

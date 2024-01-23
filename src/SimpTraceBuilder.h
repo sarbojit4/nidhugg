@@ -494,6 +494,16 @@ protected:
      */
     sleepseqs_t doneseqs;
     sleepseqs_t sleepseqs;
+    struct conflict_t{
+      std::vector<Branch> H;
+      std::vector<std::pair<IPid,sym_ty>> C;
+      sym_ty sym;
+      conflict_t(std::vector<Branch> h,
+		 std::vector<std::pair<IPid,sym_ty>> c,
+		 sym_ty s) : H(h), C(c), sym(s) {}
+      
+    };
+    std::list<conflict_t> conflict_map;
     std::shared_ptr<std::vector<Event>> prev_br;
     bool schedule;
     bool schedule_head;
