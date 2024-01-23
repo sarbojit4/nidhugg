@@ -322,15 +322,17 @@ protected:
   public:
     Branch (IPid pid, int alt = 0, sym_ty sym = {})
       : sym(std::move(sym)), pid(pid), alt(alt), size(1),
-	schedule(false), schedule_head(false) {sleepseqs.shrink_to_fit();}
+	schedule(false), schedule_head(false) {}
     Branch (const Event &base, sym_ty sym)
-      : sym(std::move(sym)), pid(base.iid.get_pid()), alt(base.alt), size(base.size),
-	schedule(false), schedule_head(false) {sleepseqs.shrink_to_fit();}
+      : sym(std::move(sym)), pid(base.iid.get_pid()), index(base.iid.get_pid()),
+	alt(base.alt), size(base.size),
+	schedule(false), schedule_head(false) {}
 
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
     IPid pid;
+    int index;
     /* Some instructions may execute in several alternative ways
      * nondeterministically. (E.g. malloc may succeed or fail
      * nondeterministically if Configuration::malloy_may_fail is set.)
@@ -342,7 +344,6 @@ protected:
     int alt;
     /* The number of events in this sequence. */
     int size;
-    std::vector<std::vector<Branch>> sleepseqs;
     bool schedule;
     bool schedule_head;
     bool operator<(const Branch &b) const{
