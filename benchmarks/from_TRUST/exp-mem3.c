@@ -12,18 +12,19 @@ atomic_int y;
 
 void *thread_n(void *unused)
 {
-	atomic_fetch_add(&y, 1);
+	atomic_store_explicit(&y, 1, memory_order_seq_cst);
 	return NULL;
 }
 
 void *thread_1(void *unused)
 {
-	atomic_fetch_add(&x, 1);
+	atomic_store_explicit(&x, 1, memory_order_seq_cst);
 	return NULL;
 }
 
 void *thread_2(void *unused)
 {
+	atomic_int a;
 	pthread_t t[N];
 
 	for (int i = 0u; i < N; i++)
@@ -31,7 +32,7 @@ void *thread_2(void *unused)
 	for (int i = 0u; i < N; i++)
 		pthread_join(t[i], NULL);
 
-	atomic_fetch_add(&x, 1);
+	a = atomic_load_explicit(&x, memory_order_seq_cst);
 	return NULL;
 }
 
