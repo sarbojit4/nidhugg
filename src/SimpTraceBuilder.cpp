@@ -275,13 +275,6 @@ Trace *SimpTraceBuilder::get_trace() const{
   return t;
 }
 
-static bool event_is_load(const sym_ty &sym) {
-  for(SymEv s : sym){
-    if(s.kind == SymEv::LOAD) return true;
-  }
-  return false;
-}
-
 bool SimpTraceBuilder::reset(){
   /* Checking if current exploration is redundant */
   // auto trace_it = Traces.find(currtrace);
@@ -1624,6 +1617,65 @@ static bool symev_does_load(const SymEv &e) {
     || e.kind == SymEv::FULLMEM;
 }
 
+void SimpTraceBuilder::add_conflict_map(conflict_map_t &conflict_map,
+					 const conflict_map_t &local_conflict_map){
+  for(const auto &local_cfl : local_conflict_map){
+    bool found =false;
+    for(auto &cfl : conflict_map){
+      if(local_cfl.first == cfl.first){
+	for(const auto &c : local_cfl.second)
+	  cfl.second.push_back(c);
+	found = true;
+	break;
+      }
+    }
+    if(!found) conflict_map.push_back(local_cfl);
+  }
+}
+
+bool SimpTraceBuilder::conflict_with_hc(IPid p, const sym_ty &sym, conflict_t &hc){
+  bool conflict=false;
+  for(const auto &e : hc.C){
+    if(do_events_conflict(p, sym, e.first, e.second)) return true;
+  }
+
+  for(auto hit = hc.H.begin(); hit != hc.H.end(); hit++){
+    if(hit->pid == p){
+      hc.H.erase(hit);
+      return false;
+    }
+    else if (do_events_conflict(p, sym, hit->pid, hit->sym)){
+      return true;
+    }
+  }
+  return false;
+}
+
+SimpTraceBuilder::update_conflict_res
+SimpTraceBuilder::update_conflict_map(conflict_map_t &conflict_map,
+				      IPid p, const sym_ty &sym){
+  bool all_clear = true;
+  for(auto &cfl : conflict_map){
+    if(cfl.second.empty()) continue;
+    for(const auto &symev : sym){
+      if(symev_does_store(symev) && symev.addr() == cfl.first){
+	cfl.second.clear();
+	continue;
+      }
+    }
+    all_clear = false;
+    for(auto &hc : cfl.second){
+      if(conflict_with_hc(p, sym, hc)){
+	hc.C.emplace_back(p,sym);
+	return update_conflict_res::BLOCK;
+      }
+    }
+  }
+  if(all_clear) return update_conflict_res::CLEAR;
+  else return update_conflict_res::CONTINUE;
+}
+
+
 SimpTraceBuilder::obs_wake_res
 SimpTraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs,
                                 IPid p, const sym_ty &sym) const{
@@ -1713,16 +1765,29 @@ static void clear_observed(sym_ty &syms){
 }
 
 bool SimpTraceBuilder::blocked_wakeup_sequence(std::vector<Event> &seq,
-			     const sleepseqs_t &sleepseqs){
+					       const sleepseqs_t &sleepseqs,
+					       const conflict_map_t conflict_map){
   sleepseqs_t isleepseqs = sleepseqs;
-  obs_wake_res state = obs_wake_res::CONTINUE;
-  for (auto it = seq.cbegin(); state == obs_wake_res::CONTINUE
-         && it != seq.cend(); ++it) {
-    state = obs_sleep_wake(isleepseqs, it->iid.get_pid(), it->sym);
+  conflict_map_t iconflict_map = conflict_map;
+  bool incompatible = false;
+  
+  obs_wake_res sleep_state = obs_wake_res::CONTINUE;
+  update_conflict_res conflict_state = update_conflict_res::CONTINUE;
+  for (auto it = seq.cbegin();
+       (sleep_state == obs_wake_res::CONTINUE ||
+	conflict_state == update_conflict_res::CONTINUE) && it != seq.cend();
+       ++it) {
+    if(sleep_state != obs_wake_res::BLOCK)
+      sleep_state = obs_sleep_wake(isleepseqs, it->iid.get_pid(), it->sym);
+    if(conflict_state != update_conflict_res::BLOCK)
+      update_conflict_map(iconflict_map, it->iid.get_pid(), it->sym);
   }
   seq.back().sleepseqs=std::move(isleepseqs);
+  seq.back().conflict_map = std::move(iconflict_map);
+
   /* Redundant */
-  return (state == obs_wake_res::BLOCK);
+  return (sleep_state == obs_wake_res::BLOCK ||
+	conflict_state == update_conflict_res::BLOCK);// || incompatible);
 }
 
 void SimpTraceBuilder::update_sleepseqs(){
@@ -2300,6 +2365,13 @@ static bool symev_is_load(const SymEv &e) {
     || e.kind == SymEv::LOAD_AWAIT;
 }
 
+static bool event_is_load(const sym_ty &sym) {
+  for(SymEv s : sym){
+    if(symev_is_load(s)) return true;
+  }
+  return false;
+}
+ 
 static bool symev_is_unobs_store(const SymEv &e) {
   return e.kind == SymEv::UNOBS_STORE;
 }
@@ -2406,26 +2478,30 @@ bool SimpTraceBuilder::do_race_detect() {
       assert(race.second_event == (int) j);
       std::vector<Event> v = wakeup_sequence(race);
       sleepseqs_t sleepseqs;
+      conflict_map_t conflict_map;
       unsigned i = race.first_event;
       for(unsigned k = 0; k < i; ++k){
 	obs_sleep_add(sleepseqs, prefix[k]);
+	add_conflict_map(conflict_map, prefix[k].conflict_map);
 	obs_sleep_wake(sleepseqs, prefix[k]);
+	update_conflict_map(conflict_map, prefix[k].iid.get_pid(), prefix[k].sym);
 	prefix[k].doneseqs.push_back(std::vector<Branch>());
       }
       obs_sleep_add(sleepseqs, prefix[i]);
+      add_conflict_map(conflict_map, prefix[i].conflict_map);
 
       /* Do insertion into the wakeup tree */
-      if(!blocked_wakeup_sequence(v,sleepseqs)){
+      if(!blocked_wakeup_sequence(v,sleepseqs, conflict_map)){
 	// llvm::dbgs()<<"Inserting WS\n";///////////
-	// std::vector<Branch> u;
-        // sym_ty sym;
-	// if(event_is_load(prefix[race.second_event].sym)){
-	//   for(int j = i+1, k = 0; j < prefix.size(); j++, k++){
-	//     if(prefix[i].iid.get_pid() == v[k].iid.get_pid()) k++;
-	//     else u.push_back(branch_with_symbolic_data(i));
-	//   }
-	//   sym = prefix[i].sym;
-	// }
+	std::vector<Branch> u;
+        sym_ty sym;
+	if(event_is_load(prefix[race.second_event].sym)){
+	  for(int j = i+1, k = 0; j < prefix.size(); j++, k++){
+	    if(prefix[i].iid.get_pid() == v[k].iid.get_pid()) k++;
+	    else u.push_back(branch_with_symbolic_data(i));
+	  }
+	  sym = prefix[i].sym;
+	}
 
 	/* Setup the new branch at prefix[i] */
 	std::shared_ptr<std::vector<Event>>
@@ -2436,10 +2512,12 @@ bool SimpTraceBuilder::do_race_detect() {
 	prefix.insert(prefix.end(), v.begin(), v.end());
 	prefix[i].prev_br = std::move(prev_branch);
 	prefix[i].doneseqs = std::move(doneseqs);
-	// if(!u.empty())
-	//   prefix.back().conflict_map.
-	//     emplace(prefix.back().conflict_map.end(),
-	// 	    u, std::vector<std::pair<IPid,sym_ty>>(), sym);
+	if(!u.empty()){
+	  for(auto &cflset : prefix.back().local_conflict_map)
+	    for(const auto &se : prefix.back().sym)
+	      if(cflset.first == se.addr())
+		cflset.second.emplace_back(u, std::vector<std::pair<IPid,sym_ty>>());
+	}
 	current_branch_count++;
 	return true;
       }
