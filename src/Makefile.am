@@ -55,6 +55,7 @@ libnidhugg_a_SOURCES = \
   RFSCTraceBuilder.cpp RFSCTraceBuilder.h \
   SimpTraceBuilder.cpp SimpTraceBuilder.h \
   Simp2TraceBuilder.cpp Simp2TraceBuilder.h \
+  POPTraceBuilder.cpp POPTraceBuilder.h \
   RMWAction.cpp RMWAction.h \
   VClock.cpp VClock.h VClock.tcc \
   vecset.h vecset.tcc

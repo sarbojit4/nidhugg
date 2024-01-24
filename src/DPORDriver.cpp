@@ -32,6 +32,7 @@
 #include "RFSCTraceBuilder.h"
 #include "SimpTraceBuilder.h"
 #include "Simp2TraceBuilder.h"
+#include "POPTraceBuilder.h"
 #include "RFSCUnfoldingTree.h"
 #include "Cpubind.h"
 
@@ -434,6 +435,8 @@ DPORDriver::Result DPORDriver::run(){
       TB = new SimpTraceBuilder(conf);
     }else if(conf.dpor_algorithm == Configuration::SIMP2_DPOR){
       TB = new Simp2TraceBuilder(conf);
+    }else if(conf.dpor_algorithm == Configuration::POP_DPOR){
+      TB = new POPTraceBuilder(conf);
     }else{
       TB = new TSOTraceBuilder(conf);
     }

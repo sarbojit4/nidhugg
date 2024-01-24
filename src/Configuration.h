@@ -52,7 +52,8 @@ public:
     OBSERVERS,
     READS_FROM,
     SIMP_DPOR,
-    SIMP2_DPOR
+    SIMP2_DPOR,
+    POP_DPOR
   };
   /* Assign default values to all configuration parameters. */
   Configuration(){
