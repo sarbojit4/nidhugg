@@ -131,6 +131,8 @@ int main(int argc, char *argv[]){
                   << res.sleepset_blocked_trace_count << std::endl;
       std::cout << "Sleepset-killed WS count: "
                   << res.killed_by_sleepset << std::endl;
+      std::cout << "Maximum branch count: "
+                  << res.maximum_branch_count << std::endl;
       if(res.has_errors()){
         errors_detected = true;
         std::cout << "\n Error detected:\n"

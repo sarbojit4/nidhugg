@@ -478,6 +478,8 @@ DPORDriver::Result DPORDriver::run(){
     if(conf.print_progress_estimate && (computation_count+1) % 100 == 0){
       estimate = std::round(TB->estimate_trace_count());
     }
+    res.maximum_branch_count = std::max(res.maximum_branch_count,
+					TB->current_branch_count+1);
   }while(TB->reset());
 
   if(conf.print_progress){

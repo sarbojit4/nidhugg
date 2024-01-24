@@ -1729,13 +1729,6 @@ bool POPTraceBuilder::blocked_wakeup_sequence(std::vector<Event> &seq,
   return (state == obs_wake_res::BLOCK);
 }
 
-void POPTraceBuilder::update_sleepseqs(){
-  obs_sleep_wake(prefix[prefix_idx-1].sleepseqs,
-   		 curev().iid.get_pid(), curev().sym);
-  curev().sleepseqs = std::move(prefix[prefix_idx-1].sleepseqs);
-  prefix[prefix_idx-1].sleepseqs.shrink_to_fit();
-}
-
 template <class Iter>
 static void rev_recompute_data
 (SymData &data, VecSet<SymAddr> &needed, Iter end, Iter begin){

@@ -119,8 +119,8 @@ public:
    * traces that have been seen.
    */
   virtual long double estimate_trace_count() const { return 1; }
-  int killed_by_sleepset;
-  int current_branch_count;
+  uint64_t killed_by_sleepset;
+  uint64_t current_branch_count;
 
 protected:
   const Configuration &conf;
