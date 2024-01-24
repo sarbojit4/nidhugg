@@ -2391,6 +2391,8 @@ bool POPTraceBuilder::do_race_detect() {
   assert(has_vclocks);
 
   /* Do race detection */
+  std::vector<sleepseqs_t> sleepseqs(1);
+  obs_sleep_add(sleepseqs[0], prefix[0]);
   for (unsigned j = 0; j < prefix.size(); ++j){
     // llvm::dbgs()<<i<<sleepseqs.size()<<":\n";/////////////////
     // for(auto slp : sleepseqs)
@@ -2405,17 +2407,20 @@ bool POPTraceBuilder::do_race_detect() {
       // 	      <<prefix[race.second_event].iid.get_index()<<">)\n";/////////
       assert(race.second_event == (int) j);
       std::vector<Event> v = wakeup_sequence(race);
-      sleepseqs_t sleepseqs;
       unsigned i = race.first_event;
-      for(unsigned k = 0; k < i; ++k){
-	obs_sleep_add(sleepseqs, prefix[k]);
-	obs_sleep_wake(sleepseqs, prefix[k]);
-	prefix[k].doneseqs.push_back(std::vector<Branch>());
+
+      for(unsigned k = sleepseqs.size(); k <= i; ++k){
+	assert(k > 0);
+	sleepseqs.push_back(sleepseqs[k-1]);
+	obs_sleep_wake(sleepseqs[k], prefix[k-1]);
+	obs_sleep_add(sleepseqs[k], prefix[k]);
       }
-      obs_sleep_add(sleepseqs, prefix[i]);
+
 
       /* Do insertion into the wakeup tree */
-      if(!blocked_wakeup_sequence(v,sleepseqs)){
+      if(!blocked_wakeup_sequence(v,sleepseqs[i])){
+	for(unsigned k = 0; k < i; ++k)
+	  prefix[k].doneseqs.push_back(std::vector<Branch>());
 	// llvm::dbgs()<<"Inserting WS\n";///////////
 	// std::vector<Branch> u;
         // sym_ty sym;
