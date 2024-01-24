@@ -1576,7 +1576,11 @@ bool POPTraceBuilder::obs_sleep::count(IPid p) const {
 
 void POPTraceBuilder::obs_sleep_add(sleepseqs_t &sleep,
                                     const Event &e) const{
-  sleep.insert(sleep.end(),e.doneseqs.begin(), e.doneseqs.end());
+  if(e.doneseqs.empty()) return;
+  int i;
+  for(i = e.doneseqs.size() - 1; i >= 0 ; i--)
+    if(e.doneseqs[i].empty()) break;
+  sleep.insert(sleep.end(),e.doneseqs.begin()+i, e.doneseqs.end());
 }
 
 /* Efficient unordered set delete */
