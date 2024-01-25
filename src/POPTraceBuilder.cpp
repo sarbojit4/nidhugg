@@ -1576,11 +1576,9 @@ bool POPTraceBuilder::obs_sleep::count(IPid p) const {
 
 void POPTraceBuilder::obs_sleep_add(sleepseqs_t &sleep,
                                     const Event &e) const{
-  llvm::dbgs()<<"Hello\n";
   if(e.doneseqs.empty() || e.doneseqs.back().empty()) return;
   int i;
   for(i = e.doneseqs.size() - 1; i >= 0 && e.doneseqs[i].empty(); i--);
-  //llvm::dbgs()<<i<<e.doneseqs.size()<<"Hello1\n";
   sleep.insert(sleep.end(),e.doneseqs.begin()+i, e.doneseqs.end());
 }
 
