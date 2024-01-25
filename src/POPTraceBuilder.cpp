@@ -2429,18 +2429,9 @@ bool POPTraceBuilder::do_race_detect() {
 	// }
 
 	/* Setup the new branch at prefix[i] */
-	std::shared_ptr<std::vector<Event>>
-	  prev_branch(new std::vector<Event>(prefix.begin()+i, prefix.end()));
-	std::vector<Event> prev_br(prefix.begin()+i, prefix.end());
-	sleepseqs_t doneseqs=std::move(prefix[i].doneseqs);
-	while (ssize_t(prefix.size()) > i) prefix.pop_back();
-	prefix.insert(prefix.end(), v.begin(), v.end());
-	prefix[i].prev_br = std::move(prev_branch);
-	prefix[i].doneseqs = std::move(doneseqs);
-	// if(!u.empty())
-	//   prefix.back().conflict_map.
-	//     emplace(prefix.back().conflict_map.end(),
-	// 	    u, std::vector<std::pair<IPid,sym_ty>>(), sym);
+	v[0].doneseqs=std::move(prefix[i].doneseqs);
+	prefix.take_next_branch(i, v);
+	prefix[i].sleep_branch_trace_count += estimate_trace_count(i+1);
 	current_branch_count++;
 	return true;
       }
@@ -2456,7 +2447,7 @@ bool POPTraceBuilder::backtrack_to_previous_branch(){
     if(prefix[i].schedule_head && event_is_load(prefix[i].sym)){
       doneseq_end = i;
     }
-    if(prefix[i].prev_br != nullptr){
+    if(prefix.previous_branch_exists(i)){
       for(int j = 0; j < i; j++){
 	sleepseqs_t &doneseqs = prefix[j].doneseqs;
 	while(!doneseqs.empty() && !doneseqs.back().empty() &&
@@ -2474,14 +2465,7 @@ bool POPTraceBuilder::backtrack_to_previous_branch(){
 	prefix[i].doneseqs.clear();
 	if(!doneseq.empty())
 	  doneseqs.push_back(std::move(doneseq));
-	
-	std::shared_ptr<std::vector<Event>> previous_branch = prefix[i].prev_br;
-	previous_branch->front().sleep_branch_trace_count =
-	  prefix[i].sleep_branch_trace_count + estimate_trace_count(i+1);
-	assert(i <= prefix.size());
-	while(i < prefix.size()) prefix.pop_back();
-	prefix.insert(prefix.end(), previous_branch->begin(), previous_branch->end());
-	prefix[i].doneseqs = std::move(doneseqs);
+	prefix.take_previous_branch(i, doneseqs);
 	current_branch_count--;
       }
       // TODO: Make this part work for SEQUENCE race

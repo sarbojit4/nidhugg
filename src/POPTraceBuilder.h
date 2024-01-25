@@ -445,11 +445,8 @@ protected:
   public:
     Event(const IID<IPid> &iid, sym_ty sym = {}, int alt = 0, size_t size = 1)
       : iid(iid), origin_iid(iid), alt(alt), size(size), md(0), clock(),
-	may_conflict(false), sym(std::move(sym)), prev_br(nullptr),
-	schedule(false), schedule_head(false), sleep_branch_trace_count(0) {}
-    ~Event(){
-      prev_br.reset();
-    }
+	may_conflict(false), sym(std::move(sym)), schedule(false),
+	schedule_head(false), sleep_branch_trace_count(0) {}
     /* The identifier for the first event in this event sequence. */
     IID<IPid> iid;
     /* The IID of the program instruction which is the origin of this
@@ -504,7 +501,6 @@ protected:
       
     };
     std::list<conflict_t> conflict_map;
-    std::shared_ptr<std::vector<Event>> prev_br;
     bool schedule;
     bool schedule_head;
     /* For each previous IID that has been explored at this position
@@ -521,7 +517,86 @@ protected:
    * execution, or the events executed followed by the subsequent
    * events that are determined in advance to be executed.
    */
-  std::vector<Event> prefix;
+  class Prefix_t{
+  private:
+    struct HistoryStep{
+      Event event;
+      HistoryStep *prev_br;
+      HistoryStep *next;
+      HistoryStep(const Event &e) :event(e) { prev_br = next = nullptr; }
+      ~HistoryStep() {
+        delete(prev_br);
+        delete(next);
+      }
+    };
+    std::vector<HistoryStep*> curexec;
+  public:
+    Prefix_t() {}
+    size_t size() const { return curexec.size(); }
+    Event &operator[](int i) {
+      assert(0 <= i < curexec.size());
+      return curexec[i]->event;
+    }
+    const Event &operator[](int i) const{
+      assert(0 <= i < curexec.size());
+      return curexec[i]->event;
+    }
+    Event &back() {
+      assert(!curexec.empty());
+      return curexec.back()->event;
+    }
+    const Event &back() const{
+      assert(!curexec.empty());
+      return curexec.back()->event;
+    }
+    void push_back(const Event &e) {
+      curexec.push_back(new HistoryStep(e));
+      if(1 < curexec.size())
+	curexec[curexec.size()-2]->next = curexec.back();
+    }
+    void pop_back() {
+      assert(curexec.size());
+      curexec.pop_back();
+      if(!curexec.empty()){
+	delete(curexec.back()->next);
+	curexec.back()->next = nullptr;
+      }
+    }
+    void take_next_branch(int i, const std::vector<Event> &v) {
+      assert(0 <= i < size());
+      auto prev_br = curexec[i];
+      if(0 < i) curexec[i-1]->next = nullptr;
+      curexec.resize(i);
+      for(int i = 0; i != v.size(); i++) {
+	push_back(v[i]);
+      }
+      curexec[i]->prev_br = prev_br;
+    }
+    bool previous_branch_exists(int i){
+      assert(0 <= i < size());
+      return (curexec[i]->prev_br != nullptr);
+    }
+    void take_previous_branch(int i, sleepseqs_t &doneseqs){
+      assert(0 <= i < size());
+      assert(curexec[i]->prev_br != nullptr);
+      auto prev_br = curexec[i]->prev_br;
+      curexec[i]->prev_br = nullptr;
+      
+      Event ev = prev_br->event;
+      ev.doneseqs = std::move(doneseqs);
+      auto updated_br = new HistoryStep(ev);
+      updated_br->next = prev_br->next;
+      prev_br->next = nullptr;
+      delete(prev_br);
+      
+      while(i < curexec.size()) pop_back();
+      curexec.back()->next = updated_br;
+      while(curexec.back()->next != nullptr)
+	curexec.push_back(curexec.back()->next);
+    }
+  };
+
+  Prefix_t prefix;
   std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
   std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
 
