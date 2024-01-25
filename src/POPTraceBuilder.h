@@ -434,7 +434,24 @@ protected:
     blocked_awaits;
 
   typedef std::vector<std::vector<Branch>> sleepseqs_t;
-  struct ExecStep;
+  
+  struct conflict_t{
+    std::vector<Branch> H;
+    std::vector<std::pair<IPid,sym_ty>> C;
+    conflict_t(std::vector<Branch> h,
+	       std::vector<std::pair<IPid,sym_ty>> c) : H(h), C(c) {}  
+  };
+  typedef std::vector<std::pair<SymAddrSize,std::vector<conflict_t>>> conflict_map_t;
+  bool conflict_with_hc(IPid p, const sym_ty &sym, conflict_t &hc);
+  enum class update_conflict_res {
+    CLEAR,
+    CONTINUE,
+    BLOCK,
+  };
+  void add_conflict_map(conflict_map_t &conflict_map,
+		    const conflict_map_t &local_conflict_map);
+  update_conflict_res update_conflict_map(conflict_map_t &conflict_map,
+		      IPid p, const sym_ty &sym);
   
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts
@@ -491,16 +508,8 @@ protected:
      */
     sleepseqs_t doneseqs;
     sleepseqs_t sleepseqs;
-    struct conflict_t{
-      std::vector<Branch> H;
-      std::vector<std::pair<IPid,sym_ty>> C;
-      sym_ty sym;
-      conflict_t(std::vector<Branch> h,
-		 std::vector<std::pair<IPid,sym_ty>> c,
-		 sym_ty s) : H(h), C(c), sym(s) {}
-      
-    };
-    std::list<conflict_t> conflict_map;
+    conflict_map_t local_conflict_map;
+    conflict_map_t conflict_map;
     bool schedule;
     bool schedule_head;
     /* For each previous IID that has been explored at this position
@@ -871,7 +880,8 @@ protected:
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Event> wakeup_sequence(const Race&) const;
   bool blocked_wakeup_sequence(std::vector<Event> &seq,
-			       const sleepseqs_t &sleepseqs);
+			       const sleepseqs_t &sleepseqs,
+			       const conflict_map_t conflict_map);
   void update_sleepseqs();
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */

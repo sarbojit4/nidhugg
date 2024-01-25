@@ -1567,6 +1567,65 @@ bool POPTraceBuilder::register_alternatives(int alt_count){
   return true;
 }
 
+
+void POPTraceBuilder::add_conflict_map(conflict_map_t &conflict_map,
+					 const conflict_map_t &local_conflict_map){
+  for(const auto &local_cfl : local_conflict_map){
+    bool found =false;
+    for(auto &cfl : conflict_map){
+      if(local_cfl.first == cfl.first){
+	for(const auto &c : local_cfl.second)
+	  cfl.second.push_back(c);
+	found = true;
+	break;
+      }
+    }
+    if(!found) conflict_map.push_back(local_cfl);
+  }
+}
+
+bool POPTraceBuilder::conflict_with_hc(IPid p, const sym_ty &sym, conflict_t &hc){
+  bool conflict=false;
+  for(const auto &e : hc.C){
+    if(do_events_conflict(p, sym, e.first, e.second)) return true;
+  }
+
+  for(auto hit = hc.H.begin(); hit != hc.H.end(); hit++){
+    if(hit->pid == p){
+      hc.H.erase(hit);
+      return false;
+    }
+    else if (do_events_conflict(p, sym, hit->pid, hit->sym)){
+      return true;
+    }
+  }
+  return false;
+}
+
+POPTraceBuilder::update_conflict_res
+POPTraceBuilder::update_conflict_map(conflict_map_t &conflict_map,
+				      IPid p, const sym_ty &sym){
+  bool all_clear = true;
+  for(auto &cfl : conflict_map){
+    if(cfl.second.empty()) continue;
+    for(const auto &symev : sym){
+      if(symev_does_store(symev) && symev.addr() == cfl.first){
+	cfl.second.clear();
+	continue;
+      }
+    }
+    all_clear = false;
+    for(auto &hc : cfl.second){
+      if(conflict_with_hc(p, sym, hc)){
+	hc.C.emplace_back(p,sym);
+	return update_conflict_res::BLOCK;
+      }
+    }
+  }
+  if(all_clear) return update_conflict_res::CLEAR;
+  else return update_conflict_res::CONTINUE;
+}
+
 bool POPTraceBuilder::obs_sleep::count(IPid p) const {
   return std::any_of(sleep.begin(), sleep.end(),
                      [p](const struct sleeper &s) {
@@ -1716,16 +1775,29 @@ static void clear_observed(sym_ty &syms){
 }
 
 bool POPTraceBuilder::blocked_wakeup_sequence(std::vector<Event> &seq,
-			     const sleepseqs_t &sleepseqs){
+					      const sleepseqs_t &sleepseqs,
+					      const conflict_map_t conflict_map){
   sleepseqs_t isleepseqs = sleepseqs;
-  obs_wake_res state = obs_wake_res::CONTINUE;
-  for (auto it = seq.cbegin(); state == obs_wake_res::CONTINUE
-         && it != seq.cend(); ++it) {
-    state = obs_sleep_wake(isleepseqs, it->iid.get_pid(), it->sym);
+  conflict_map_t iconflict_map = conflict_map;
+  bool incompatible = false;
+
+  obs_wake_res sleep_state = obs_wake_res::CONTINUE;
+  update_conflict_res conflict_state = update_conflict_res::CONTINUE;
+  for (auto it = seq.cbegin();
+       (sleep_state == obs_wake_res::CONTINUE ||
+	conflict_state == update_conflict_res::CONTINUE) && it != seq.cend();
+       ++it) {
+    if(sleep_state != obs_wake_res::BLOCK)
+      sleep_state = obs_sleep_wake(isleepseqs, it->iid.get_pid(), it->sym);
+    if(conflict_state != update_conflict_res::BLOCK)
+      update_conflict_map(iconflict_map, it->iid.get_pid(), it->sym);
   }
   seq.back().sleepseqs=std::move(isleepseqs);
+  seq.back().conflict_map = std::move(iconflict_map);
+  
   /* Redundant */
-  return (state == obs_wake_res::BLOCK);
+  return (sleep_state == obs_wake_res::BLOCK ||
+	  conflict_state == update_conflict_res::BLOCK);// || incompatible);
 }
 
 template <class Iter>
@@ -2388,7 +2460,9 @@ bool POPTraceBuilder::do_race_detect() {
 
   /* Do race detection */
   std::vector<sleepseqs_t> sleepseqs(1);
+  std::vector<conflict_map_t> conflict_maps(1);
   obs_sleep_add(sleepseqs[0], prefix[0]);
+  add_conflict_map(conflict_maps[0], prefix[0].local_conflict_map);
   for (unsigned j = 0; j < prefix.size(); ++j){
     // llvm::dbgs()<<i<<sleepseqs.size()<<":\n";/////////////////
     // for(auto slp : sleepseqs)
@@ -2408,25 +2482,26 @@ bool POPTraceBuilder::do_race_detect() {
       for(unsigned k = sleepseqs.size(); k <= i; ++k){
 	assert(k > 0);
 	sleepseqs.push_back(sleepseqs[k-1]);
+	conflict_maps.push_back(conflict_maps[k-1]);
 	obs_sleep_wake(sleepseqs[k], prefix[k-1]);
+	update_conflict_map(conflict_maps[k], prefix[k-1].iid.get_pid(), prefix[k-1].sym);
 	obs_sleep_add(sleepseqs[k], prefix[k]);
+	add_conflict_map(conflict_maps[k], prefix[k].local_conflict_map);
       }
 
 
       /* Do insertion into the wakeup tree */
-      if(!blocked_wakeup_sequence(v,sleepseqs[i])){
+      if(!blocked_wakeup_sequence(v,sleepseqs[i], conflict_maps[i])){
 	for(unsigned k = 0; k < i; ++k)
 	  prefix[k].doneseqs.push_back(std::vector<Branch>());
 	// llvm::dbgs()<<"Inserting WS\n";///////////
-	// std::vector<Branch> u;
-        // sym_ty sym;
-	// if(event_is_load(prefix[race.second_event].sym)){
-	//   for(int j = i+1, k = 0; j < prefix.size(); j++, k++){
-	//     if(prefix[i].iid.get_pid() == v[k].iid.get_pid()) k++;
-	//     else u.push_back(branch_with_symbolic_data(i));
-	//   }
-	//   sym = prefix[i].sym;
-	// }
+	std::vector<Branch> u;
+	if(!u.empty()){
+	  for(auto &cflset : prefix.back().local_conflict_map)
+	    for(const auto &se : prefix.back().sym)
+	      if(cflset.first == se.addr())
+		cflset.second.emplace_back(u, std::vector<std::pair<IPid,sym_ty>>());
+	}
 
 	sleepseqs_t doneseqs = std::move(prefix[i].doneseqs);
 	/* Setup the new branch at prefix[i] */
