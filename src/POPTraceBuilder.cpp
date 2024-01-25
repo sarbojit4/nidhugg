@@ -2457,15 +2457,25 @@ bool POPTraceBuilder::backtrack_to_previous_branch(){
       doneseq_end = i;
     }
     if(prefix[i].prev_br != nullptr){
+      for(int j = 0; j < i; j++){
+	sleepseqs_t &doneseqs = prefix[j].doneseqs;
+	while(!doneseqs.empty() && !doneseqs.back().empty() &&
+	      i < find_process_event(doneseqs.back().back().pid,
+				     doneseqs.back().back().index))
+	  doneseqs.pop_back();
+	if(!doneseqs.empty()) doneseqs.pop_back();
+      }
       bool flag = false;
       {
 	std::vector<Branch> doneseq;
 	for(int j = i; j <=doneseq_end; j++)
 	  doneseq.push_back(branch_with_symbolic_data(j));
-	std::shared_ptr<std::vector<Event>> previous_branch = prefix[i].prev_br;
 	sleepseqs_t doneseqs = std::move(prefix[i].doneseqs);
+	prefix[i].doneseqs.clear();
 	if(!doneseq.empty())
 	  doneseqs.push_back(std::move(doneseq));
+	
+	std::shared_ptr<std::vector<Event>> previous_branch = prefix[i].prev_br;
 	previous_branch->front().sleep_branch_trace_count =
 	  prefix[i].sleep_branch_trace_count + estimate_trace_count(i+1);
 	assert(i <= prefix.size());
@@ -2476,14 +2486,6 @@ bool POPTraceBuilder::backtrack_to_previous_branch(){
       }
       // TODO: Make this part work for SEQUENCE race
       /* Keep the doneseqs that came from reversing races from the backtracked sequence */
-      for(int j = 0; j < i; j++){
-	sleepseqs_t &doneseqs = prefix[j].doneseqs;
-	while(!doneseqs.empty() && !doneseqs.back().empty() &&
-	      i < find_process_event(doneseqs.back().back().pid,
-				     doneseqs.back().back().index))
-	  doneseqs.pop_back();
-	if(!doneseqs.empty()) doneseqs.pop_back();
-      }
       return true;
     }
   }
