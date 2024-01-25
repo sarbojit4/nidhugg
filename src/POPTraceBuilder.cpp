@@ -2428,9 +2428,10 @@ bool POPTraceBuilder::do_race_detect() {
 	//   sym = prefix[i].sym;
 	// }
 
+	sleepseqs_t doneseqs = std::move(prefix[i].doneseqs);
 	/* Setup the new branch at prefix[i] */
-	v[0].doneseqs=std::move(prefix[i].doneseqs);
 	prefix.take_next_branch(i, v);
+	prefix[i].doneseqs = std::move(prefix[i].doneseqs);
 	prefix[i].sleep_branch_trace_count += estimate_trace_count(i+1);
 	current_branch_count++;
 	return true;
@@ -2465,7 +2466,8 @@ bool POPTraceBuilder::backtrack_to_previous_branch(){
 	prefix[i].doneseqs.clear();
 	if(!doneseq.empty())
 	  doneseqs.push_back(std::move(doneseq));
-	prefix.take_previous_branch(i, doneseqs);
+	prefix.take_previous_branch(i);
+	prefix[i].doneseqs = std::move(prefix[i].doneseqs);
 	current_branch_count--;
       }
       // TODO: Make this part work for SEQUENCE race

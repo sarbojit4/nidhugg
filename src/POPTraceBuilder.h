@@ -576,21 +576,13 @@ protected:
       assert(0 <= i < size());
       return (curexec[i]->prev_br != nullptr);
     }
-    void take_previous_branch(int i, sleepseqs_t &doneseqs){
+    void take_previous_branch(int i){
       assert(0 <= i < size());
       assert(curexec[i]->prev_br != nullptr);
       auto prev_br = curexec[i]->prev_br;
       curexec[i]->prev_br = nullptr;
-      
-      Event ev = prev_br->event;
-      ev.doneseqs = std::move(doneseqs);
-      auto updated_br = new HistoryStep(ev);
-      updated_br->next = prev_br->next;
-      prev_br->next = nullptr;
-      delete(prev_br);
-      
       while(i < curexec.size()) pop_back();
-      curexec.back()->next = updated_br;
+      curexec.back()->next = prev_br;
       while(curexec.back()->next != nullptr)
 	curexec.push_back(curexec.back()->next);
     }
