@@ -1660,10 +1660,12 @@ bool POPTraceBuilder::obs_sleep::count(IPid p) const {
 
 void POPTraceBuilder::obs_sleep_add(sleepseqs_t &sleep,
                                     const Event &e) const{
-  if(e.doneseqs.empty() || e.doneseqs.back().empty()) return;
-  int i;
-  for(i = e.doneseqs.size() - 1; i >= 0 && e.doneseqs[i].empty(); i--);
-  sleep.insert(sleep.end(),e.doneseqs.begin()+i, e.doneseqs.end());
+  //  if(e.doneseqs.empty() || e.doneseqs.back().empty()) return;
+  //int i;
+  //for(i = e.doneseqs.size() - 1; i >= 0 && e.doneseqs[i].empty(); i--);
+  for(const auto &seq : e.doneseqs)
+    if(!seq.empty()) sleep.push_back(seq);
+  //sleep.insert(sleep.end(),e.doneseqs.begin(), e.doneseqs.end());
 }
 
 /* Efficient unordered set delete */
@@ -1797,25 +1799,25 @@ bool POPTraceBuilder::blocked_wakeup_sequence(std::vector<Event> &seq,
 					      const conflict_map_t &conflict_map){
   sleepseqs_t isleepseqs = sleepseqs;
   conflict_map_t iconflict_map = conflict_map;
-  bool incompatible = false;
-
+  
+  // llvm::dbgs()<<"Checking redundancy\n";/////////////////
   obs_wake_res sleep_state = obs_wake_res::CONTINUE;
   update_conflict_res conflict_state = update_conflict_res::CONTINUE;
   for (auto it = seq.cbegin();
        (sleep_state == obs_wake_res::CONTINUE ||
 	conflict_state == update_conflict_res::CONTINUE) && it != seq.cend();
        ++it) {
-    if(sleep_state != obs_wake_res::BLOCK)
-      sleep_state = obs_sleep_wake(isleepseqs, it->iid.get_pid(), it->sym);
-    if(conflict_state != update_conflict_res::BLOCK)
-      conflict_state = update_conflict_map(iconflict_map, it->iid.get_pid(), it->sym);
+    sleep_state = obs_sleep_wake(isleepseqs, it->iid.get_pid(), it->sym);
+    if(sleep_state == obs_wake_res::BLOCK) break;
+    conflict_state = update_conflict_map(iconflict_map, it->iid.get_pid(), it->sym);
+    if(conflict_state == update_conflict_res::BLOCK) break;
   }
   seq.back().sleepseqs=std::move(isleepseqs);
   seq.back().conflict_map = std::move(iconflict_map);
   
   /* Redundant */
   return (sleep_state == obs_wake_res::BLOCK ||
-	  conflict_state == update_conflict_res::BLOCK);// || incompatible);
+	  conflict_state == update_conflict_res::BLOCK);
 }
 
 template <class Iter>
@@ -2496,13 +2498,13 @@ bool POPTraceBuilder::do_race_detect() {
     while(!prefix[j].races.empty()) {
       Race race = prefix[j].races.back();
       prefix[j].races.pop_back();
+      assert(race.second_event == (int) j);
+      std::vector<Event> v = wakeup_sequence(race);
+      unsigned i = race.first_event;
       // llvm::dbgs()<<"Race (<"<<threads[prefix[i].iid.get_pid()].cpid<<","
       // 	      <<prefix[i].iid.get_index()<<">,<"
       // 	      <<threads[prefix[race.second_event].iid.get_pid()].cpid
       // 	      <<prefix[race.second_event].iid.get_index()<<">)\n";/////////
-      assert(race.second_event == (int) j);
-      std::vector<Event> v = wakeup_sequence(race);
-      unsigned i = race.first_event;
 
       for(unsigned k = sleepseqs.size(); k <= i; ++k){
 	assert(k > 0);
