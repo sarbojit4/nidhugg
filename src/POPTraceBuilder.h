@@ -324,7 +324,7 @@ protected:
       : sym(std::move(sym)), pid(pid), alt(alt), size(1),
 	schedule(false), schedule_head(false) {}
     Branch (const Event &base, sym_ty sym)
-      : sym(std::move(sym)), pid(base.iid.get_pid()), index(base.iid.get_pid()),
+      : sym(std::move(sym)), pid(base.iid.get_pid()), index(base.iid.get_index()),
 	alt(base.alt), size(base.size),
 	schedule(false), schedule_head(false) {}
 
@@ -881,7 +881,7 @@ protected:
   std::vector<Event> wakeup_sequence(const Race&) const;
   bool blocked_wakeup_sequence(std::vector<Event> &seq,
 			       const sleepseqs_t &sleepseqs,
-			       const conflict_map_t conflict_map);
+			       const conflict_map_t &conflict_map);
   void update_sleepseqs();
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
