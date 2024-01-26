@@ -539,6 +539,29 @@ void POPTraceBuilder::check_symev_vclock_equiv() const {
 }
 #endif /* !defined(NDEBUG) */
 
+std::string POPTraceBuilder::conflict_map_to_string(const conflict_t &cfl) const {
+  std::string s = "<(";
+  for(const auto &br : cfl.H) s += "<" + std::to_string(br.pid) + "," +
+				std::to_string(br.index) + ">,";
+  if(!cfl.H.empty()) s.pop_back();
+  s += "),\n     {";
+  for(const auto &p : cfl.C) s += "<" + std::to_string(p.first) + "," +
+			       events_to_string(p.second) + ">,";
+  if(!cfl.C.empty()) s.pop_back();
+  s += "}>\n";
+  return s;
+}
+
+void POPTraceBuilder::
+print_conflict_map(const conflict_map_t conflict_map) const {
+  for(const auto &cfl : conflict_map) {
+    llvm::dbgs()<<cfl.first.to_string()<<"->\n";
+    for(const auto &c : cfl.second) {
+      llvm::dbgs()<<conflict_map_to_string(c);
+    }
+  }
+}
+
 void POPTraceBuilder::debug_print() const {
   llvm::dbgs() << "POPTraceBuilder (debug print):\n";
   int iid_offs = 0;

@@ -442,6 +442,8 @@ protected:
 	       std::vector<std::pair<IPid,sym_ty>> c) : H(h), C(c) {}  
   };
   typedef std::vector<std::pair<SymAddrSize,std::vector<conflict_t>>> conflict_map_t;
+  std::string conflict_map_to_string(const conflict_t &cfl) const;
+  void print_conflict_map(const conflict_map_t conflict_map) const;
   bool conflict_with_hc(IPid p, const sym_ty &sym, conflict_t &hc);
   enum class update_conflict_res {
     CLEAR,
