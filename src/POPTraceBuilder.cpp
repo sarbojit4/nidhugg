@@ -144,8 +144,10 @@ bool POPTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
           clear_observed(event.sym);
         for (SymEv &e : event.sym) e.purge_data();
       }
-      obs_sleep_wake(prefix[prefix_idx].sleepseqs,
-   		 curev().iid.get_pid(), curev().sym);
+      if(end_of_ws < prefix_idx){
+	curev().sleepseqs = std::move(prefix[prefix_idx-1].sleepseqs);
+	obs_sleep_wake(curev().sleepseqs, curev().iid.get_pid(), curev().sym);
+      }
     }
   }
 
@@ -2518,7 +2520,7 @@ bool POPTraceBuilder::do_race_detect() {
 
 
       /* Do insertion into the wakeup tree */
-      if(!blocked_wakeup_sequence(v,sleepseqs[i], conflict_maps[i])){
+      if(!blocked_wakeup_sequence(v, sleepseqs[i], conflict_maps[i])){
 	for(unsigned k = 0; k < i; ++k)
 	  prefix[k].doneseqs.push_back(std::vector<Branch>());
 	// llvm::dbgs()<<"Inserting WS\n";///////////
@@ -2553,7 +2555,7 @@ bool POPTraceBuilder::do_race_detect() {
 
 	sleepseqs_t doneseqs = std::move(prefix[i].doneseqs);
 	/* Setup the new branch at prefix[i] */
-	sleepseqs_t last_sleepseqs = std::move(prefix.back().sleepseqs);
+	sleepseqs_t last_sleepseqs = std::move(v.back().sleepseqs);
         auto last_conflict_map = std::move(prefix.back().conflict_map);
 	prefix.take_next_branch(i, v);
 	prefix[i].doneseqs = std::move(doneseqs);
