@@ -151,7 +151,7 @@ public:
 
 struct SymAddrSize {
 public:
-  SymAddrSize(SymAddr addr, uintptr_t size)
+  SymAddrSize(SymAddr addr = SymAddr(), uintptr_t size = 0)
     : addr(std::move(addr)), size(size) {
     assert(size <= UINT16_MAX);
   }

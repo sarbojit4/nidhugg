@@ -96,6 +96,7 @@ public:
    * termination of another thread.
    */
   virtual void refuse_schedule() = 0;
+  virtual bool check_conflict_set_blocked(const SymAddrSize &addr) { return false; }
   /* Notify the TraceBuilder that (proc,aux) is available for
    * scheduling.
    */

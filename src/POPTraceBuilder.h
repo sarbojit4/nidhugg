@@ -43,6 +43,7 @@ public:
   ~POPTraceBuilder() override;
   bool schedule(int *proc, int *aux, int *alt, bool *dryrun) override;
   void refuse_schedule() override;
+  bool check_conflict_set_blocked(const SymAddrSize &addr) override;
   void mark_available(int proc, int aux = -1) override;
   void mark_unavailable(int proc, int aux = -1) override;
   void cancel_replay() override;
@@ -152,7 +153,7 @@ protected:
   public:
     Thread(const CPid &cpid, int spawn_event)
       : cpid(cpid), available(true), spawn_event(spawn_event), sleeping(false),
-        sleep_full_memory_conflict(false), sleep_sym(nullptr) {}
+        conflicting(false), sleep_full_memory_conflict(false), sleep_sym(nullptr) {}
     CPid cpid;
     /* Is the thread available for scheduling? */
     bool available;
@@ -171,6 +172,10 @@ protected:
     std::vector<PendingStore> store_buffer;
     /* True iff this thread is currently in the sleep set. */
     bool sleeping;
+    /* True if the next event from this thread is a read and it is
+     * conflicting with conflict map */
+    bool conflicting;
+    SymAddrSize conflict_addr;
     /* sleep_accesses_r is the set of bytes that will be read by the
      * next event to be executed by this thread (as determined by dry
      * running).

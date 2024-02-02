@@ -32,6 +32,19 @@
 
 static void clear_observed(sym_ty &syms);
 
+static bool symev_does_store(const SymEv &e) {
+  return e.kind == SymEv::UNOBS_STORE || e.kind == SymEv::STORE
+    || e.kind == SymEv::CMPXHG || e.kind == SymEv::RMW
+    || e.kind == SymEv::XCHG_AWAIT;
+}
+
+static bool event_does_store(const sym_ty &sym) {
+  for(SymEv s : sym){
+    if(symev_does_store(s)) return true;
+  }
+  return false;
+}
+
 POPTraceBuilder::POPTraceBuilder(const Configuration &conf) : TSOPSOTraceBuilder(conf) {
   threads.push_back(Thread(CPid(), -1));
   threads.push_back(Thread(CPS.new_aux(CPid()), -1));
@@ -147,6 +160,9 @@ bool POPTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
       if(end_of_ws < prefix_idx){
 	curev().sleepseqs = std::move(prefix[prefix_idx-1].sleepseqs);
 	obs_sleep_wake(curev().sleepseqs, curev().iid.get_pid(), curev().sym);
+	curev().conflict_map = std::move(prefix[prefix_idx-1].conflict_map);
+	update_conflict_map(curev().conflict_map,
+			    curev().iid.get_pid(), curev().sym);
       }
     }
   }
@@ -158,6 +174,13 @@ bool POPTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
     for(auto &th : threads) th.sleeping = false;
     for(auto seq : curev().sleepseqs)
       if(seq.size() == 1) threads[seq.front().pid].sleeping = true;
+
+    if(event_does_store(curev().sym))
+       for(auto &th : threads)
+	 if(th.conflicting)
+	   for(const auto &e :curev().sym)
+	     if(threads[curev().iid.get_pid()].conflict_addr == e.addr())
+	       threads[curev().iid.get_pid()].conflicting = false;
   }
 
   /* Find an available thread (auxiliary or real).
@@ -181,7 +204,7 @@ bool POPTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   // }
 
   for(p = 0; p < sz; p += 2){ // Loop through real threads
-    if(threads[p].available && !threads[p].sleeping &&
+    if(threads[p].available && !threads[p].sleeping && !threads[p].conflicting &&
        (conf.max_search_depth < 0 || threads[p].last_event_index() < conf.max_search_depth)){
       threads[p].event_indices.push_back(++prefix_idx);
       assert(prefix_idx == int(prefix.size()));
@@ -206,6 +229,28 @@ void POPTraceBuilder::refuse_schedule(){
   threads[last_pid].event_indices.pop_back();
   --prefix_idx;
   mark_unavailable(last_pid/2,last_pid % 2 - 1);
+}
+
+bool POPTraceBuilder::check_conflict_set_blocked(const SymAddrSize &addr){
+  assert(prefix_idx == int(prefix.size())-1);
+  assert(prefix.back().size == 1);
+  assert(prefix.back().doneseqs.empty());
+  IPid last_pid = prefix.back().iid.get_pid();
+  for(auto &cfl : prefix[prefix.size()-1].conflict_map){
+    if(addr != cfl.first) continue;
+    for(auto &hc : cfl.second)
+      if(conflict_with_hc(last_pid, sym_ty(1, SymEv::Load(addr)), hc)){
+	IPid last_pid = prefix.back().iid.get_pid();
+	prefix.pop_back();
+	assert(int(threads[last_pid].event_indices.back()) == prefix_idx);
+	threads[last_pid].event_indices.pop_back();
+	--prefix_idx;
+	threads[last_pid/2].conflicting = true;
+	threads[last_pid/2].conflict_addr = addr;
+	return true;
+      }
+  }
+  return false;
 }
 
 void POPTraceBuilder::mark_available(int proc, int aux){
@@ -669,12 +714,6 @@ bool POPTraceBuilder::atomic_store(const SymData &sd){
 
 static bool symev_is_store(const SymEv &e) {
   return e.kind == SymEv::UNOBS_STORE || e.kind == SymEv::STORE;
-}
-
-static bool symev_does_store(const SymEv &e) {
-  return e.kind == SymEv::UNOBS_STORE || e.kind == SymEv::STORE
-    || e.kind == SymEv::CMPXHG || e.kind == SymEv::RMW
-    || e.kind == SymEv::XCHG_AWAIT;
 }
 
 static bool symev_does_load(const SymEv &e) {
