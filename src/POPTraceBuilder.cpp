@@ -1651,7 +1651,10 @@ void POPTraceBuilder::add_conflict_map(conflict_map_t &conflict_map,
 bool POPTraceBuilder::conflict_with_hc(IPid p, const sym_ty &sym, conflict_t &hc){
   bool conflict=false;
   for(const auto &e : hc.C){
-    if(do_events_conflict(p, sym, e.first, e.second)) return true;
+    if(conflict)
+      if(e.first == p) return true;
+    else if(do_events_conflict(p, sym, e.first, e.second))
+      conflict = true;
   }
 
   for(auto hit = hc.H.begin(); hit != hc.H.end(); hit++){
