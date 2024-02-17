@@ -232,7 +232,7 @@ void POPTraceBuilder::refuse_schedule(){
 }
 
 bool POPTraceBuilder::check_conflict_set_blocked(const SymAddrSize &addr){
-  assert(prefix_idx == int(prefix.size())-1);
+  if(prefix_idx == int(prefix.size())-1) return false;
   assert(prefix.back().size == 1);
   assert(prefix.back().doneseqs.empty());
   IPid last_pid = prefix.back().iid.get_pid();
@@ -602,9 +602,9 @@ std::string POPTraceBuilder::conflict_map_to_string(const conflict_t &cfl) const
 void POPTraceBuilder::
 print_conflict_map(const conflict_map_t conflict_map) const {
   for(const auto &cfl : conflict_map) {
-    llvm::dbgs()<<cfl.first.to_string()<<"->\n";
+    llvm::dbgs() << cfl.first.to_string()<<"->\n";
     for(const auto &c : cfl.second) {
-      llvm::dbgs()<<conflict_map_to_string(c);
+      llvm::dbgs() << conflict_map_to_string(c);
     }
   }
 }

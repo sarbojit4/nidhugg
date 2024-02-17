@@ -550,11 +550,11 @@ protected:
     Prefix_t() {}
     size_t size() const { return curexec.size(); }
     Event &operator[](int i) {
-      assert(0 <= i < curexec.size());
+      assert(0 <= i && i < int(curexec.size()));
       return curexec[i]->event;
     }
     const Event &operator[](int i) const{
-      assert(0 <= i < curexec.size());
+      assert(0 <= i && i < int(curexec.size()));
       return curexec[i]->event;
     }
     Event &back() {
@@ -579,7 +579,7 @@ protected:
       }
     }
     void take_next_branch(int i, const std::vector<Event> &v) {
-      assert(0 <= i < size());
+      assert(0 <= i && i < size());
       auto prev_br = curexec[i];
       if(0 < i) curexec[i-1]->next = nullptr;
       curexec.resize(i);
@@ -589,11 +589,11 @@ protected:
       curexec[i]->prev_br = prev_br;
     }
     bool previous_branch_exists(int i){
-      assert(0 <= i < size());
+      assert(0 <= i && i < size());
       return (curexec[i]->prev_br != nullptr);
     }
     void take_previous_branch(int i){
-      assert(0 <= i < size());
+      assert(0 <= i && i < size());
       assert(curexec[i]->prev_br != nullptr);
       auto prev_br = curexec[i]->prev_br;
       curexec[i]->prev_br = nullptr;
