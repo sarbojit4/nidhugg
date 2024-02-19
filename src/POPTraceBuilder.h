@@ -440,24 +440,35 @@ protected:
 
   typedef std::vector<std::vector<Branch>> sleepseqs_t;
   
-  struct conflict_t{
+  struct cfl_detector_t{
     std::vector<Branch> H;
     std::vector<std::pair<IPid,sym_ty>> C;
-    conflict_t(std::vector<Branch> h,
-	       std::vector<std::pair<IPid,sym_ty>> c) : H(h), C(c) {}  
+    int cfl_th_ind;
+    cfl_detector_t(std::vector<Branch> h,
+		   std::vector<std::pair<IPid,sym_ty>> c,
+		   int i = 0) : H(h), C(c), cfl_th_ind(i) {}  
   };
-  typedef std::vector<std::pair<SymAddrSize,std::vector<conflict_t>>> conflict_map_t;
-  std::string conflict_map_to_string(const conflict_t &cfl) const;
-  void print_conflict_map(const conflict_map_t conflict_map) const;
-  bool conflict_with_hc(IPid p, const sym_ty &sym, conflict_t &hc);
+
+  struct conflict_map_t{
+    SymAddrSize addr;
+    std::vector<CPid> cfl_threads;
+    std::vector<cfl_detector_t> cfl_detectors;
+    conflict_map_t(SymAddrSize _addr,
+		   std::vector<cfl_detector_t> &&cfl_detectors) :
+      addr(_addr), cfl_detectors(cfl_detectors) {}
+  };
+
+  std::string conflict_map_to_string(const cfl_detector_t &hc) const;
+  void print_conflict_map(const std::vector<conflict_map_t> conflict_map) const;
+  bool conflict_with_hc(IPid p, const sym_ty &sym, cfl_detector_t &hc);
   enum class update_conflict_res {
     CLEAR,
     CONTINUE,
     BLOCK,
   };
-  void add_conflict_map(conflict_map_t &conflict_map,
-		    const conflict_map_t &local_conflict_map);
-  update_conflict_res update_conflict_map(conflict_map_t &conflict_map,
+  void add_conflict_map(std::vector<conflict_map_t> &conflict_map,
+		    const std::vector<conflict_map_t> &local_conflict_map);
+  update_conflict_res update_conflict_map(std::vector<conflict_map_t> &conflict_map,
 		      IPid p, const sym_ty &sym);
   
   /* Information about a (short) sequence of consecutive events by the
@@ -515,8 +526,8 @@ protected:
      */
     sleepseqs_t doneseqs;
     sleepseqs_t sleepseqs;
-    conflict_map_t local_conflict_map;
-    conflict_map_t conflict_map;
+    std::vector<conflict_map_t> local_conflict_map;
+    std::vector<conflict_map_t> conflict_map;
     bool schedule;
     bool schedule_head;
     /* For each previous IID that has been explored at this position
@@ -888,7 +899,7 @@ protected:
   std::vector<Event> wakeup_sequence(const Race&) const;
   bool blocked_wakeup_sequence(std::vector<Event> &seq,
 			       const sleepseqs_t &sleepseqs,
-			       const conflict_map_t &conflict_map);
+			       const std::vector<conflict_map_t> &conflict_map);
   void update_sleepseqs();
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */

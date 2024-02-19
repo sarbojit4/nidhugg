@@ -56,6 +56,7 @@ public:
   /* Returns the CPid <p0.....pn/i> where this CPid is <p0.....pn>.
    */
   CPid aux(int i) const;
+  bool is_ancestor(const CPid &c) const;
   /* Returns the CPid <p0.....pn> where this CPid is either
    * <p0.....pn.pn1> or <pr.....pn/i>.
    */

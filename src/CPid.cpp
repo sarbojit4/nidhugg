@@ -85,6 +85,18 @@ std::string CPid::to_string() const{
   return ss.str();
 }
 
+bool CPid::is_ancestor(const CPid &c) const{
+  if(proc_seq.size() < c.proc_seq.size()){
+    unsigned i = 0;
+    while(i < proc_seq.size()){
+      if(proc_seq[i] != c.proc_seq[i]) return false;
+      ++i;
+    }
+    return true;
+  }
+  else return false;
+}
+
 CPid CPid::parent() const{
   assert(has_parent());
   CPid cp(*this);

@@ -237,8 +237,8 @@ bool POPTraceBuilder::check_conflict_set_blocked(const SymAddrSize &addr){
   assert(prefix.back().doneseqs.empty());
   IPid last_pid = prefix.back().iid.get_pid();
   for(auto &cfl : prefix[prefix.size()-1].conflict_map){
-    if(addr != cfl.first) continue;
-    for(auto &hc : cfl.second)
+    if(addr != cfl.addr) continue;
+    for(auto &hc : cfl.cfl_detectors)
       if(conflict_with_hc(last_pid, sym_ty(1, SymEv::Load(addr)), hc)){
 	IPid last_pid = prefix.back().iid.get_pid();
 	prefix.pop_back();
@@ -586,24 +586,24 @@ void POPTraceBuilder::check_symev_vclock_equiv() const {
 }
 #endif /* !defined(NDEBUG) */
 
-std::string POPTraceBuilder::conflict_map_to_string(const conflict_t &cfl) const {
+std::string POPTraceBuilder::conflict_map_to_string(const cfl_detector_t &hc) const {
   std::string s = "<(";
-  for(const auto &br : cfl.H) s += "<" + std::to_string(br.pid) + "," +
+  for(const auto &br : hc.H) s += "<" + std::to_string(br.pid) + "," +
 				std::to_string(br.index) + ">,";
-  if(!cfl.H.empty()) s.pop_back();
+  if(!hc.H.empty()) s.pop_back();
   s += "),\n     {";
-  for(const auto &p : cfl.C) s += "<" + std::to_string(p.first) + "," +
+  for(const auto &p : hc.C) s += "<" + std::to_string(p.first) + "," +
 			       events_to_string(p.second) + ">,";
-  if(!cfl.C.empty()) s.pop_back();
+  if(!hc.C.empty()) s.pop_back();
   s += "}>\n";
   return s;
 }
 
 void POPTraceBuilder::
-print_conflict_map(const conflict_map_t conflict_map) const {
+print_conflict_map(const std::vector<conflict_map_t> conflict_map) const {
   for(const auto &cfl : conflict_map) {
-    llvm::dbgs() << cfl.first.to_string()<<"->\n";
-    for(const auto &c : cfl.second) {
+    llvm::dbgs() << cfl.addr.to_string()<<"->\n";
+    for(const auto &c : cfl.cfl_detectors) {
       llvm::dbgs() << conflict_map_to_string(c);
     }
   }
@@ -1632,14 +1632,14 @@ bool POPTraceBuilder::register_alternatives(int alt_count){
 }
 
 
-void POPTraceBuilder::add_conflict_map(conflict_map_t &conflict_map,
-					 const conflict_map_t &local_conflict_map){
+void POPTraceBuilder::add_conflict_map(std::vector<conflict_map_t> &conflict_map,
+					 const std::vector<conflict_map_t> &local_conflict_map){
   for(const auto &local_cfl : local_conflict_map){
     bool found =false;
     for(auto &cfl : conflict_map){
-      if(local_cfl.first == cfl.first){
-	for(const auto &c : local_cfl.second)
-	  cfl.second.push_back(c);
+      if(local_cfl.addr == cfl.addr){
+	for(const auto &hc : local_cfl.cfl_detectors)
+	  cfl.cfl_detectors.emplace_back(hc.H, hc.C, cfl.cfl_threads.size());
 	found = true;
 	break;
       }
@@ -1648,13 +1648,9 @@ void POPTraceBuilder::add_conflict_map(conflict_map_t &conflict_map,
   }
 }
 
-bool POPTraceBuilder::conflict_with_hc(IPid p, const sym_ty &sym, conflict_t &hc){
-  bool conflict=false;
+bool POPTraceBuilder::conflict_with_hc(IPid p, const sym_ty &sym, cfl_detector_t &hc){
   for(const auto &e : hc.C){
-    if(conflict)
-      if(e.first == p) return true;
-    else if(do_events_conflict(p, sym, e.first, e.second))
-      conflict = true;
+    if(do_events_conflict(p, sym, e.first, e.second)) return true;
   }
 
   for(auto hit = hc.H.begin(); hit != hc.H.end(); hit++){
@@ -1670,23 +1666,39 @@ bool POPTraceBuilder::conflict_with_hc(IPid p, const sym_ty &sym, conflict_t &hc
 }
 
 POPTraceBuilder::update_conflict_res
-POPTraceBuilder::update_conflict_map(conflict_map_t &conflict_map,
+POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_map,
 				      IPid p, const sym_ty &sym){
   bool all_clear = true;
   for(auto &cfl : conflict_map){
-    if(cfl.second.empty()) continue;
+    if(cfl.cfl_detectors.empty()) continue;
     for(const auto &symev : sym){
-      if(symev_does_store(symev) && symev.addr() == cfl.first){
-	cfl.second.clear();
+      if(symev_does_store(symev) && symev.addr() == cfl.addr){
+	cfl.cfl_detectors.clear();
+	cfl.cfl_threads.clear();
 	continue;
       }
     }
     all_clear = false;
-    for(auto &hc : cfl.second){
+    for(auto &hc : cfl.cfl_detectors){
+      bool same_addr = false;
+      for(const auto &symev : sym){
+	// TODO: Support events other than read-write
+	if(symev_does_load(symev) && symev.addr() == cfl.addr){
+	  cfl.cfl_threads.push_back(threads[p].cpid);
+	  same_addr = true;
+	}
+      }
       if(conflict_with_hc(p, sym, hc)){
-	for(const auto &symev : sym)
-	  if(symev_does_load(symev) && symev.addr() == cfl.first)
-	    return update_conflict_res::BLOCK;
+	bool happ_aft = false;
+	for(int i = hc.cfl_th_ind; i < cfl.cfl_threads.size(); i++)
+	  // TODO: check for non-reversible happens after
+	  if(cfl.cfl_threads[i] == threads[p].cpid ||
+	     cfl.cfl_threads[i].is_ancestor(threads[p].cpid)){
+	    happ_aft = true;
+	    break;
+	  }
+	if(happ_aft) continue;
+	if(same_addr) return update_conflict_res::BLOCK;
 	hc.C.emplace_back(p,sym);
       }
     }
@@ -1840,9 +1852,9 @@ static void clear_observed(sym_ty &syms){
 
 bool POPTraceBuilder::blocked_wakeup_sequence(std::vector<Event> &seq,
 					      const sleepseqs_t &sleepseqs,
-					      const conflict_map_t &conflict_map){
+					      const std::vector<conflict_map_t> &conflict_map){
   sleepseqs_t isleepseqs = sleepseqs;
-  conflict_map_t iconflict_map = conflict_map;
+  std::vector<conflict_map_t> iconflict_map = conflict_map;
   
   // llvm::dbgs()<<"Checking redundancy\n";/////////////////
   obs_wake_res sleep_state = obs_wake_res::CONTINUE;
@@ -2531,7 +2543,7 @@ bool POPTraceBuilder::do_race_detect() {
 
   /* Do race detection */
   std::vector<sleepseqs_t> sleepseqs(1);
-  std::vector<conflict_map_t> conflict_maps(1);
+  std::vector<std::vector<conflict_map_t>> conflict_maps(1);
   obs_sleep_add(sleepseqs[0], prefix[0]);
   add_conflict_map(conflict_maps[0], prefix[0].local_conflict_map);
   for (unsigned j = 0; j < prefix.size(); ++j){
@@ -2580,14 +2592,15 @@ bool POPTraceBuilder::do_race_detect() {
 	  bool found =false;
 	  for(auto &cflset : local_conflict_map)
 	    for(const auto &se : prefix.back().sym)
-	      if(cflset.first == se.addr()){
-		cflset.second.emplace_back(std::move(u),
-					   std::vector<std::pair<IPid,sym_ty>>());
+	      if(cflset.addr == se.addr()){
+		cflset.cfl_detectors.
+		  emplace_back(std::move(u),
+			       std::vector<std::pair<IPid,sym_ty>>());
 		found = true;
 		break;
 	      }
 	  if(!found) {
-	    std::vector<conflict_t> cflset;
+	    std::vector<cfl_detector_t> cflset;
 	    cflset.emplace_back(std::move(u),
 				std::vector<std::pair<IPid,sym_ty>>());
 	    local_conflict_map.emplace_back(sym.front().addr(),
