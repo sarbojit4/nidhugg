@@ -2345,7 +2345,7 @@ void POPTraceBuilder::compute_vclocks(){
 			       int s = (r.kind != Race::LOCK_FAIL) ?
 				 r.second_event :
 				 find_process_event(prefix[r.second_event].iid.get_pid(),
-						    prefix[r.second_event].iid.get_index()-1);
+						    prefix[r.second_event].iid.get_index());
 			       for(int head : schedule_heads)
 				 if(r.first_event < head &&
 				    head < r.second_event &&
@@ -2624,8 +2624,8 @@ bool POPTraceBuilder::backtrack_to_previous_branch(){
       for(int j = 0; j < i; j++){
 	sleepseqs_t &doneseqs = prefix[j].doneseqs;
 	while(!doneseqs.empty() && !doneseqs.back().empty() &&
-	      i < find_process_event(doneseqs.back().back().pid,
-				     doneseqs.back().back().index))
+	      i < threads[doneseqs.back().back().pid].
+			  event_indices[doneseqs.back().back().index])
 	  doneseqs.pop_back();
 	if(!doneseqs.empty()) doneseqs.pop_back();
       }
