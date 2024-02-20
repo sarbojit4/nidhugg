@@ -232,7 +232,7 @@ void POPTraceBuilder::refuse_schedule(){
 }
 
 bool POPTraceBuilder::check_conflict_set_blocked(const SymAddrSize &addr){
-  if(prefix_idx == int(prefix.size())-1) return false;
+  if(replay) return false;
   assert(prefix.back().size == 1);
   assert(prefix.back().doneseqs.empty());
   IPid last_pid = prefix.back().iid.get_pid();
