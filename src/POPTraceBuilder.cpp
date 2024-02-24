@@ -45,6 +45,18 @@ static bool event_does_store(const sym_ty &sym) {
   return false;
 }
 
+static bool symev_does_mlock(const SymEv &e) {
+  return e.kind == SymEv::M_LOCK || e.kind == SymEv::M_TRYLOCK;
+}
+
+static bool event_does_mlock(const sym_ty &sym) {
+  for(SymEv s : sym){
+    if(symev_does_mlock(s)) return true;
+  }
+  return false;
+}
+
+
 POPTraceBuilder::POPTraceBuilder(const Configuration &conf) : TSOPSOTraceBuilder(conf) {
   threads.push_back(Thread(CPid(), -1));
   threads.push_back(Thread(CPS.new_aux(CPid()), -1));
@@ -55,7 +67,7 @@ POPTraceBuilder::POPTraceBuilder(const Configuration &conf) : TSOPSOTraceBuilder
   last_full_memory_conflict = -1;
   last_md = 0;
   replay_point = 0;
-  end_of_ws = 0;
+  end_of_ws = -1;
 }
 
 POPTraceBuilder::~POPTraceBuilder(){
@@ -157,7 +169,7 @@ bool POPTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
           clear_observed(event.sym);
         for (SymEv &e : event.sym) e.purge_data();
       }
-      if(end_of_ws < prefix_idx){
+      if(end_of_ws != -1 && end_of_ws < prefix_idx){
 	curev().sleepseqs = std::move(prefix[prefix_idx-1].sleepseqs);
 	obs_sleep_wake(curev().sleepseqs, curev().iid.get_pid(), curev().sym);
 	curev().conflict_map = std::move(prefix[prefix_idx-1].conflict_map);
@@ -588,8 +600,8 @@ void POPTraceBuilder::check_symev_vclock_equiv() const {
 
 std::string POPTraceBuilder::conflict_map_to_string(const cfl_detector_t &hc) const {
   std::string s = "<(";
-  for(const auto &br : hc.H) s += "<" + std::to_string(br.pid) + "," +
-				std::to_string(br.index) + ">,";
+  for(const auto &br : hc.H) s += "<" + std::to_string(br.second.pid) + "," +
+				std::to_string(br.second.index) + ">,";
   if(!hc.H.empty()) s.pop_back();
   s += "),\n     {";
   for(const auto &p : hc.C) s += "<" + std::to_string(p.first) + "," +
@@ -1650,15 +1662,19 @@ void POPTraceBuilder::add_conflict_map(std::vector<conflict_map_t> &conflict_map
 
 bool POPTraceBuilder::conflict_with_hc(IPid p, const sym_ty &sym, cfl_detector_t &hc){
   for(const auto &e : hc.C){
-    if(do_events_conflict(p, sym, e.first, e.second)) return true;
+    if(do_events_conflict(p, sym, e.first, e.second)){
+      hc.C.emplace_back(p,sym);
+      return true;
+    }
   }
 
   for(auto hit = hc.H.begin(); hit != hc.H.end(); hit++){
-    if(hit->pid == p){
+    if(hit->second.pid == p){
       hc.H.erase(hit);
       return false;
     }
-    else if (do_events_conflict(p, sym, hit->pid, hit->sym)){
+    else if (do_events_conflict(p, sym, hit->second.pid, hit->second.sym)){
+      hc.C.emplace_back(p,sym);
       return true;
     }
   }
@@ -1699,7 +1715,6 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_map,
 	  }
 	if(happ_aft) continue;
 	if(same_addr) return update_conflict_res::BLOCK;
-	hc.C.emplace_back(p,sym);
       }
     }
   }
@@ -2238,6 +2253,7 @@ void POPTraceBuilder::compute_vclocks(){
 
   std::vector<int>schedule_heads;
   for (unsigned i = 0; i < prefix.size(); i++){
+    auto old_clock = prefix[i].clock;
     IPid ipid = prefix[i].iid.get_pid();
     if (prefix[i].iid.get_index() > 1) {
       unsigned last = find_process_event(prefix[i].iid.get_pid(),
@@ -2382,8 +2398,10 @@ void POPTraceBuilder::compute_vclocks(){
         prefix[i].clock += prefix[b].clock;
       }
     }
+    for (auto it = new_end; it != races.end(); ++it) prefix[i].dead_races.push_back(*it);
+    assert(end_of_ws < (int)i || old_clock == prefix[i].clock);
     prefix[i].happens_after_later.clear();
-    // for (auto it = races.begin(); it != new_end; ++it){
+    // for (auto it = races.begin(); it != races.end(); ++it){
     //   llvm::dbgs()<<"Race (<"<<threads[prefix[it->first_event].iid.get_pid()].cpid<<","
     // 		  <<prefix[it->first_event].iid.get_index()<<">,<"
     // 		  <<threads[prefix[i].iid.get_pid()].cpid
@@ -2553,6 +2571,7 @@ bool POPTraceBuilder::do_race_detect() {
     // 		  <<threads[slp.back().pid].cpid<<"\n";///////////////
     while(!prefix[j].races.empty()) {
       Race race = prefix[j].races.back();
+      prefix[j].dead_races.push_back(race);
       prefix[j].races.pop_back();
       assert(race.second_event == (int) j);
       std::vector<Event> v = wakeup_sequence(race);
@@ -2578,12 +2597,17 @@ bool POPTraceBuilder::do_race_detect() {
 	for(unsigned k = 0; k < i; ++k)
 	  prefix[k].doneseqs.push_back(std::vector<Branch>());
 	// llvm::dbgs()<<"Inserting WS\n";///////////
-	std::vector<Branch> u;
+        std::vector<std::pair<VClock<IPid>,Branch>> u;
         sym_ty sym;
+	VClock<IPid> sched_heads_clk;
 	if(event_is_load(prefix[race.second_event].sym)){
 	  for(int k = i+1, l = 0; k < j; k++){
-	    if(prefix[k].iid.get_pid() == v[l].iid.get_pid()) l++;
-	    else u.push_back(branch_with_symbolic_data(k));
+	    if(prefix[k].iid.get_pid() == v[l].iid.get_pid()){
+	      if(prefix[k].schedule_head) sched_heads_clk +=prefix[k].clock;
+	      l++;
+	    }
+	    else u.emplace_back(sched_heads_clk,
+				std::move(branch_with_symbolic_data(k)));
 	  }
 	  sym = prefix[i].sym;
 	}
@@ -2608,6 +2632,9 @@ bool POPTraceBuilder::do_race_detect() {
 	  }
 	}
 
+	unsigned vsize = v.size();
+	VClock<IPid> clocks[vsize];
+	for(int k = 0; k < vsize; k++) clocks[k] = std::move(v[k].clock);
 	sleepseqs_t doneseqs = std::move(prefix[i].doneseqs);
 	/* Setup the new branch at prefix[i] */
 	sleepseqs_t last_sleepseqs = std::move(v.back().sleepseqs);
@@ -2618,6 +2645,8 @@ bool POPTraceBuilder::do_race_detect() {
 	prefix[i].sleep_branch_trace_count += estimate_trace_count(i+1);
 	prefix.back().sleepseqs = std::move(last_sleepseqs);
         prefix.back().conflict_map = std::move(last_conflict_map);
+	for(int k = 0; k < vsize; k++)
+	  prefix[k+i].clock = std::move(clocks[k]);
 	current_branch_count++;
 	return true;
       }
@@ -2663,6 +2692,76 @@ bool POPTraceBuilder::backtrack_to_previous_branch(){
   return false;
 }
 
+VClock<int> POPTraceBuilder::compute_clock_for_second(int i, int j) const {
+  VClock<IPid> clock;
+  IPid jpid = prefix[j].iid.get_pid();
+  IPid ipid = prefix[i].iid.get_pid();
+
+  if (prefix[j].iid.get_index() > 1) {
+    for(int k=j-1; k >= 0 ; k--)
+      if(jpid == prefix[k].iid.get_pid()){
+	clock = prefix[k].clock;
+	break;
+      }
+  } else {
+    clock = VClock<IPid>();
+  }
+  clock[prefix[j].iid.get_pid()] = prefix[j].iid.get_index();
+  for (int ha : prefix[j].happens_after)
+    clock += prefix[ha].clock;
+  for (const auto &race : prefix[j].races){
+    if (race.kind == Race::LOCK_SUC){
+      assert(prefix[race.first_event].clock.leq
+	     (prefix[race.unlock_event].clock));
+      clock += prefix[race.unlock_event].clock;
+    }else if (race.kind != Race::LOCK_FAIL){
+      clock += prefix[race.first_event].clock;
+    }
+  }
+  for (const auto &race : prefix[j].dead_races){
+    if(race.first_event == i){
+      if(event_does_store(prefix[race.first_event].sym) ||
+	 event_does_mlock(prefix[race.first_event].sym)){
+	for(int k = race.first_event-1; k >= 0 ; k--){
+	  if(do_events_conflict(k,j)) clock += prefix[k].clock;
+	}
+      }
+      else{
+	for(const auto &race_i : prefix[i].races)
+	  if(do_events_conflict(race_i.first_event, j)){
+	    clock += prefix[race_i.first_event].clock;
+	  }
+	for(const auto &race_i : prefix[i].dead_races){
+	  if(do_events_conflict(race_i.first_event, j)){
+	    clock += prefix[race_i.first_event].clock;
+	  }
+	}
+      }
+    }
+    else if (race.kind == Race::LOCK_SUC){
+      assert(prefix[race.first_event].clock.leq
+	     (prefix[race.unlock_event].clock));
+      clock += prefix[race.unlock_event].clock;
+    }else if (race.kind != Race::LOCK_FAIL){
+      clock += prefix[race.first_event].clock;
+    }
+  }
+  for(int k=i-1; k >= 0 ; k--){
+    if(k != i && ipid == prefix[k].iid.get_pid() && do_events_conflict(k,j)){
+      clock += prefix[k].clock;
+    }
+  }
+  assert(prefix[j].happens_after_later.empty()
+	 || (prefix[j].sym.size() == 1
+	     && prefix[j].sym[0].has_cond()));
+  for (int b : prefix[j].happens_after_later) {
+    if (b != -1 && !prefix[j].clock.includes(prefix[b].iid)) {
+      clock += prefix[b].clock;
+    }
+  }
+  return clock;
+}
+
 std::vector<POPTraceBuilder::Event> POPTraceBuilder::
 wakeup_sequence(const Race &race) const{
   const int i = race.first_event;
@@ -2681,7 +2780,7 @@ wakeup_sequence(const Race &race) const{
     second.alt = race.alternative;
   } else {
     second = event_with_symbolic_data(j);
-    second.clock = prefix[j].clock;
+    second.clock = compute_clock_for_second(i,j);
     second.doneseqs.clear();
   }
   if (race.kind != Race::OBSERVED) {

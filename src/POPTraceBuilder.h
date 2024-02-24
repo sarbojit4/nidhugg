@@ -441,10 +441,10 @@ protected:
   typedef std::vector<std::vector<Branch>> sleepseqs_t;
   
   struct cfl_detector_t{
-    std::vector<Branch> H;
+    std::vector<std::pair<VClock<IPid>,Branch>> H;
     std::vector<std::pair<IPid,sym_ty>> C;
     int cfl_th_ind;
-    cfl_detector_t(std::vector<Branch> h,
+    cfl_detector_t(std::vector<std::pair<VClock<IPid>,Branch>> h,
 		   std::vector<std::pair<IPid,sym_ty>> c,
 		   int i = 0) : H(h), C(c), cfl_th_ind(i) {}  
   };
@@ -503,6 +503,7 @@ protected:
      * involving this event as the main event.
      */
     std::vector<Race> races;
+    std::vector<Race> dead_races;
     /* Events that unblock the current event (and thus are not races),
      * but are not inherently needed to enable this event.
      *
@@ -595,7 +596,7 @@ protected:
       if(0 < i) curexec[i-1]->next = nullptr;
       curexec.resize(i);
       for(int i = 0; i != v.size(); i++) {
-	push_back(v[i]);
+	push_back(std::move(v[i]));
       }
       curexec[i]->prev_br = prev_br;
     }
@@ -682,7 +683,7 @@ protected:
   Event event_with_symbolic_data(unsigned index) const {
     const Event &e = prefix[index];
     Event re(e.iid, e.sym, e.alt, e.size);
-    re.origin_iid = e.origin_iid;
+    re.clock = e.clock;
     return re;
   }
 
@@ -895,6 +896,7 @@ protected:
    * executed, it will never block, and thus has no return value.
    */
   void obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const;
+  VClock<int> compute_clock_for_second(int i, int j) const;
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Event> wakeup_sequence(const Race&) const;
   bool blocked_wakeup_sequence(std::vector<Event> &seq,
