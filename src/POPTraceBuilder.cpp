@@ -193,7 +193,7 @@ bool POPTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
     // 	   for(const auto &e :curev().sym)
     // 	     if(threads[curev().iid.get_pid()].conflict_addr == e.addr())
     // 	       threads[curev().iid.get_pid()].conflicting = false;
-  }
+  // }
 
   /* Find an available thread (auxiliary or real).
    *
