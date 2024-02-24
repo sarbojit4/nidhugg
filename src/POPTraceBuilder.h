@@ -442,10 +442,10 @@ protected:
   
   struct cfl_detector_t{
     std::vector<std::pair<VClock<IPid>,Branch>> H;
-    std::vector<std::pair<IPid,sym_ty>> C;
+    std::vector<VClock<IPid>> C;
     int cfl_th_ind;
     cfl_detector_t(std::vector<std::pair<VClock<IPid>,Branch>> h,
-		   std::vector<std::pair<IPid,sym_ty>> c,
+		   std::vector<VClock<IPid>> c,
 		   int i = 0) : H(h), C(c), cfl_th_ind(i) {}  
   };
 
@@ -460,16 +460,18 @@ protected:
 
   std::string conflict_map_to_string(const cfl_detector_t &hc) const;
   void print_conflict_map(const std::vector<conflict_map_t> conflict_map) const;
-  bool conflict_with_hc(IPid p, const sym_ty &sym, cfl_detector_t &hc);
+    bool conflict_with_hc(IPid p, const sym_ty &sym, const VClock<IPid> &clock,
+			  cfl_detector_t &hc);
   enum class update_conflict_res {
     CLEAR,
     CONTINUE,
     BLOCK,
   };
   void add_conflict_map(std::vector<conflict_map_t> &conflict_map,
-		    const std::vector<conflict_map_t> &local_conflict_map);
-  update_conflict_res update_conflict_map(std::vector<conflict_map_t> &conflict_map,
-		      IPid p, const sym_ty &sym);
+			const std::vector<conflict_map_t> &local_conflict_map);
+  update_conflict_res
+  update_conflict_map(std::vector<conflict_map_t> &conflict_map,
+		      IPid p, const sym_ty &sym, const VClock<IPid> &clock);
   
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts

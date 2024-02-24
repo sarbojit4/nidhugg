@@ -3435,18 +3435,18 @@ bool Interpreter::checkRefuse(Instruction &I){
 
   /* Refuse if I does load and it conflicts with current conflict_map
      of POPTraceBuilder */
-  if(conf.dpor_algorithm == Configuration::POP_DPOR &&
-     llvm::isa<llvm::LoadInst>(I)){ //||
-     // llvm::isa<llvm::AtomicRMWInst>(I) ||
-     // llvm::isa<llvm::AtomicCmpXchgInst>(I)){
+  // if(conf.dpor_algorithm == Configuration::POP_DPOR &&
+  //    llvm::isa<llvm::LoadInst>(I)){ //||
+  //    // llvm::isa<llvm::AtomicRMWInst>(I) ||
+  //    // llvm::isa<llvm::AtomicCmpXchgInst>(I)){
 
-    ExecutionContext &SF = ECStack()->back();
-    GenericValue *Ptr =
-      (GenericValue*)GVTOP(getOperandValue(llvm::cast<LoadInst>(I).getPointerOperand(), SF));
-    Option<SymAddrSize> ptr_sas = GetSymAddrSize(Ptr,I.getType());
-    if(ptr_sas)
-      if(TB.check_conflict_set_blocked(*ptr_sas)) return true;
-  }
+  //   ExecutionContext &SF = ECStack()->back();
+  //   GenericValue *Ptr =
+  //     (GenericValue*)GVTOP(getOperandValue(llvm::cast<LoadInst>(I).getPointerOperand(), SF));
+  //   Option<SymAddrSize> ptr_sas = GetSymAddrSize(Ptr,I.getType());
+  //   if(ptr_sas)
+  //     if(TB.check_conflict_set_blocked(*ptr_sas)) return true;
+  // }
 
   
   {
