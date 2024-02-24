@@ -2590,11 +2590,11 @@ bool POPTraceBuilder::do_race_detect() {
 	sleepseqs.push_back(sleepseqs[k-1]);
 	conflict_maps.push_back(conflict_maps[k-1]);
 	obs_sleep_wake(sleepseqs[k], prefix[k-1]);
-	update_conflict_map(conflict_maps[k], prefix[k-1].iid.get_pid(), prefix[k-1].sym);
+	update_conflict_map(conflict_maps[k], prefix[k-1].iid.get_pid(),
+			    prefix[k-1].sym, prefix[k-1].clock);
 	obs_sleep_add(sleepseqs[k], prefix[k]);
 	add_conflict_map(conflict_maps[k], prefix[k].local_conflict_map);
       }
-
 
       /* Do insertion into the wakeup tree */
       if(!blocked_wakeup_sequence(v, sleepseqs[i], conflict_maps[i])){
