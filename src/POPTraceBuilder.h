@@ -326,12 +326,10 @@ protected:
   class Branch{
   public:
     Branch (IPid pid, int alt = 0, sym_ty sym = {})
-      : sym(std::move(sym)), pid(pid), alt(alt), size(1),
-	schedule(false), schedule_head(false) {}
+      : sym(std::move(sym)), pid(pid), alt(alt), size(1) {}
     Branch (const Event &base, sym_ty sym)
-      : sym(std::move(sym)), pid(base.iid.get_pid()), index(base.iid.get_index()),
-	alt(base.alt), size(base.size),
-	schedule(false), schedule_head(false) {}
+      : sym(std::move(sym)), pid(base.iid.get_pid()),
+	index(base.iid.get_index()), alt(base.alt), size(base.size) {}
 
     /* Symbolic representation of the globally visible operation of this event.
      */
@@ -349,8 +347,6 @@ protected:
     int alt;
     /* The number of events in this sequence. */
     int size;
-    bool schedule;
-    bool schedule_head;
     bool operator<(const Branch &b) const{
       return pid < b.pid || (pid == b.pid && alt < b.alt);
     }
