@@ -2402,7 +2402,8 @@ void POPTraceBuilder::compute_vclocks(){
         prefix[i].clock += prefix[b].clock;
       }
     }
-    for (auto it = new_end; it != races.end(); ++it) prefix[i].dead_races.push_back(*it);
+    for (auto it = new_end; it != races.end(); ++it)
+      if(end_of_ws < i) prefix[i].dead_races.push_back(*it);
     assert(end_of_ws < (int)i || old_clock == prefix[i].clock);
     prefix[i].happens_after_later.clear();
     // for (auto it = races.begin(); it != races.end(); ++it){
