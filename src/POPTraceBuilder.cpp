@@ -32,6 +32,36 @@
 
 static void clear_observed(sym_ty &syms);
 
+inline static bool symev_is_load(const SymEv &e) {
+  return e.kind == SymEv::LOAD || e.kind == SymEv::CMPXHGFAIL
+    || e.kind == SymEv::LOAD_AWAIT;
+}
+
+inline static bool symev_does_load(const SymEv &e) {
+  return e.kind == SymEv::LOAD || e.kind == SymEv::RMW
+    || e.kind == SymEv::CMPXHG || e.kind == SymEv::CMPXHGFAIL
+    || e.kind == SymEv::LOAD_AWAIT || e.kind == SymEv::XCHG_AWAIT
+    || e.kind == SymEv::FULLMEM;
+}
+
+inline static bool event_is_load(const sym_ty &sym) {
+  for(SymEv s : sym){
+    if(symev_is_load(s)) return true;
+  }
+  return false;
+}
+
+inline static bool event_does_load(const sym_ty &sym) {
+  for(SymEv s : sym){
+    if(symev_does_load(s)) return true;
+  }
+  return false;
+}
+
+inline static bool symev_is_store(const SymEv &e) {
+  return e.kind == SymEv::UNOBS_STORE || e.kind == SymEv::STORE;
+}
+
 inline static bool symev_does_store(const SymEv &e) {
   return e.kind == SymEv::UNOBS_STORE || e.kind == SymEv::STORE
     || e.kind == SymEv::CMPXHG || e.kind == SymEv::RMW
@@ -56,6 +86,18 @@ inline static bool event_does_mlock(const sym_ty &sym) {
   return false;
 }
 
+inline static bool symev_accesses_mutex(const SymEv &e) {
+  if(symev_does_mlock(e) || e.kind == SymEv::M_INIT ||
+     e.kind == SymEv::M_UNLOCK || e.kind == SymEv::M_DELETE) return true;
+  return false;
+}
+
+inline static bool event_accesses_mutex(const sym_ty &sym) {
+  for(SymEv s : sym){
+    if(symev_accesses_mutex(s)) return true;
+  }
+  return false;
+}
 
 POPTraceBuilder::POPTraceBuilder(const Configuration &conf) : TSOPSOTraceBuilder(conf) {
   threads.push_back(Thread(CPid(), -1));
@@ -721,17 +763,6 @@ bool POPTraceBuilder::atomic_store(const SymData &sd){
   }
   do_atomic_store(sd);
   return true;
-}
-
-static bool symev_is_store(const SymEv &e) {
-  return e.kind == SymEv::UNOBS_STORE || e.kind == SymEv::STORE;
-}
-
-static bool symev_does_load(const SymEv &e) {
-  return e.kind == SymEv::LOAD || e.kind == SymEv::RMW
-    || e.kind == SymEv::CMPXHG || e.kind == SymEv::CMPXHGFAIL
-    || e.kind == SymEv::LOAD_AWAIT || e.kind == SymEv::XCHG_AWAIT
-    || e.kind == SymEv::FULLMEM;
 }
 
 static VecSet<int> to_vecset_and_clear
@@ -2462,18 +2493,6 @@ static bool symev_has_pid(const SymEv &e) {
   return e.kind == SymEv::SPAWN || e.kind == SymEv::JOIN;
 }
 
-static bool symev_is_load(const SymEv &e) {
-  return e.kind == SymEv::LOAD || e.kind == SymEv::CMPXHGFAIL
-    || e.kind == SymEv::LOAD_AWAIT;
-}
-
-static bool event_is_load(const sym_ty &sym) {
-  for(SymEv s : sym){
-    if(symev_is_load(s)) return true;
-  }
-  return false;
-}
-
 static bool symev_is_unobs_store(const SymEv &e) {
   return e.kind == SymEv::UNOBS_STORE;
 }
@@ -2617,7 +2636,7 @@ bool POPTraceBuilder::do_race_detect() {
 	  sym = prefix[i].sym;
 	}
 	auto local_conflict_map = std::move(prefix[i].local_conflict_map);
-	if(!u.empty()){
+	if(!u.empty() && event_is_load(prefix[j].sym)){
 	  bool found =false;
 	  for(auto &cflset : local_conflict_map)
 	    for(const auto &se : prefix.back().sym)
@@ -2699,8 +2718,8 @@ bool POPTraceBuilder::backtrack_to_previous_branch(){
 
 VClock<int> POPTraceBuilder::compute_clock_for_second(int i, int j) const {
   VClock<IPid> clock;
-  IPid jpid = prefix[j].iid.get_pid();
   IPid ipid = prefix[i].iid.get_pid();
+  IPid jpid = prefix[j].iid.get_pid();
 
   if (prefix[j].iid.get_index() > 1) {
     for(int k=j-1; k >= 0 ; k--)
@@ -2714,53 +2733,139 @@ VClock<int> POPTraceBuilder::compute_clock_for_second(int i, int j) const {
   clock[prefix[j].iid.get_pid()] = prefix[j].iid.get_index();
   for (int ha : prefix[j].happens_after)
     clock += prefix[ha].clock;
-  for (const auto &race : prefix[j].races){
-    if (race.kind == Race::LOCK_SUC){
-      assert(prefix[race.first_event].clock.leq
-	     (prefix[race.unlock_event].clock));
-      clock += prefix[race.unlock_event].clock;
-    }else if (race.kind != Race::LOCK_FAIL){
-      clock += prefix[race.first_event].clock;
-    }
-  }
-  for (const auto &race : prefix[j].dead_races){
-    if(race.first_event == i){
-      if(event_does_store(prefix[race.first_event].sym) ||
-	 event_does_mlock(prefix[race.first_event].sym)){
-	for(int k = race.first_event-1; k >= 0 ; k--){
-	  if(do_events_conflict(k,j)) clock += prefix[k].clock;
+
+
+  for(const auto &se : prefix[j].sym){
+    const SymAddrSize &ml = se.addr();
+    if(symev_does_store(se)){//TODO: support xchg_await, observers, TSO
+      IPid tjpid = (jpid % 2) ? jpid-1 : jpid; // ID of the (real) thread that issued the store
+      std::map<SymAddr,bool> done;
+      for(SymAddr b : ml) done[b] = false;
+
+      for(int k = j-1; k >= 0; k--){
+	if(k == i) continue;
+	bool fullmem =false;
+	for(auto s : prefix[k].sym)
+	  if(s.kind == SymEv::FULLMEM){
+	    clock += prefix[k].clock;
+	    fullmem = true;
+	    break;
+	  }
+	if(fullmem) break;
+
+	for(SymAddr b : ml){
+	  if(done[b]) continue;
+	  bool access_byte = false;
+	  for(auto s : prefix[k].sym){
+	    if(s.has_addr()){
+	      for(const auto & sb : s.addr()){
+		if(b == sb){
+		  access_byte = true;
+		  break;
+		}
+	      }
+	      if(access_byte) break;
+	    }
+	  }
+	  if(access_byte &&
+	     prefix[k].iid.get_pid() != tjpid &&
+	     event_does_load(prefix[k].sym)){
+	    clock += prefix[k].clock;
+	  }
+	  if(access_byte && event_does_store(prefix[k].sym)){
+	    clock += prefix[k].clock;
+	    done[b] = true;
+	  }
 	}
       }
-      else{
-	for(const auto &race_i : prefix[i].races)
-	  if(do_events_conflict(race_i.first_event, j)){
-	    clock += prefix[race_i.first_event].clock;
+    }
+    if(symev_does_load(se)){// support observers
+      std::map<SymAddr,bool> done;
+      for(SymAddr b : ml) done[b] = false;
+
+      for(int k = j-1; k >= 0; k--){
+	if(k == i) continue;
+	bool fullmem =false;
+	for(auto s : prefix[k].sym)
+	  if(s.kind == SymEv::FULLMEM){
+	    clock += prefix[k].clock;
+	    fullmem = true;
+	    break;
 	  }
-	for(const auto &race_i : prefix[i].dead_races){
-	  if(do_events_conflict(race_i.first_event, j)){
-	    clock += prefix[race_i.first_event].clock;
+	if(fullmem) break;
+      
+	for(SymAddr b : ml){
+	  if(done[b]) continue;
+	  bool access_byte = false;
+	  for(auto s : prefix[k].sym){
+	    if(s.has_addr()){
+	      for(const auto & sb : s.addr()){
+		if(b == sb){
+		  access_byte = true;
+		  break;
+		}
+	      }
+	      if(access_byte) break;
+	    }
+	  }
+	
+	  IPid tkpid = prefix[k].iid.get_pid() & ~0x1;
+	  if(access_byte && event_does_store(prefix[k].sym)){
+	    clock += prefix[k].clock;
+	    done[b] = true;
 	  }
 	}
       }
     }
-    else if (race.kind == Race::LOCK_SUC){
-      assert(prefix[race.first_event].clock.leq
-	     (prefix[race.unlock_event].clock));
-      clock += prefix[race.unlock_event].clock;
-    } else if (race.kind != Race::LOCK_FAIL){
-      clock += prefix[race.first_event].clock;
+    // else if(fullmem){
+    //   for(auto it = mem.begin(); it != mem.end(); ++it){
+    //     observe_memory(it->first, it->second, seen_accesses, seen_pairs, true);
+    //     it->second.before_unordered = {prefix_idx}; // Not needed?
+    //     for(int i : it->second.last_read){
+    // 	seen_accesses.insert(i);
+    //     }
+    //   }
+    //   for(auto it = mutexes.begin(); it != mutexes.end(); ++it){
+    //     seen_accesses.insert(it->second.last_access);
+    //   }
+    //   seen_accesses.insert(last_full_memory_conflict);
+    // }
+    if(symev_accesses_mutex(se)){
+      for(int k = j; k >= 0; k--){
+	if(k == i) continue;
+	bool fullmem =false;
+	for(auto s : prefix[k].sym)
+	  if(s.kind == SymEv::FULLMEM){
+	    clock += prefix[k].clock;
+	    fullmem = true;
+	    break;
+	  }
+	if(fullmem) break;
+	if(k < i && event_accesses_mutex(prefix[k].sym)){
+	  bool access_mutex = false;
+	  for(auto s : prefix[k].sym){
+	    if(s.addr() == ml){
+	      access_mutex = true;
+	      break;
+	    }
+	  }
+	  if(access_mutex){
+	    clock += prefix[k].clock;
+	    break;
+	  }
+	}
+      }
     }
-  }
-  for(int k=i-1; k >= 0 ; k--)
-    if(k != i && ipid == prefix[k].iid.get_pid() && do_events_conflict(k,j))
-      clock += prefix[k].clock;
-  assert(prefix[j].happens_after_later.empty()
-	 || (prefix[j].sym.size() == 1
-	     && prefix[j].sym[0].has_cond()));
-  for (int b : prefix[j].happens_after_later) {
-    if (b != -1 && !prefix[j].clock.includes(prefix[b].iid)) {
-      clock += prefix[b].clock;
-    }
+    // else if(cond_signal){
+    //   if(cond_var.waiters.size()){
+    //     /* Wake up the alt:th waiter. */
+    //     int i = cond_var.waiters[curbranch().alt];
+    //     seen_events.insert(i);
+    //   }
+    // }
+    // else if(cond_broadcast || cond_destroy){
+    //   for(int i : cond_var.waiters) seen_events.insert(i);
+    // }
   }
   return clock;
 }
@@ -2783,7 +2888,7 @@ wakeup_sequence(const Race &race) const{
     second.alt = race.alternative;
   } else {
     second = event_with_symbolic_data(j);
-    second.clock = compute_clock_for_second(i,j);
+    second.clock = prefix[j].clock;
     second.doneseqs.clear();
   }
   if (race.kind != Race::OBSERVED) {
@@ -2847,6 +2952,8 @@ wakeup_sequence(const Race &race) const{
   if (race.kind == Race::NONBLOCK) {
     recompute_cmpxhg_success(second.sym, v, i);
   }
+  if(!race.is_fail_kind() && race.kind != Race::NONDET)
+    second.clock = compute_clock_for_second(i,j);
   v.push_back(std::move(second));
   //v.back().delete_data_from_schedule_event();
   v.back().schedule = true;
