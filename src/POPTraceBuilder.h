@@ -456,8 +456,8 @@ protected:
 
   std::string conflict_map_to_string(const cfl_detector_t &hc) const;
   void print_conflict_map(const std::vector<conflict_map_t> conflict_map) const;
-    bool conflict_with_hc(IPid p, const sym_ty &sym, const VClock<IPid> &clock,
-			  cfl_detector_t &hc);
+    bool blocked_by_hc(IPid p, const sym_ty &sym, const VClock<IPid> &clock,
+			  cfl_detector_t &hc) const;
   enum class update_conflict_res {
     CLEAR,
     CONTINUE,

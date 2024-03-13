@@ -1691,9 +1691,9 @@ add_conflict_map(std::vector<conflict_map_t> &conflict_map,
   }
 }
 
-bool POPTraceBuilder::conflict_with_hc(IPid p, const sym_ty &sym,
+bool POPTraceBuilder::blocked_by_hc(IPid p, const sym_ty &sym,
 				       const VClock<IPid> &clock,
-				       cfl_detector_t &hc){
+				       cfl_detector_t &hc) const{
   for(const auto &clk : hc.C){
     if(clk.lt(clock)){
       return true;
@@ -1738,7 +1738,7 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_map,
 	  same_addr = true;
 	}
       }
-      if(conflict_with_hc(p, sym, clock, hc)){
+      if(blocked_by_hc(p, sym, clock, hc)){
 	bool happ_aft = false;
 	for(int i = hc.cfl_th_ind; i < cfl.cfl_threads.size(); i++)
 	  // TODO: check for non-reversible happens after
@@ -2621,7 +2621,7 @@ bool POPTraceBuilder::do_race_detect() {
 	for(unsigned k = 0; k < i; ++k)
 	  prefix[k].doneseqs.push_back(std::vector<Branch>());
 	// llvm::dbgs()<<"Inserting WS\n";///////////
-        std::vector<std::pair<VClock<IPid>,Branch>> u;
+        std::vector<std::pair<VClock<IPid>,Branch>> h;
         sym_ty sym;
 	VClock<IPid> sched_heads_clk;
 	if(event_is_load(prefix[race.second_event].sym)){
@@ -2630,26 +2630,28 @@ bool POPTraceBuilder::do_race_detect() {
 	      if(prefix[k].schedule_head) sched_heads_clk +=prefix[k].clock;
 	      l++;
 	    }
-	    else u.emplace_back(sched_heads_clk,
-				std::move(branch_with_symbolic_data(k)));
+	    else{
+	      h.emplace_back(sched_heads_clk,
+			     std::move(branch_with_symbolic_data(k)));
+	    }
 	  }
 	  sym = prefix[i].sym;
 	}
 	auto local_conflict_map = std::move(prefix[i].local_conflict_map);
-	if(!u.empty() && event_is_load(prefix[j].sym)){
+	if(!h.empty() && event_is_load(prefix[j].sym)){
 	  bool found =false;
 	  for(auto &cflset : local_conflict_map)
 	    for(const auto &se : prefix.back().sym)
 	      if(cflset.addr == se.addr()){
 		cflset.cfl_detectors.
-		  emplace_back(std::move(u),
+		  emplace_back(std::move(h),
 			       std::vector<VClock<IPid>>());
 		found = true;
 		break;
 	      }
 	  if(!found) {
 	    std::vector<cfl_detector_t> cflset;
-	    cflset.emplace_back(std::move(u),
+	    cflset.emplace_back(std::move(h),
 				std::vector<VClock<IPid>>());
 	    local_conflict_map.emplace_back(sym.front().addr(),
 					    std::move(cflset));
