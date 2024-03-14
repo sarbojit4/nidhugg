@@ -326,10 +326,11 @@ protected:
   class Branch{
   public:
     Branch (IPid pid, int alt = 0, sym_ty sym = {})
-      : sym(std::move(sym)), pid(pid), alt(alt), size(1) {}
+      : sym(std::move(sym)), pid(pid), alt(alt), size(1), sleeping(false) {}
     Branch (const Event &base, sym_ty sym)
       : sym(std::move(sym)), pid(base.iid.get_pid()),
-	index(base.iid.get_index()), alt(base.alt), size(base.size) {}
+	index(base.iid.get_index()), alt(base.alt),
+	size(base.size), sleeping(false) {}
 
     /* Symbolic representation of the globally visible operation of this event.
      */
@@ -347,6 +348,7 @@ protected:
     int alt;
     /* The number of events in this sequence. */
     int size;
+    bool sleeping;
     bool operator<(const Branch &b) const{
       return pid < b.pid || (pid == b.pid && alt < b.alt);
     }
@@ -433,8 +435,6 @@ protected:
   };
   std::unordered_map<SymAddr, boost::container::flat_map<IPid,BlockedAwait>>
     blocked_awaits;
-
-  typedef std::vector<std::vector<Branch>> sleepseqs_t;
   
   struct cfl_detector_t{
     std::vector<std::pair<VClock<IPid>,Branch>> H;
@@ -456,8 +456,8 @@ protected:
 
   std::string conflict_map_to_string(const cfl_detector_t &hc) const;
   void print_conflict_map(const std::vector<conflict_map_t> conflict_map) const;
-    bool blocked_by_hc(IPid p, const sym_ty &sym, const VClock<IPid> &clock,
-			  cfl_detector_t &hc) const;
+  bool blocked_by_hc(IPid p, const sym_ty &sym, const VClock<IPid> &clock,
+		     cfl_detector_t &hc, const std::vector<CPid> &cfl_threads) const;
   enum class update_conflict_res {
     CLEAR,
     CONTINUE,
@@ -502,6 +502,7 @@ protected:
      */
     std::vector<Race> races;
     std::vector<Race> dead_races;
+    std::vector<unsigned> reversed_races;
     /* Events that unblock the current event (and thus are not races),
      * but are not inherently needed to enable this event.
      *
@@ -523,8 +524,6 @@ protected:
     /* The set of threads that go to sleep immediately before this
      * event sequence.
      */
-    sleepseqs_t doneseqs;
-    sleepseqs_t sleepseqs;
     std::vector<conflict_map_t> local_conflict_map;
     std::vector<conflict_map_t> conflict_map;
     bool schedule;
@@ -846,61 +845,11 @@ protected:
    */
   bool awaitcond_satisfied_by(unsigned i, const std::vector<unsigned> &seq,
                               const SymAddrSize &ml, const AwaitCond &cond) const;
-  struct obs_sleep {
-    struct sleeper {
-      IPid pid;
-      const sym_ty *sym;
-      Option<SymAddrSize> not_if_read;
-    };
-    std::vector<struct sleeper> sleep;
-    /* Addresses that must be read */
-    std::vector<SymAddrSize> must_read;
-    /* Check for pid in sleep */
-    bool count(IPid pid) const;
-  };  
-  /* Returns a string representation of a sleep set. */
-  std::string oslp_string(const sleepseqs_t &slp) const;
-  /* Traverses prefix to compute the set of threads that were sleeping
-   * as the first event of prefix[i] started executing. Returns that
-   * set.
-   */
-  struct obs_sleep obs_sleep_at(int i) const;
-  /* Performs the first half of a sleep set step, adding new sleepers
-   * from e.
-   */
-  void obs_sleep_add(sleepseqs_t &sleep, const Event &e) const;
-  enum class obs_wake_res {
-    CLEAR,
-    CONTINUE,
-    BLOCK,
-  };
-  /* Performs the second half of a sleep set step, removing sleepers that
-   * conflict with (p, sym).
-   *
-   * If obs_wake_res::BLOCK is returned, then this execution has
-   * blocked.
-   */
-  obs_wake_res obs_sleep_wake(sleepseqs_t &sleepseqs, IPid p,
-                              const sym_ty &sym) const;
-  /* Performs the second half of a sleep set step, removing sleepers that
-   * were identified as waking after event e.
-   *
-   * This overload is a workaround for having the obs_sleep sets work
-   * correctly under TSO without a full symbolic conflict detection
-   * implementation (as required for Optimal-DPOR), as obs_sleep now is
-   * used even for Source-DPOR.
-   *
-   * As this overload is only used on events that have already been
-   * executed, it will never block, and thus has no return value.
-   */
-  void obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const;
   VClock<int> compute_clock_for_second(int i, int j) const;
   /* Compute the wakeup sequence for reversing a race. */
   std::vector<Event> wakeup_sequence(const Race&) const;
   bool blocked_wakeup_sequence(std::vector<Event> &seq,
-			       const sleepseqs_t &sleepseqs,
 			       const std::vector<conflict_map_t> &conflict_map);
-  void update_sleepseqs();
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);
