@@ -491,21 +491,6 @@ str_join(const std::vector<std::string> &vec, const std::string &sep) {
   return res;
 }
 
-std::string POPTraceBuilder::oslp_string(const sleepseqs_t &os) const {
-  std::vector<std::string> elems;
-  auto pid_str = [this](IPid p) { return threads[p].cpid.to_string(); };
-  // for (const auto &sleeper : os.sleep) {
-  //   elems.push_back(threads[sleeper.pid].cpid.to_string());
-  //   if (sleeper.not_if_read) {
-  //     elems.back() += "/" + sleeper.not_if_read->to_string(pid_str);
-  //   }
-  // }
-  // for (const SymAddrSize &sas : os.must_read) {
-  //   elems.push_back(sas.to_string(pid_str));
-  // }
-  return "{" + str_join(elems, ",") + "}";
-}
-
 /* For debug-printing the wakeup tree; adds a node and its children to lines */
 void POPTraceBuilder::wut_string_add_node
 (std::vector<std::string> &lines, std::vector<int> &iid_map,
@@ -3073,7 +3058,7 @@ long double POPTraceBuilder::estimate_trace_count(int idx) const{
   for(int i = int(prefix.size())-1; idx <= i; --i){
     count += prefix[i].sleep_branch_trace_count;
     count += std::max(0, int(prefix[i].races.size()))
-      * (count / (1 + prefix[i].doneseqs.size()));
+      * (count / (1 + prefix[i].local_conflict_map.size()));
   }
 
   return count;
