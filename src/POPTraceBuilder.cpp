@@ -187,7 +187,7 @@ bool POPTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
      prefix[prefix.size()-1].iid.get_pid()
      == prefix[prefix.size()-2].iid.get_pid() &&
      !prefix[prefix.size()-1].may_conflict &&
-     prefix[prefix.size()-1].local_conflict_map.empty()){
+     prefix[prefix.size()-1].local_conflict_map.cfl_detectors.empty()){
     assert(curev().sym.empty()); /* Would need to be copied */
     unsigned size = curev().size;
     prefix.pop_back();
@@ -276,7 +276,7 @@ void POPTraceBuilder::refuse_schedule(){
   assert(prefix_idx == int(prefix.size())-1);
   assert(prefix.back().size == 1);
   assert(!prefix.back().may_conflict);
-  assert(prefix.back().local_conflict_map.empty());
+  assert(prefix.back().local_conflict_map.cfl_detectors.empty());
   IPid last_pid = prefix.back().iid.get_pid();
   prefix.pop_back();
   assert(int(threads[last_pid].event_indices.back()) == prefix_idx);
@@ -1663,19 +1663,17 @@ bool POPTraceBuilder::register_alternatives(int alt_count){
 
 void POPTraceBuilder::
 add_conflict_map(std::vector<conflict_map_t> &conflict_map,
-		 const std::vector<conflict_map_t> &local_conflict_map){
-  for(const auto &local_cfl : local_conflict_map){
-    bool found =false;
-    for(auto &cfl : conflict_map){
-      if(local_cfl.addr == cfl.addr){
-	for(const auto &hc : local_cfl.cfl_detectors)
-	  cfl.cfl_detectors.emplace_back(hc.H, hc.C, cfl.cfl_threads.size());
-	found = true;
-	break;
-      }
+		 const conflict_map_t &local_conflict_map){
+  bool found =false;
+  for(auto &cfl : conflict_map){
+    if(local_conflict_map.addr == cfl.addr){
+      for(const auto &hc : local_conflict_map.cfl_detectors)
+	cfl.cfl_detectors.emplace_back(hc.H, hc.C, cfl.cfl_threads.size());
+      found = true;
+      break;
     }
-    if(!found) conflict_map.push_back(local_cfl);
   }
+  if(!found) conflict_map.push_back(local_conflict_map);
 }
 
 bool POPTraceBuilder::blocked_by_hc(IPid p, const sym_ty &sym,
@@ -1783,7 +1781,7 @@ bool POPTraceBuilder::blocked_wakeup_sequence(std::vector<Event> &seq,
     conflict_state = update_conflict_map(iconflict_map, it->iid.get_pid(),
 					 it->sym, it->clock);
   }
-  seq.back().conflict_map = std::move(iconflict_map);
+  // seq.back().conflict_map = std::move(iconflict_map);
   
   /* Redundant */
   return conflict_state == update_conflict_res::BLOCK;
@@ -2497,34 +2495,22 @@ bool POPTraceBuilder::do_race_detect() {
 	}
 	auto local_conflict_map = std::move(prefix[i].local_conflict_map);
 	if(!h.empty() && event_is_load(prefix[j].sym)){
-	  bool found =false;
-	  for(auto &cflset : local_conflict_map)
-	    for(const auto &se : prefix.back().sym)
-	      if(cflset.addr == se.addr()){
-		cflset.cfl_detectors.
-		  emplace_back(std::move(h),
-			       std::vector<VClock<IPid>>());
-		found = true;
-		break;
-	      }
-	  if(!found) {
-	    std::vector<cfl_detector_t> cflset;
-	    cflset.emplace_back(std::move(h),
-				std::vector<VClock<IPid>>());
-	    local_conflict_map.emplace_back(sym.front().addr(),
-					    std::move(cflset));
-	  }
+	  std::vector<cfl_detector_t> cflset;
+	  cflset.emplace_back(std::move(h),
+			      std::vector<VClock<IPid>>());
+	  local_conflict_map = conflict_map_t(sym.front().addr(),
+					  std::move(cflset));
 	}
 
 	unsigned vsize = v.size();
 	std::vector<VClock<IPid>> clocks;
-	std::vector<std::vector<conflict_map_t>> local_conflict_maps;
+	std::vector<conflict_map_t> local_conflict_maps;
 	for(int k = 0; k < vsize; k++){
 	  clocks.push_back(std::move(v[k].clock));
 	  local_conflict_maps.push_back(std::move(v[k].local_conflict_map));
 	}
 	/* Setup the new branch at prefix[i] */
-        auto last_conflict_map = std::move(prefix.back().conflict_map);
+        // auto last_conflict_map = std::move(prefix.back().conflict_map);
 	prefix.take_next_branch(i, v);
 	for(int k = 0; k < vsize; k++){
 	  prefix[k+i].clock = std::move(clocks[k]);
@@ -2532,7 +2518,7 @@ bool POPTraceBuilder::do_race_detect() {
 	}
 	prefix[i].local_conflict_map = std::move(local_conflict_map);
 	prefix[i].sleep_branch_trace_count += estimate_trace_count(i+1);
-        prefix.back().conflict_map = std::move(last_conflict_map);
+        // prefix.back().conflict_map = std::move(last_conflict_map);
 	current_branch_count++;
 	return true;
       }
@@ -3058,7 +3044,7 @@ long double POPTraceBuilder::estimate_trace_count(int idx) const{
   for(int i = int(prefix.size())-1; idx <= i; --i){
     count += prefix[i].sleep_branch_trace_count;
     count += std::max(0, int(prefix[i].races.size()))
-      * (count / (1 + prefix[i].local_conflict_map.size()));
+      * (count / (1 + prefix[i].local_conflict_map.cfl_detectors.size()));
   }
 
   return count;

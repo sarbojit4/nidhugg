@@ -449,6 +449,7 @@ protected:
     SymAddrSize addr;
     std::vector<CPid> cfl_threads;
     std::vector<cfl_detector_t> cfl_detectors;
+    conflict_map_t(){}
     conflict_map_t(SymAddrSize _addr,
 		   std::vector<cfl_detector_t> &&cfl_detectors) :
       addr(_addr), cfl_detectors(cfl_detectors) {}
@@ -464,7 +465,7 @@ protected:
     BLOCK,
   };
   void add_conflict_map(std::vector<conflict_map_t> &conflict_map,
-			const std::vector<conflict_map_t> &local_conflict_map);
+			const conflict_map_t &local_conflict_map);
   update_conflict_res
   update_conflict_map(std::vector<conflict_map_t> &conflict_map,
 		      IPid p, const sym_ty &sym, const VClock<IPid> &clock);
@@ -524,8 +525,8 @@ protected:
     /* The set of threads that go to sleep immediately before this
      * event sequence.
      */
-    std::vector<conflict_map_t> local_conflict_map;
-    std::vector<conflict_map_t> conflict_map;
+    conflict_map_t local_conflict_map;
+    // std::vector<conflict_map_t> conflict_map;
     bool schedule;
     bool schedule_head;
     /* For each previous IID that has been explored at this position
