@@ -642,7 +642,8 @@ std::string POPTraceBuilder::conflict_map_to_string(const cfl_detector_t &hc) co
 			       ">" + std::to_string(br.second.sleeping) + ",";
   if(!hc.H.empty()) s.pop_back();
   s += "),\n     {";
-  for(const auto &clk : hc.C) s += clk.to_string() + ",";
+  for(const auto &cfls : hc.C)
+    for(const auto &clk : cfls) s += clk.to_string() + ",";
   if(!hc.C.empty()) s.pop_back();
   s += "}>\n";
   return s;
@@ -662,7 +663,7 @@ void POPTraceBuilder::debug_print() const {
   llvm::dbgs() << "POPTraceBuilder (debug print):\n";
   int iid_offs = 0;
   int symev_offs = 0;
-  std::vector<std::string> lines;
+  std::vector<std::string> lines(prefix.size());
 
   for(unsigned i = 0; i < prefix.size(); ++i){
     IPid ipid = prefix[i].iid.get_pid();
@@ -1681,24 +1682,26 @@ bool POPTraceBuilder::blocked_by_hc(IPid p, const sym_ty &sym,
 				    cfl_detector_t &hc,
 				    const std::vector<CPid> &cfl_threads) const{
   bool conflict = false;
-  for(const auto &clk : hc.C){
-    if(clk.lt(clock)){
-      conflict = true;
-      break;
-    }
-  }
+  assert(hc.H.size() == hc.C.size());
 
-  if(!conflict){
-    for(auto hit = hc.H.begin(); hit != hc.H.end(); hit++){
-      if(hit->second.pid == p){
-	if(hit->second.sleeping) return true;
-	hc.H.erase(hit);
+  for(int i = 0; i < hc.H.size(); i++){
+    for(const auto &clk : hc.C[i]){
+      if(clk.lt(clock)){
+	conflict = true;
+	break;
+      }
+    }
+    if(!conflict){
+      if(hc.H[i].second.pid == p){
+	if(hc.H[i].second.sleeping) return true;
+	hc.H.erase(hc.H.begin()+i);
+	hc.C.erase(hc.C.begin()+i);
 	conflict = false;
 	break;
       }
-      else if (do_events_conflict(p, sym, hit->second.pid, hit->second.sym)){
-	hc.C.emplace_back(clock);
-	hc.C.back() += hit->first;
+      if(do_events_conflict(p, sym, hc.H[i].second.pid, hc.H[i].second.sym)){
+	hc.C[i].emplace_back(clock);
+	hc.C[i].back() += hc.H[i].first;
 	conflict = true;
 	break;
       }
@@ -2497,7 +2500,7 @@ bool POPTraceBuilder::do_race_detect() {
 	if(!h.empty() && event_is_load(prefix[j].sym)){
 	  std::vector<cfl_detector_t> cflset;
 	  cflset.emplace_back(std::move(h),
-			      std::vector<VClock<IPid>>());
+			      std::vector<std::vector<VClock<IPid>>>(h.size()));
 	  local_conflict_map = conflict_map_t(sym.front().addr(),
 					  std::move(cflset));
 	}

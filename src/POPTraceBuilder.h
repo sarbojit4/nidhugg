@@ -438,10 +438,10 @@ protected:
   
   struct cfl_detector_t{
     std::vector<std::pair<VClock<IPid>,Branch>> H;
-    std::vector<VClock<IPid>> C;
+    std::vector<std::vector<VClock<IPid>>> C;
     int cfl_th_ind;
     cfl_detector_t(std::vector<std::pair<VClock<IPid>,Branch>> h,
-		   std::vector<VClock<IPid>> c,
+		   std::vector<std::vector<VClock<IPid>>> c,
 		   int i = 0) : H(h), C(c), cfl_th_ind(i) {}  
   };
 
