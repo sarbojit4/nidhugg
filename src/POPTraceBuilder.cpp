@@ -1683,6 +1683,8 @@ add_conflict_map(std::vector<conflict_map_t> &conflict_map,
   std::list<std::pair<local_conflict_map_t *, unsigned>> stack;
   std::list<conflict_map_t *> cfl_map_stack;
   for(auto cfl_node : local_conflict_map){
+    if(cfl_node.inherited == nullptr && cfl_node.cfl_detector.H.empty())
+      return;
     iconflict_map.emplace_back(cfl_node);
     if(cfl_node.inherited == nullptr) continue;
     stack.emplace_back(cfl_node.inherited, 0);    
@@ -1696,6 +1698,8 @@ add_conflict_map(std::vector<conflict_map_t> &conflict_map,
       // visit node
       if(curr.first == nullptr || curr.first->size() <= curr.second) continue;
       auto curr_node = curr.first->begin()+curr.second;
+      if(curr_node->inherited == nullptr && curr_node->cfl_detector.H.empty())
+	continue;
       cfl_map_curr->emplace_back(*curr_node);
       // push right node
       stack.emplace_back(curr.first, curr.second+1);
@@ -1707,7 +1711,7 @@ add_conflict_map(std::vector<conflict_map_t> &conflict_map,
       }
     }
   }
-  conflict_map.push_back(std::move(iconflict_map));
+  if(!iconflict_map.empty())conflict_map.push_back(std::move(iconflict_map));
 }
 
 POPTraceBuilder::update_conflict_res
@@ -2532,7 +2536,8 @@ bool POPTraceBuilder::do_race_detect() {
 	    if(prefix[k].iid.get_pid() == v[l].iid.get_pid()){
 	      if(prefix[k].schedule_head || k == j){
 		sched_heads_clk +=prefix[k].clock;
-		if(event_is_load(prefix[k].sym)){// Insert current h in the cfl
+		if(event_is_load(prefix[k].sym) &&
+		   (!h.empty() || !prefix[k].local_conflict_map.empty())){// Insert current h in the cfl
 		  cfl_detector_t
 		    cfl_detector(std::move(h),
 				 std::vector<std::vector<VClock<IPid>>>(h.size()));
