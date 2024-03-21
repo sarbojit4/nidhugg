@@ -439,36 +439,56 @@ protected:
   struct cfl_detector_t{
     std::vector<std::pair<VClock<IPid>,Branch>> H;
     std::vector<std::vector<VClock<IPid>>> C;
-    int cfl_th_ind;
+    cfl_detector_t() {}
     cfl_detector_t(std::vector<std::pair<VClock<IPid>,Branch>> h,
 		   std::vector<std::vector<VClock<IPid>>> c,
-		   int i = 0) : H(h), C(c), cfl_th_ind(i) {}  
+		   int i = 0) : H(h), C(c) {}
+    bool blocked(){ return false; }
   };
 
-  struct conflict_map_t{
+  struct local_conflict_node_t{
+    SymAddrSize addr;
+    cfl_detector_t cfl_detector;
+    std::vector<local_conflict_node_t> *inherited;
+    local_conflict_node_t(SymAddrSize addr,
+			  cfl_detector_t cfl_detector,
+			  std::vector<local_conflict_node_t> *inherited)
+      : addr(addr), cfl_detector(cfl_detector), inherited(inherited) {}
+  };
+
+  struct conflict_node_t{
     SymAddrSize addr;
     std::vector<CPid> cfl_threads;
-    std::vector<cfl_detector_t> cfl_detectors;
-    conflict_map_t(){}
-    conflict_map_t(SymAddrSize _addr,
-		   std::vector<cfl_detector_t> &&cfl_detectors) :
-      addr(_addr), cfl_detectors(cfl_detectors) {}
+    cfl_detector_t cfl_detector;
+    std::vector<conflict_node_t> inherited;
+    conflict_node_t(SymAddrSize addr, std::vector<CPid> cfl_threads,
+		    cfl_detector_t cfl_detector,
+		    std::vector<conflict_node_t> inherited)
+      : addr(addr), cfl_detector(cfl_detector), inherited(inherited) {}
+    conflict_node_t(local_conflict_node_t node)
+      : addr(node.addr), cfl_detector(node.cfl_detector) {}
   };
 
-  std::string conflict_map_to_string(const cfl_detector_t &hc) const;
-  void print_conflict_map(const std::vector<conflict_map_t> conflict_map) const;
-  bool blocked_by_hc(IPid p, const sym_ty &sym, const VClock<IPid> &clock,
-		     cfl_detector_t &hc, const std::vector<CPid> &cfl_threads) const;
+  typedef std::vector<local_conflict_node_t> local_conflict_map_t;
+  typedef std::vector<conflict_node_t> conflict_map_t;
+
+  std::string conflict_detector_to_string(const cfl_detector_t &hc) const;
+  void print_conflict_map(const conflict_map_t &conflict_map) const;
+  void print_local_conflict_map(const local_conflict_map_t &local_conflict_map) const;
+  void print_conflict_maps(const std::vector<conflict_map_t> &conflict_maps) const;
   enum class update_conflict_res {
     CLEAR,
     CONTINUE,
     BLOCK,
   };
   void add_conflict_map(std::vector<conflict_map_t> &conflict_map,
-			const conflict_map_t &local_conflict_map);
+			const local_conflict_map_t &local_conflict_map) const;
   update_conflict_res
-  update_conflict_map(std::vector<conflict_map_t> &conflict_map,
-		      IPid p, const sym_ty &sym, const VClock<IPid> &clock);
+  update_conflict_detector(IPid p, const sym_ty &sym, const VClock<IPid> &clock,
+			   cfl_detector_t &hc, const std::vector<CPid> &cfl_threads) const;
+  update_conflict_res
+  update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
+		      IPid p, const sym_ty &sym, const VClock<IPid> &clock) const;
   
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts
@@ -525,8 +545,7 @@ protected:
     /* The set of threads that go to sleep immediately before this
      * event sequence.
      */
-    conflict_map_t local_conflict_map;
-    // std::vector<conflict_map_t> conflict_map;
+    local_conflict_map_t local_conflict_map;
     bool schedule;
     bool schedule_head;
     /* For each previous IID that has been explored at this position
