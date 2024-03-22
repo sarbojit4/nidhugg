@@ -461,6 +461,7 @@ protected:
     std::vector<CPid> cfl_threads;
     cfl_detector_t cfl_detector;
     std::vector<conflict_node_t> inherited;
+    std::vector<VClock<IPid>> slp_ev_clks;
     conflict_node_t(SymAddrSize addr, std::vector<CPid> cfl_threads,
 		    cfl_detector_t cfl_detector,
 		    std::vector<conflict_node_t> inherited)
@@ -472,6 +473,8 @@ protected:
   typedef std::vector<local_conflict_node_t> local_conflict_map_t;
   typedef std::vector<conflict_node_t> conflict_map_t;
 
+  std::string
+  history_to_string(const std::vector<std::pair<VClock<IPid>,Branch>> &h) const;
   std::string conflict_detector_to_string(const cfl_detector_t &hc) const;
   void print_conflict_map(const conflict_map_t &conflict_map) const;
   void print_local_conflict_map(const local_conflict_map_t &local_conflict_map) const;
