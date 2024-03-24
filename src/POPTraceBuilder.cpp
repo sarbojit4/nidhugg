@@ -636,11 +636,11 @@ void POPTraceBuilder::check_symev_vclock_equiv() const {
 #endif /* !defined(NDEBUG) */
 
 std::string POPTraceBuilder::
-history_to_string(const std::vector<std::pair<VClock<IPid>,Branch>> &h) const {
+history_to_string(const std::vector<Branch> &h) const {
   std::string s = "(";
-  for(const auto &br : h) s += "<" + std::to_string(br.second.pid) + "," +
-			       std::to_string(br.second.index) +
-			       ">" + std::to_string(br.second.sleeping) + ",";
+  for(const auto &br : h) s += "<" + std::to_string(br.pid) + "," +
+			       std::to_string(br.index) +
+			       ">" + std::to_string(br.sleeping) + ",";
   s += ")\n";
   return s;
 }
@@ -1744,16 +1744,16 @@ POPTraceBuilder::update_conflict_detector(IPid p, const sym_ty &sym,
       }
     }
     if(conflict != update_conflict_res::BLOCK){
-      if(hc.H[i].second.pid == p){
-	if(hc.H[i].second.sleeping) return update_conflict_res::BLOCK;
+      if(hc.H[i].pid == p){
+	if(hc.H[i].sleeping) return update_conflict_res::BLOCK;
 	hc.H.erase(hc.H.begin()+i);
 	hc.C.erase(hc.C.begin()+i);
 	conflict = update_conflict_res::CLEAR;
 	break;
       }
-      if(do_events_conflict(p, sym, hc.H[i].second.pid, hc.H[i].second.sym)){
+      if(do_events_conflict(p, sym, hc.H[i].pid, hc.H[i].sym)){
 	hc.C[i].emplace_back(clock);
-	hc.C[i].back() += hc.H[i].first;
+	hc.C[i].back() += hc.schedules_clock;
 	conflict = update_conflict_res::BLOCK;
 	break;
       }
@@ -1781,7 +1781,6 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
   for(auto &conflict_map : conflict_maps){
     if(conflict_map.empty()) continue;
     const auto &base_addr = conflict_map.front().addr;
-    if(conflict_map.empty()) continue;
 
     queue.push_back(&conflict_map);
     while(!queue.empty()){
@@ -1810,20 +1809,21 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
       }
       
       update_conflict_res res = update_conflict_res::CONTINUE;
-      for(int i = 0; i < curr_conflict_map->size(); i++){
-	auto &cfl_node = (*curr_conflict_map)[i];
+      for(auto &cfl_node : *(curr_conflict_map)){
 	// Update this node
 	if(load_overlaps){
 	  // Check happens after inherited sleep set
 	  if(!cfl_node.inherited.empty()){
 	    for(const auto &inherited_clk :
 		  cfl_node.inherited.front().slp_ev_clks){
-	      auto schedules_clk =
-		(*curr_conflict_map)[i-1].cfl_detector.H.back().first;
-	      if(inherited_clk.lt(clock) && schedules_clk.lt(clock)){
+	      if(inherited_clk.lt(clock) &&
+		 cfl_node.cfl_detector.schedules_clock.lt(clock)){
 		if(is_base_addr)
 		  return update_conflict_res::BLOCK;
-		else curr_conflict_map->front().slp_ev_clks.push_back(clock);
+		else{
+		  curr_conflict_map->front().slp_ev_clks.push_back(clock);
+		  res = update_conflict_res::BLOCK;
+		}
 	      }
 	    }
 	  }
@@ -2576,7 +2576,7 @@ bool POPTraceBuilder::do_race_detect() {
       if(!blocked_wakeup_sequence(v, conflict_maps[i])){
 	prefix[j].reversed_races.push_back(i);
 	// llvm::dbgs()<<"Inserting WS\n";///////////
-        std::vector<std::pair<VClock<IPid>,Branch>> h;
+        std::vector<Branch> h;
 	VClock<IPid> sched_heads_clk;
         local_conflict_map_t local_conflict_map;
 	local_conflict_map_t *inherited = nullptr;
@@ -2584,30 +2584,30 @@ bool POPTraceBuilder::do_race_detect() {
 	  for(int k = i+1, l = 0; k <= j; k++){
 	    if(prefix[k].iid.get_pid() == v[l].iid.get_pid()){
 	      if(prefix[k].schedule_head || k == j){
-		sched_heads_clk +=prefix[k].clock;
 		if(event_is_load(prefix[k].sym) &&
-		   (!h.empty() || !prefix[k].local_conflict_map.empty())){// Insert current h in the cfl
+		   (!h.empty() || !prefix[k].local_conflict_map.empty())){
+		  // Insert current h in the cfl
 		  if(!prefix[k].local_conflict_map.empty()){
 		    inherited = &(prefix[k].local_conflict_map);
 		  }
 		  cfl_detector_t
-		    cfl_detector(std::move(h),
+		    cfl_detector(sched_heads_clk, std::move(h),
 				 std::vector<std::vector<VClock<IPid>>>(h.size()));
 		  local_conflict_map.emplace_back(prefix[j].sym.front().addr(),
 						  std::move(cfl_detector),
 						  std::move(inherited));
 		}
+		sched_heads_clk +=prefix[k].clock;
 	      }
 	      l++;
 	    }
 	    else{
-	      h.emplace_back(sched_heads_clk,
-			     std::move(branch_with_symbolic_data(k)));
+	      h.push_back(branch_with_symbolic_data(k));
 	      auto it = std::find(prefix[k].reversed_races.begin(),
 				  prefix[k].reversed_races.end(), i);
 	      if(it != prefix[k].reversed_races.end())
 		assert(!do_events_conflict(k,j));
-		h.back().second.sleeping = true;
+		h.back().sleeping = true;
 	    }
 	  }
 	}
