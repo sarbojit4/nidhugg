@@ -1818,8 +1818,15 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
 		  cfl_node.inherited.front().slp_ev_clks){
 	      if(inherited_clk.lt(clock) &&
 		 cfl_node.cfl_detector.schedules_clock.lt(clock)){
-		if(is_base_addr)
-		  return update_conflict_res::BLOCK;
+
+		for(const auto & th : cfl_node.cfl_threads)
+		  if(th == threads[p].cpid ||
+		     th.is_ancestor(threads[p].cpid)){
+		    res = update_conflict_res::CLEAR;
+		    break;
+		  }
+		if(res == update_conflict_res::CLEAR) break;
+		if(is_base_addr) return update_conflict_res::BLOCK;
 		else{
 		  curr_conflict_map->front().slp_ev_clks.push_back(clock);
 		  res = update_conflict_res::BLOCK;
@@ -1827,6 +1834,7 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
 	      }
 	    }
 	  }
+	  ///this cannot go later because of the next break statement
 	  cfl_node.cfl_threads.push_back(threads[p].cpid);
 	}
 	if(!cfl_node.cfl_detector.H.empty() ||
@@ -1836,9 +1844,11 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
 					 cfl_node.cfl_detector,
 					 cfl_node.cfl_threads);
 	  if(res == update_conflict_res::BLOCK && addr_overlaps){
-	    if(is_base_addr)
-	      return update_conflict_res::BLOCK;
-	    else curr_conflict_map->front().slp_ev_clks.push_back(clock);
+	    if(is_base_addr) return update_conflict_res::BLOCK;
+	    else{
+	      curr_conflict_map->front().slp_ev_clks.push_back(clock);
+	      res = update_conflict_res::BLOCK;
+	    }
 	  }
 	}
 	if(!cfl_node.inherited.empty())
