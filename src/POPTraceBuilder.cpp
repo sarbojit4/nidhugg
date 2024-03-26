@@ -647,12 +647,12 @@ history_to_string(const std::vector<Branch> &h) const {
 
 std::string POPTraceBuilder::conflict_detector_to_string(const cfl_detector_t &hc) const {
   std::string s = "<" + history_to_string(hc.H);
-  // if(!hc.H.empty()) s.pop_back();
-  // s += "),\n     {";
-  // for(const auto &cfls : hc.C)
-  //   for(const auto &clk : cfls) s += clk.to_string() + ",";
-  // if(!hc.C.empty()) s.pop_back();
-  // s += "}>\n";
+  if(!hc.H.empty()) s.pop_back();
+  s += "),\n     {";
+  for(const auto &cfls : hc.C)
+    for(const auto &clk : cfls) s += clk.to_string() + ",";
+  if(!hc.C.empty()) s.pop_back();
+  s += "}>\n";
   return s;
 }
 
@@ -1820,7 +1820,6 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
       update_conflict_res res = update_conflict_res::CONTINUE;
       for(auto &cfl_node : *(curr_conflict_map)){
 	// Update this node
-	if(load_overlaps) cfl_node.cfl_threads.push_back(threads[p].cpid);
 	if(!cfl_node.cfl_detector.H.empty() ||
 	   !cfl_node.cfl_detector.C.empty()){
 	  // Update the current sleep set node
@@ -1839,6 +1838,7 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
 	if(!cfl_node.inherited.empty())
 	  queue.push_back(&(cfl_node.inherited));
 	if(res != update_conflict_res::CONTINUE) break;
+	// check if next inherited sleep set blocks
 	if(load_overlaps){
 	  // Check happens after inherited sleep set
 	  if(!cfl_node.inherited.empty()){
@@ -2625,9 +2625,10 @@ bool POPTraceBuilder::do_race_detect() {
 	      h.push_back(branch_with_symbolic_data(k));
 	      auto it = std::find(prefix[k].reversed_races.begin(),
 				  prefix[k].reversed_races.end(), i);
-	      if(it != prefix[k].reversed_races.end())
+	      if(it != prefix[k].reversed_races.end()){
 		assert(!do_events_conflict(k,j));
 		h.back().sleeping = true;
+	      }
 	    }
 	  }
 	}
