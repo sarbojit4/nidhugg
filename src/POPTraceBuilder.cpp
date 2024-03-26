@@ -663,7 +663,9 @@ print_conflict_map(const conflict_map_t &conflict_map) const {
     llvm::dbgs() << cfl_node.addr.to_string()<<"->\n";
     llvm::dbgs() << history_to_string(cfl_node.cfl_detector.H);
     if(!cfl_node.inherited.empty()){
+      llvm::dbgs() << "Inherited(\n";
       print_conflict_map(cfl_node.inherited);
+      llvm::dbgs() << ")\n";
     }
   }
 }
@@ -1729,10 +1731,12 @@ add_conflict_map(std::vector<conflict_map_t> &conflict_map,
 }
 
 POPTraceBuilder::update_conflict_res
-POPTraceBuilder::update_conflict_detector(IPid p, const sym_ty &sym,
-				    const VClock<IPid> &clock,
-				    cfl_detector_t &hc,
-				    const std::vector<CPid> &cfl_threads) const{
+POPTraceBuilder::
+update_conflict_detector(IPid p, const sym_ty &sym,
+			 const VClock<IPid> &clock,
+			 cfl_detector_t &hc,
+			 const std::vector<VClock<IPid>> &same_var_load_clks)
+  const{
   update_conflict_res conflict = update_conflict_res::CONTINUE;
   assert(hc.H.size() == hc.C.size());
 
@@ -1751,7 +1755,13 @@ POPTraceBuilder::update_conflict_detector(IPid p, const sym_ty &sym,
 	conflict = update_conflict_res::CLEAR;
 	break;
       }
-      if(do_events_conflict(p, sym, hc.H[i].pid, hc.H[i].sym)){
+      bool symevs_conflict = false;
+      for (const SymEv &fe : sym)
+	for (const SymEv &se : hc.H[i].sym)
+	  if(do_symevs_conflict(fe, se))
+	    symevs_conflict =true;
+
+      if(symevs_conflict){
 	hc.C[i].emplace_back(clock);
 	hc.C[i].back() += hc.schedules_clock;
 	conflict = update_conflict_res::BLOCK;
@@ -1762,9 +1772,8 @@ POPTraceBuilder::update_conflict_detector(IPid p, const sym_ty &sym,
 
   if(conflict == update_conflict_res::BLOCK){
     // TODO: check for non-reversible happens after
-    for(int i = 0; i < cfl_threads.size(); i++)
-	if(cfl_threads[i] == threads[p].cpid ||
-	   cfl_threads[i].is_ancestor(threads[p].cpid)){
+    for(auto clk : same_var_load_clks)
+      if(clk.lt(clock)){
 	  conflict = update_conflict_res::CLEAR;
 	  break;
 	}
@@ -1817,7 +1826,7 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
 	  // Update the current sleep set node
 	  res = update_conflict_detector(p, sym, clock,
 					 cfl_node.cfl_detector,
-					 cfl_node.cfl_threads);
+					 cfl_node.same_var_load_clks);
 	  if(res == update_conflict_res::BLOCK && addr_overlaps){
 	    if(is_base_addr) return update_conflict_res::BLOCK;
 	    else{
@@ -1826,6 +1835,7 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
 	    }
 	  }
 	}
+	if(load_overlaps) cfl_node.same_var_load_clks.push_back(clock);
 	if(!cfl_node.inherited.empty())
 	  queue.push_back(&(cfl_node.inherited));
 	if(res != update_conflict_res::CONTINUE) break;
@@ -1837,9 +1847,8 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
 	      if(inherited_clk.lt(clock) &&
 		 cfl_node.cfl_detector.schedules_clock.lt(clock)){
 
-		for(const auto & th : cfl_node.cfl_threads)
-		  if(th == threads[p].cpid ||
-		     th.is_ancestor(threads[p].cpid)){
+		for(const auto &clk : cfl_node.same_var_load_clks)
+		  if(clk.lt(clock)){
 		    res = update_conflict_res::CLEAR;
 		    break;
 		  }
@@ -2605,6 +2614,8 @@ bool POPTraceBuilder::do_race_detect() {
 		  local_conflict_map.emplace_back(prefix[j].sym.front().addr(),
 						  std::move(cfl_detector),
 						  std::move(inherited));
+		  if(local_conflict_map.size() == 1)
+		    local_conflict_map[0].second_read_clock = v.back().clock;
 		}
 		sched_heads_clk +=prefix[k].clock;
 	      }
