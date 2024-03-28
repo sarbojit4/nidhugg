@@ -667,6 +667,7 @@ print_conflict_map(const conflict_map_t &conflict_map) const {
       print_conflict_map(cfl_node.inherited);
       llvm::dbgs() << ")\n";
     }
+    llvm::dbgs() << ",\n";
   }
 }
 
@@ -1802,7 +1803,8 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
       bool store_overlaps = false;
       bool is_base_addr = (curr_conflict_map->front().addr == base_addr);
       for(const auto &symev : sym){
-	if(symev.has_addr() && symev.addr().overlaps(base_addr)){
+	if(symev.has_addr() &&
+	   symev.addr().overlaps(curr_conflict_map->front().addr)){
 	  addr_overlaps = true;
 	  if(symev_does_store(symev)){
 	    store_overlaps = true;
@@ -1835,9 +1837,9 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
 	  }
 	}
 	if(load_overlaps) cfl_node.same_var_load_clks.push_back(clock);
+	if(res != update_conflict_res::CONTINUE) break;
 	if(!cfl_node.inherited.empty())
 	  queue.push_back(&(cfl_node.inherited));
-	if(res != update_conflict_res::CONTINUE) break;
 	// check if next inherited sleep set blocks
 	if(load_overlaps){
 	  // Check happens after inherited sleep set
@@ -1846,7 +1848,6 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
 		  cfl_node.inherited.front().slp_ev_clks){
 	      if(inherited_clk.lt(clock) &&
 		 cfl_node.cfl_detector.schedules_clock.lt(clock)){
-
 		for(const auto &clk : cfl_node.same_var_load_clks)
 		  if(clk.lt(clock)){
 		    res = update_conflict_res::CLEAR;
@@ -2614,6 +2615,7 @@ bool POPTraceBuilder::do_race_detect() {
 		  local_conflict_map.emplace_back(prefix[j].sym.front().addr(),
 						  std::move(cfl_detector),
 						  std::move(inherited));
+		  inherited = nullptr;
 		  if(local_conflict_map.size() == 1)
 		    local_conflict_map[0].second_read_clock = v.back().clock;
 		}
