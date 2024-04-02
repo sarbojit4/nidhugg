@@ -674,7 +674,8 @@ print_conflict_map(const conflict_map_t &conflict_map) const {
 void POPTraceBuilder::
 print_local_conflict_map(const local_conflict_map_t &local_conflict_map) const {
   for(const auto &cfl_node : local_conflict_map) {
-    llvm::dbgs() << cfl_node.addr.to_string()<<"->";
+    llvm::dbgs() << cfl_node.addr.to_string()<<"->\n";
+    llvm::dbgs() << cfl_node.cfl_detector.schedules_clock<<"\n";
     llvm::dbgs() << history_to_string(cfl_node.cfl_detector.H);
     if(cfl_node.inherited != nullptr){
       print_local_conflict_map(*(cfl_node.inherited));
@@ -1750,7 +1751,8 @@ update_conflict_detector(IPid p, const sym_ty &sym,
     }
     if(conflict != update_conflict_res::BLOCK){
       if(hc.H[i].pid == p){
-	if(hc.H[i].sleeping) return update_conflict_res::BLOCK;
+	if(hc.H[i].sleeping && hc.schedules_clock.lt(clock))
+	  return update_conflict_res::BLOCK;
 	hc.H.erase(hc.H.begin()+i);
 	hc.C.erase(hc.C.begin()+i);
 	conflict = update_conflict_res::CLEAR;
@@ -1762,7 +1764,7 @@ update_conflict_detector(IPid p, const sym_ty &sym,
 	  if(do_symevs_conflict(fe, se))
 	    symevs_conflict =true;
 
-      if(symevs_conflict){
+      if(symevs_conflict && hc.schedules_clock.lt(clock)){
 	hc.C[i].emplace_back(clock);
 	hc.C[i].back() += hc.schedules_clock;
 	conflict = update_conflict_res::BLOCK;
@@ -2603,8 +2605,7 @@ bool POPTraceBuilder::do_race_detect() {
 	  for(int k = i+1, l = 0; k <= j; k++){
 	    if(prefix[k].iid.get_pid() == v[l].iid.get_pid()){
 	      if(prefix[k].schedule_head || k == j){
-		if(event_is_load(prefix[k].sym) &&
-		   (!h.empty() || !prefix[k].local_conflict_map.empty())){
+		if(!h.empty() || !prefix[k].local_conflict_map.empty()){
 		  // Insert current h in the cfl
 		  if(!prefix[k].local_conflict_map.empty()){
 		    inherited = &(prefix[k].local_conflict_map);

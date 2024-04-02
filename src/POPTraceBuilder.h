@@ -465,8 +465,7 @@ protected:
     std::vector<conflict_node_t> inherited;
     std::vector<VClock<IPid>> slp_ev_clks;
     std::vector<VClock<IPid>> same_var_load_clks;
-    conflict_node_t(SymAddrSize addr, std::vector<CPid> cfl_threads,
-		    cfl_detector_t cfl_detector,
+    conflict_node_t(SymAddrSize addr, cfl_detector_t cfl_detector,
 		    std::vector<conflict_node_t> inherited)
       : addr(addr), cfl_detector(cfl_detector), inherited(inherited) {}
     conflict_node_t(local_conflict_node_t node)
