@@ -3,7 +3,7 @@ SHELL = /bin/bash -o pipefail
 #
 # Set this to the proper value
 #
-HOME_DIR = /home/pop
+HOME_DIR = /home/POP
 
 NIDHUGGCPOP ?= ${HOME_DIR}/nidhugg-pop/src/nidhuggc
 NIDHUGGC    ?= ${HOME_DIR}/nidhugg/src/nidhuggc
