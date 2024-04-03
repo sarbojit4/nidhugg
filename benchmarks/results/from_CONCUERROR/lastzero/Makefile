@@ -1,5 +1,5 @@
 NAME=lastzero
 FILE=from_CONCUERROR/lastzero.c
-N = 14 16 18
+N = 10 15 20
 
 include ../../benchmarks.mk

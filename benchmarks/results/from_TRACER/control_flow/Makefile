@@ -1,6 +1,6 @@
 NAME=control-flow
 FILE=from_TRACER/control_flow.c
-N = 5 7 11 13 15 17
-TIME_LIMIT = 420
+N = 6 7 8
+TIME_LIMIT = 3600
 
 include ../../benchmarks.mk
