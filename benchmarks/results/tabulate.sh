@@ -145,8 +145,12 @@ case $verb in
                 if [ x"$traces" = xerr ]; then
                     err='{\error}'
                     printf "\t%s" "$err"
+                elif [ x"$traces" = x"{\timeout}" ]; then
+                    tout='{\timeout}'
+                    printf "\t%s" "$tout"
                 else
-                    printf "\t%s" $(get_mem "$f")
+                    res=$(get_mem $f)
+                    printf "\t%d" $((res / 1024))
                 fi
             done
             printf "\n"
@@ -186,7 +190,4 @@ case $verb in
         echo "Unknown verb $verb" >&2
         exit 1
 esac
-
-
-
 
