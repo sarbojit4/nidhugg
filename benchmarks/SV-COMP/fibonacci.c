@@ -9,7 +9,9 @@
 #include <stdatomic.h>
 #include <pthread.h>
 
-#define NUM 4
+#ifndef N
+#define N 4
+#endif
 
 // shared variables
 atomic_int i, j;
@@ -17,7 +19,7 @@ atomic_int i, j;
 void *t1(void *arg)
 {
 	int _i, _j;
-	for (int k=0; k<NUM; k++) {
+	for (int k=0; k<N; k++) {
 		_i = atomic_load_explicit(&i, memory_order_seq_cst);
 		_j = atomic_load_explicit(&j, memory_order_seq_cst);
 		atomic_store_explicit(&i, _i+_j, memory_order_seq_cst);
@@ -28,7 +30,7 @@ void *t1(void *arg)
 void *t2(void *arg)
 {
 	int _i, _j;
-	for (int k=0; k<NUM; k++) {
+	for (int k=0; k<N; k++) {
 		_i = atomic_load_explicit(&i, memory_order_seq_cst);
 		_j = atomic_load_explicit(&j, memory_order_seq_cst);
 		atomic_store_explicit(&j, _i+_j, memory_order_seq_cst);
@@ -56,7 +58,7 @@ int main(int argc, char *argv[])
 	pthread_create(&a, NULL, t1, NULL);
 	pthread_create(&b, NULL, t2, NULL);
 
-	int correct = fib(2+2*NUM);
+	int correct = fib(2+2*N);
 	int _i = atomic_load_explicit(&i, memory_order_seq_cst);;
 	int _j = atomic_load_explicit(&j, memory_order_seq_cst);
 
