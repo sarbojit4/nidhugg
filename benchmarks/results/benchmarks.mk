@@ -1,6 +1,15 @@
 SHELL = /bin/bash -o pipefail
 
-TIME_LIMIT ?= 3600 # seconds
+#
+# Set this to the proper value
+#
+HOME_DIR = /home/pop
+
+NIDHUGGCPOP ?= ${HOME_DIR}/nidhugg-pop/src/nidhuggc
+NIDHUGGC    ?= ${HOME_DIR}/nidhugg/src/nidhuggc
+GENMC       ?= ${HOME_DIR}/genmc/genmc
+
+TIME_LIMIT ?= 7200 # seconds
 STACK_LIMIT ?= 65536 # kB
 MEM_LIMIT ?= 33554432 # kB
 
@@ -11,25 +20,20 @@ OPT = # -O1
 TOOLCLANGFLAGS = $(OPT)
 OPTFLAGS = -mem2reg
 CLANGFLAGS = -c -emit-llvm -g -Xclang -disable-O0-optnone $(TOOLCLANGFLAGS)
-NIDHUGGC ?= ../../nidhuggc
-NIDHUGGCOP ?= $(NIDHUGGC)
-GENMC ?= ../../genmc
+
 SOURCE    = $(NIDHUGGC) $(1) -- -c11 -sc -source
-OPTIMAL   = $(NIDHUGGCOP) $(1) -- -sc -optimal -no-assume-await
-SIMP      = $(NIDHUGGC) $(1) -- -sc -simp
+OPTIMAL   = $(NIDHUGGC) $(1) -- -sc -optimal --extfun-no-race=pow #-no-assume-await
+POP       = $(NIDHUGGCPOP) $(1) -- -sc -pop   --extfun-no-race=pow
 OBSERVERS = $(NIDHUGGC) $(1) -- -c11 -sc -observers
 RFSC      = $(NIDHUGGC) $(1) -- -c11 -sc -rf
-EVENT     = $(NIDHUGGC) $(1) -- -sc -event
-LAPORMO   = $(GENMC) --lapor --mo -- $(1)
-LAPOR     = $(GENMC) --lapor -- $(1)
-GENMCSC     = $(GENMC) -sc -disable-sr -disable-ipr -disable-estimation -- $(1)
+GENMCSC   = $(GENMC) -sc --disable-instruction-caching --disable-sr --disable-ipr --disable-estimation -- $(1)
 TIME = env time -f 'real %e\nres %M'
 TIMEOUT = timeout $(TIME_LIMIT)
 ULIMIT = ulimit -Ss $(STACK_LIMIT) && ulimit -Sv $(MEM_LIMIT) &&
 RUN = -$(ULIMIT) $(TIMEOUT) $(TIME)
 TABULATE = ../../tabulate.sh
 
-TOOLS = genmcsc simp optimal
+TOOLS = genmcsc optimal pop
 
 TABLES = $(TOOLS:%=%.txt) wide.txt
 # Only for wide.txt (not including $(tool)_THREADS
