@@ -1764,8 +1764,7 @@ update_conflict_detector(IPid p, const sym_ty &sym,
 	for (const SymEv &se : hc.H[i].sym)
 	  if(do_symevs_conflict(fe, se))
 	    symevs_conflict =true;
-
-      if(symevs_conflict && hc.schedules_clock.lt(clock)){
+      if(symevs_conflict){
 	hc.C[i].emplace_back(clock);
 	hc.C[i].back() += hc.schedules_clock;
 	conflict = update_conflict_res::BLOCK;
@@ -1834,11 +1833,10 @@ POPTraceBuilder::update_conflict_map(std::vector<conflict_map_t> &conflict_maps,
 	  res = update_conflict_detector(p, sym, clock,
 					 cfl_node.cfl_detector,
 					 same_var_load_clks);
-	  if(res == update_conflict_res::BLOCK && addr_overlaps){
-	    if(!is_base_addr){
+	  if(res == update_conflict_res::BLOCK && addr_overlaps &&
+	     cfl_node.cfl_detector.schedules_clock.lt(clock)){
+	    if(!is_base_addr)
 	      curr_conflict_map->front().slp_ev_clks.push_back(clock);
-	      res = update_conflict_res::BLOCK;
-	    }
 	    else if(stack_no == -1) return update_conflict_res::BLOCK;
 	    // backtrack and update the slp_ev_clks
 	    if(stack_no != -1){
