@@ -1,4 +1,4 @@
-/* Copyright (C) 2014-2017 Carl Leonardsson
+/* Copyright (C) 2019-2024 Sarbojit Das
  *
  * This file is part of Nidhugg.
  *
