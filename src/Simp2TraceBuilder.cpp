@@ -356,26 +356,26 @@ Trace *Simp2TraceBuilder::get_trace() const{
 
 bool Simp2TraceBuilder::reset(){
   /* Checking if current exploration is redundant */
-  auto trace_it = Traces.find(currtrace);
-  if(trace_it != Traces.end()){
-    llvm::dbgs() << "|| ERROR: Redundant exploration ================\n";
-    debug_print();
-    llvm::dbgs() << " =============================\n";
-    llvm::dbgs() << " Trace:=====> \n";
-    for(auto p : (*trace_it)){
-      llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
-		  <<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
-    }
-    return false;
-  }
+  // auto trace_it = Traces.find(currtrace);
+  // if(trace_it != Traces.end()){
+  //   llvm::dbgs() << "|| ERROR: Redundant exploration ================\n";
+  //   debug_print();
+  //   llvm::dbgs() << " =============================\n";
+  //   llvm::dbgs() << " Trace:=====> \n";
+  //   for(auto p : (*trace_it)){
+  //     llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
+  // 		  <<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
+  //   }
+  //   return false;
+  // }
   // llvm::dbgs() << " =============================\n";
   // llvm::dbgs() << " Trace:=====> \n";
   // for(auto p : currtrace){
   //   llvm::dbgs()<<"(("<<threads[p.first.get_pid()].cpid<<","<<p.first.get_index()<<"),("
   // 		<<threads[p.second.get_pid()].cpid<<","<<p.second.get_index()<<"))\n";
   // }
-  Traces.insert(std::move(currtrace));
-  currtrace.clear();
+  // Traces.insert(std::move(currtrace));
+  // currtrace.clear();
   compute_vclocks();
 
   if(conf.debug_print_on_reset){
@@ -433,7 +433,7 @@ bool Simp2TraceBuilder::reset(){
 	  for(int j = i; j <= last_schedule_head; j++)
 	    sleepseq.push_back(slpnode_with_symbolic_data(j));
 	}
-	sleepseqs_t idoneseqs = std::move(prefix[last_schedule_head].doneseqs);
+	sleepseqs_t idoneseqs = std::move(prefix[i].doneseqs);
 	prefix.take_previous_branch(i);
 	prefix[i].doneseqs = std::move(idoneseqs);
 	if(!sleepseq.empty())prefix[i].doneseqs.push_back(std::move(sleepseq));
@@ -2017,7 +2017,7 @@ void Simp2TraceBuilder::see_events(const VecSet<int> &seen_accesses){
   for(int i : seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
-    currtrace.emplace(prefix[i].iid, curev().iid);
+    // currtrace.emplace(prefix[i].iid, curev().iid);
     add_noblock_race(i);
   }
 }
@@ -2454,12 +2454,6 @@ bool Simp2TraceBuilder::do_race_detect() {
       assert(race.first_event == (int) i);
       prefix[i].races.pop_back();
       std::vector<Event> v = wakeup_sequence(race);
-      // for(auto slpseq : sleepseqs){
-      // 	for(auto n : slpseq){
-      // 	  llvm::dbgs()<<"("<<n.pid<<","<<n.index<<")";
-      // 	}
-      // 	llvm::dbgs()<<"\n";////////////////
-      // }
       // llvm::dbgs()<<"Race (<"<<threads[prefix[i].iid.get_pid()].cpid<<","
       // 	      <<prefix[i].iid.get_index()<<">,<"
       // 	      <<threads[prefix[race.second_event].iid.get_pid()].cpid
