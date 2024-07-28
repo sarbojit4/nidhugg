@@ -1,4 +1,4 @@
-/* Copyright (C) 2014-2017 Carl Leonardsson
+/* Copyright (C) 2019-2024 Sarbojit Das
  *
  * This file is part of Nidhugg.
  *
@@ -506,11 +506,6 @@ protected:
   std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
   std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
 
-  /* The number of threads that have been dry run since the last
-   * non-dry run event was scheduled.
-   */
-  int dry_sleepers;
-
   /* The index into prefix corresponding to the last event that was
    * scheduled. Has the value -1 when no events have been scheduled.
    */
@@ -758,11 +753,6 @@ protected:
   };  
   /* Returns a string representation of a sleep set. */
   std::string oslp_string(const sleepseqs_t &slp) const;
-  /* Traverses prefix to compute the set of threads that were sleeping
-   * as the first event of prefix[i] started executing. Returns that
-   * set.
-   */
-  struct obs_sleep obs_sleep_at(int i) const;
   /* Performs the first half of a sleep set step, adding new sleepers
    * from e.
    */
@@ -797,9 +787,6 @@ protected:
   std::vector<Branch> wakeup_sequence(const Race&) const;
   bool blocked_wakeup_sequence(std::vector<Branch> &seq,
 			       const sleepseqs_t &sleepseqs);
-  /* Checks if a sequence of events will clear a sleep set. */
-  bool sequence_clears_sleep(const std::vector<Branch> &seq,
-                             const sleepseqs_t &sleep) const;
   void update_sleepseqs();
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
