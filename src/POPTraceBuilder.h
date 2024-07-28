@@ -317,17 +317,17 @@ protected:
   std::map<SymAddr,CondVar> cond_vars;
   class Event;
 
-  /* A Branch object is a pair of an IPid p and an alternative index
+  /* A SlpNode object is a pair of an IPid p and an alternative index
    * (see Event::alt below) i. It will be tagged on an event in the
    * execution to indicate that if instead of that event, p is allowed
    * to execute (with alternative index i), then a different trace can
    * be produced.
    */
-  class Branch{
+  class SlpNode{
   public:
-    Branch (IPid pid, int alt = 0, sym_ty sym = {})
+    SlpNode (IPid pid, int alt = 0, sym_ty sym = {})
       : sym(std::move(sym)), pid(pid), alt(alt), size(1), sleeping(false) {}
-    Branch (const Event &base, sym_ty sym)
+    SlpNode (const Event &base, sym_ty sym)
       : sym(std::move(sym)), pid(base.iid.get_pid()),
 	index(base.iid.get_index()), alt(base.alt),
 	size(base.size), sleeping(false) {}
@@ -340,7 +340,7 @@ protected:
     /* Some instructions may execute in several alternative ways
      * nondeterministically. (E.g. malloc may succeed or fail
      * nondeterministically if Configuration::malloy_may_fail is set.)
-     * Branch::alt is the index of the alternative for the first event
+     * SlpNode::alt is the index of the alternative for the first event
      * in this event sequence. The default execution alternative has
      * index 0. All events in this sequence, except the first, are
      * assumed to run their default execution alternative.
@@ -349,10 +349,10 @@ protected:
     /* The number of events in this sequence. */
     int size;
     bool sleeping;
-    bool operator<(const Branch &b) const{
+    bool operator<(const SlpNode &b) const{
       return pid < b.pid || (pid == b.pid && alt < b.alt);
     }
-    bool operator==(const Branch &b) const{
+    bool operator==(const SlpNode &b) const{
       return pid == b.pid && alt == b.alt;
     }
   };
@@ -438,11 +438,11 @@ protected:
   
   struct cfl_detector_t{
     VClock<IPid> schedules_clock;
-    std::vector<Branch> H;
+    std::vector<SlpNode> H;
     std::vector<std::vector<VClock<IPid>>> C;
     cfl_detector_t() {}
     cfl_detector_t(VClock<IPid> clock,
-		   std::vector<Branch> h,
+		   std::vector<SlpNode> h,
 		   std::vector<std::vector<VClock<IPid>>> c,
 		   int i = 0) : schedules_clock(clock), H(h), C(c) {}
     bool blocked(){ return false; }
@@ -478,7 +478,7 @@ protected:
   typedef std::vector<local_conflict_node_t> local_conflict_map_t;
   typedef std::vector<conflict_node_t> conflict_map_t;
 
-  std::string history_to_string(const std::vector<Branch> &h) const;
+  std::string history_to_string(const std::vector<SlpNode> &h) const;
   std::string conflict_detector_to_string(const cfl_detector_t &hc) const;
   void print_conflict_map(const conflict_map_t &conflict_map) const;
   void print_local_conflict_map(const local_conflict_map_t &local_conflict_map) const;
@@ -531,7 +531,6 @@ protected:
      * involving this event as the main event.
      */
     std::vector<Race> races;
-    std::vector<Race> dead_races;
     std::vector<unsigned> reversed_races;
     /* Events that unblock the current event (and thus are not races),
      * but are not inherently needed to enable this event.
@@ -697,13 +696,13 @@ protected:
     return prefix[prefix_idx];
   }
 
-  /* Symbolic events in Branches in the wakeup tree do not record the
+  /* Symbolic events in SlpNodes in the wakeup tree do not record the
    * data of memory accesses as these can change between executions.
-   * branch_with_symbolic_data(i) returns a Branch of the event i, but
+   * slpnode_with_symbolic_data(i) returns a SlpNode of the event i, but
    * with data of memory accesses in the symbolic events.
    */
-  Branch branch_with_symbolic_data(unsigned index) const {
-    return Branch(prefix[index], prefix[index].sym);
+  SlpNode slpnode_with_symbolic_data(unsigned index) const {
+    return SlpNode(prefix[index], prefix[index].sym);
   }
 
   Event event_with_symbolic_data(unsigned index) const {
@@ -756,7 +755,7 @@ protected:
   void wut_string_add_node(std::vector<std::string> &lines,
                            std::vector<int> &iid_map,
                            unsigned line, Event event,
-                           WakeupTreeRef<Branch> node) const;
+                           WakeupTreeRef<SlpNode> node) const;
 #ifndef NDEBUG
   void check_symev_vclock_equiv() const;
 #endif
@@ -863,7 +862,7 @@ protected:
   void recompute_cmpxhg_success(sym_ty &es, const std::vector<Event> &v, int i)
     const;
   /* Recompute the observation states on the symbolic events in v. */
-  void recompute_observed(std::vector<Branch> &v) const;
+  void recompute_observed(std::vector<SlpNode> &v) const;
   /* Check whether an await would be satisfied if played at position i
    * in the current prefix.
    */

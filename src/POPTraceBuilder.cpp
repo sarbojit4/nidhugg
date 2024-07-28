@@ -494,7 +494,7 @@ str_join(const std::vector<std::string> &vec, const std::string &sep) {
 /* For debug-printing the wakeup tree; adds a node and its children to lines */
 void POPTraceBuilder::wut_string_add_node
 (std::vector<std::string> &lines, std::vector<int> &iid_map,
- unsigned line, Event event, WakeupTreeRef<Branch> node) const{
+ unsigned line, Event event, WakeupTreeRef<SlpNode> node) const{
   // unsigned offset = 2 + ((lines.size() < line)?0:lines[line].size());
 
   // std::vector<std::pair<Branch,WakeupTreeRef<Branch>>> nodes({{branch,node}});
@@ -636,7 +636,7 @@ void POPTraceBuilder::check_symev_vclock_equiv() const {
 #endif /* !defined(NDEBUG) */
 
 std::string POPTraceBuilder::
-history_to_string(const std::vector<Branch> &h) const {
+history_to_string(const std::vector<SlpNode> &h) const {
   std::string s = "(";
   for(const auto &br : h) s += "<" + std::to_string(br.pid) + "," +
 			       std::to_string(br.index) +
@@ -2119,55 +2119,55 @@ void POPTraceBuilder::recompute_cmpxhg_success
   }
 }
 
-void POPTraceBuilder::recompute_observed(std::vector<Branch> &v) const {
-  for (Branch &b : v) {
-    clear_observed(b.sym);
-  }
+// void POPTraceBuilder::recompute_observed(std::vector<Branch> &v) const {
+//   for (Branch &b : v) {
+//     clear_observed(b.sym);
+//   }
 
-  /* When !read_all, last_reads is the set of addresses that have been read
-   * (or "are live", if comparing to a liveness analysis).
-   * When read_all, last_reads is instead the set of addresses that have *not*
-   * been read. All addresses that are not in last_reads are read.
-   */
-  VecSet<SymAddr> last_reads;
-  bool read_all = false;
+//   /* When !read_all, last_reads is the set of addresses that have been read
+//    * (or "are live", if comparing to a liveness analysis).
+//    * When read_all, last_reads is instead the set of addresses that have *not*
+//    * been read. All addresses that are not in last_reads are read.
+//    */
+//   VecSet<SymAddr> last_reads;
+//   bool read_all = false;
 
-  for (auto vi = v.end(); vi != v.begin();){
-    Branch &vb = *(--vi);
-    for (auto ei = vb.sym.end(); ei != vb.sym.begin();){
-      SymEv &e = *(--ei);
-      switch(e.kind){
-      case SymEv::LOAD:
-      case SymEv::RMW:
-      case SymEv::CMPXHG: /* First a load, then a store */
-      case SymEv::CMPXHGFAIL:
-        if (read_all)
-          last_reads.erase (VecSet<SymAddr>(e.addr().begin(), e.addr().end()));
-        else
-          last_reads.insert(VecSet<SymAddr>(e.addr().begin(), e.addr().end()));
-        break;
-      case SymEv::STORE:
-        assert(false); abort();
-      case SymEv::UNOBS_STORE:
-        if (read_all ^ last_reads.intersects
-            (VecSet<SymAddr>(e.addr().begin(), e.addr().end()))){
-          e = SymEv::Store(e.data());
-        }
-        if (read_all)
-          last_reads.insert(VecSet<SymAddr>(e.addr().begin(), e.addr().end()));
-        else
-          last_reads.erase (VecSet<SymAddr>(e.addr().begin(), e.addr().end()));
-        break;
-      case SymEv::FULLMEM:
-        last_reads.clear();
-        read_all = true;
-        break;
-      default:
-        break;
-      }
-    }
-  }
-}
+//   for (auto vi = v.end(); vi != v.begin();){
+//     Branch &vb = *(--vi);
+//     for (auto ei = vb.sym.end(); ei != vb.sym.begin();){
+//       SymEv &e = *(--ei);
+//       switch(e.kind){
+//       case SymEv::LOAD:
+//       case SymEv::RMW:
+//       case SymEv::CMPXHG: /* First a load, then a store */
+//       case SymEv::CMPXHGFAIL:
+//         if (read_all)
+//           last_reads.erase (VecSet<SymAddr>(e.addr().begin(), e.addr().end()));
+//         else
+//           last_reads.insert(VecSet<SymAddr>(e.addr().begin(), e.addr().end()));
+//         break;
+//       case SymEv::STORE:
+//         assert(false); abort();
+//       case SymEv::UNOBS_STORE:
+//         if (read_all ^ last_reads.intersects
+//             (VecSet<SymAddr>(e.addr().begin(), e.addr().end()))){
+//           e = SymEv::Store(e.data());
+//         }
+//         if (read_all)
+//           last_reads.insert(VecSet<SymAddr>(e.addr().begin(), e.addr().end()));
+//         else
+//           last_reads.erase (VecSet<SymAddr>(e.addr().begin(), e.addr().end()));
+//         break;
+//       case SymEv::FULLMEM:
+//         last_reads.clear();
+//         read_all = true;
+//         break;
+//       default:
+//         break;
+//       }
+//     }
+//   }
+// }
 
 void POPTraceBuilder::see_events(const VecSet<int> &seen_accesses){
   for(int i : seen_accesses){
@@ -2461,19 +2461,8 @@ void POPTraceBuilder::compute_vclocks(){
         prefix[i].clock += prefix[b].clock;
       }
     }
-    for (auto it = new_end; it != races.end(); ++it)
-      if(end_of_ws < i) prefix[i].dead_races.push_back(*it);
     assert(end_of_ws < (int)i || old_clock == prefix[i].clock);
     prefix[i].happens_after_later.clear();
-    // for (auto it = races.begin(); it != races.end(); ++it){
-    //   llvm::dbgs()<<"Race (<"<<threads[prefix[it->first_event].iid.get_pid()].cpid<<","
-    // 		  <<prefix[it->first_event].iid.get_index()<<">,<"
-    // 		  <<threads[prefix[i].iid.get_pid()].cpid
-    // 		  <<prefix[i].iid.get_index()<<">)\n";/////////
-    //   llvm::dbgs()<<it->kind<<it->second_event<<end_of_ws<<"\n";////////////
-    //   for(int head : schedule_heads)
-    // 	llvm::dbgs()<<head<<"\n";//////////
-    // }
     /* Now delete the subsumed races. We delayed doing this to avoid
      * iterator invalidation. */
     races.resize(new_end - races.begin(), races[0]);
@@ -2611,6 +2600,26 @@ bool POPTraceBuilder::is_observed_conflict
 bool POPTraceBuilder::do_race_detect() {
   assert(has_vclocks);
 
+  /* Compute all races of blocked awaits. */
+  for (const auto &ab : blocked_awaits) {
+    for (const auto &pb : ab.second) {
+      IID<IPid> iid(pb.first, pb.second.index);
+      std::vector<Race> races;
+      const SymEv &ev = pb.second.ev;
+      assert(!try_find_process_event(pb.first, iid.get_index()).first);
+      VClock<IPid> clock = reconstruct_blocked_clock(iid);
+      do_await(prefix.size(), iid, ev, clock, races);
+      for (Race &r : races) {
+        assert(r.first_event >= 0 && r.first_event < ssize_t(prefix.size()));
+        /* Can we optimise do_await to not include these guys in the
+         * first place? */
+        // XXX: What about other events in include?
+        assert (!clock.includes(prefix[r.first_event].iid));
+        prefix[r.first_event].races.push_back(std::move(r));
+      }
+    }
+  }
+
   /* Do race detection */
   std::vector<std::vector<conflict_map_t>> conflict_maps(1);
   add_conflict_map(conflict_maps[0], prefix[0].local_conflict_map);
@@ -2618,7 +2627,6 @@ bool POPTraceBuilder::do_race_detect() {
     while(!prefix[j].races.empty()) {
       Race race = prefix[j].races.back();
       unsigned i = race.first_event;
-      prefix[j].dead_races.push_back(race);
       prefix[j].races.pop_back();
       assert(race.second_event == (int) j);
       std::vector<Event> v = wakeup_sequence(race);
@@ -2639,7 +2647,7 @@ bool POPTraceBuilder::do_race_detect() {
       if(!blocked_wakeup_sequence(v, conflict_maps[i])){
 	prefix[j].reversed_races.push_back(i);
 	// llvm::dbgs()<<"Inserting WS\n";///////////
-        std::vector<Branch> h;
+        std::vector<SlpNode> h;
 	VClock<IPid> sched_heads_clk;
         local_conflict_map_t local_conflict_map;
 	local_conflict_map_t *inherited = nullptr;
@@ -2667,7 +2675,7 @@ bool POPTraceBuilder::do_race_detect() {
 	      l++;
 	    }
 	    else{
-	      h.push_back(branch_with_symbolic_data(k));
+	      h.push_back(slpnode_with_symbolic_data(k));
 	      auto it = std::find(prefix[k].reversed_races.begin(),
 				  prefix[k].reversed_races.end(), i);
 	      if(it != prefix[k].reversed_races.end()){

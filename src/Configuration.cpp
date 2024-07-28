@@ -221,7 +221,7 @@ const std::set<std::string> &Configuration::commandline_opts(){
     "no-cpubind","no-cpubind-singlify",
     "sc","tso","pso","power","arm",
     "smtlib",
-    "source","optimal","observers","rf",
+    "source","optimal","observers","rf","pop",
     "check-robustness",
     "spin-assume",
     "no-partial-loop-purity",
