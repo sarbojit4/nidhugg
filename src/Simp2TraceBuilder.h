@@ -1,4 +1,4 @@
-/* Copyright (C) 2014-2017 Carl Leonardsson
+/* Copyright (C) 2019-2024 Sarbojit Das
  *
  * This file is part of Nidhugg.
  *
@@ -43,6 +43,7 @@ public:
   ~Simp2TraceBuilder() override;
   bool schedule(int *proc, int *aux, int *alt, bool *dryrun) override;
   void refuse_schedule() override;
+  // bool check_conflict_set_blocked(const SymAddrSize &addr) override;
   void mark_available(int proc, int aux = -1) override;
   void mark_unavailable(int proc, int aux = -1) override;
   void cancel_replay() override;
@@ -152,7 +153,7 @@ protected:
   public:
     Thread(const CPid &cpid, int spawn_event)
       : cpid(cpid), available(true), spawn_event(spawn_event), sleeping(false),
-        sleep_full_memory_conflict(false), sleep_sym(nullptr) {}
+        conflicting(false), sleep_full_memory_conflict(false), sleep_sym(nullptr) {}
     CPid cpid;
     /* Is the thread available for scheduling? */
     bool available;
@@ -171,6 +172,10 @@ protected:
     std::vector<PendingStore> store_buffer;
     /* True iff this thread is currently in the sleep set. */
     bool sleeping;
+    /* True if the next event from this thread is a read and it is
+     * conflicting with conflict map */
+    bool conflicting;
+    SymAddrSize conflict_addr;
     /* sleep_accesses_r is the set of bytes that will be read by the
      * next event to be executed by this thread (as determined by dry
      * running).
@@ -312,29 +317,30 @@ protected:
   std::map<SymAddr,CondVar> cond_vars;
   class Event;
 
-  /* A Branch object is a pair of an IPid p and an alternative index
+  /* A SlpNode object is a pair of an IPid p and an alternative index
    * (see Event::alt below) i. It will be tagged on an event in the
    * execution to indicate that if instead of that event, p is allowed
    * to execute (with alternative index i), then a different trace can
    * be produced.
    */
-  class Branch{
+  class SlpNode{
   public:
-    Branch (IPid pid, int alt = 0, sym_ty sym = {})
-      : sym(std::move(sym)), pid(pid), alt(alt), size(1),
-	schedule(false), schedule_head(false) {sleepseqs.shrink_to_fit();}
-    Branch (const Event &base, sym_ty sym)
-      : sym(std::move(sym)), pid(base.iid.get_pid()), alt(base.alt), size(base.size),
-	schedule(false), schedule_head(false) {sleepseqs.shrink_to_fit();}
+    SlpNode (IPid pid, int alt = 0, sym_ty sym = {})
+      : sym(std::move(sym)), pid(pid), alt(alt), size(1), sleeping(false) {}
+    SlpNode (const Event &base, sym_ty sym)
+      : sym(std::move(sym)), pid(base.iid.get_pid()),
+	index(base.iid.get_index()), alt(base.alt),
+	size(base.size), sleeping(false) {}
 
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
     IPid pid;
+    int index;
     /* Some instructions may execute in several alternative ways
      * nondeterministically. (E.g. malloc may succeed or fail
      * nondeterministically if Configuration::malloy_may_fail is set.)
-     * Branch::alt is the index of the alternative for the first event
+     * SlpNode::alt is the index of the alternative for the first event
      * in this event sequence. The default execution alternative has
      * index 0. All events in this sequence, except the first, are
      * assumed to run their default execution alternative.
@@ -342,13 +348,11 @@ protected:
     int alt;
     /* The number of events in this sequence. */
     int size;
-    std::vector<std::vector<Branch>> sleepseqs;
-    bool schedule;
-    bool schedule_head;
-    bool operator<(const Branch &b) const{
+    bool sleeping;
+    bool operator<(const SlpNode &b) const{
       return pid < b.pid || (pid == b.pid && alt < b.alt);
     }
-    bool operator==(const Branch &b) const{
+    bool operator==(const SlpNode &b) const{
       return pid == b.pid && alt == b.alt;
     }
   };
@@ -431,10 +435,9 @@ protected:
   };
   std::unordered_map<SymAddr, boost::container::flat_map<IPid,BlockedAwait>>
     blocked_awaits;
-
-  typedef std::vector<std::vector<Branch>> sleepseqs_t;
-  struct ExecStep;
   
+  typedef std::vector<std::vector<SlpNode>> sleepseqs_t;
+
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts
    * with other events, and if the sequence has a conflicting event,
@@ -444,11 +447,8 @@ protected:
   public:
     Event(const IID<IPid> &iid, sym_ty sym = {}, int alt = 0, size_t size = 1)
       : iid(iid), origin_iid(iid), alt(alt), size(size), md(0), clock(),
-	may_conflict(false), sym(std::move(sym)), prev_br(nullptr),
-	schedule(false), schedule_head(false), sleep_branch_trace_count(0) {}
-    ~Event(){
-      prev_br.reset();
-    }
+	may_conflict(false), sym(std::move(sym)), schedule(false),
+	schedule_head(false), sleep_branch_trace_count(0) {}
     /* The identifier for the first event in this event sequence. */
     IID<IPid> iid;
     /* The IID of the program instruction which is the origin of this
@@ -470,6 +470,8 @@ protected:
      * involving this event as the main event.
      */
     std::vector<Race> races;
+    std::vector<Race> dead_races;
+    std::vector<unsigned> reversed_races;
     /* Events that unblock the current event (and thus are not races),
      * but are not inherently needed to enable this event.
      *
@@ -492,8 +494,6 @@ protected:
      * event sequence.
      */
     sleepseqs_t doneseqs;
-    sleepseqs_t sleepseqs;
-    std::shared_ptr<std::vector<Event>> prev_br;
     bool schedule;
     bool schedule_head;
     /* For each previous IID that has been explored at this position
@@ -505,12 +505,84 @@ protected:
     uint64_t sleep_branch_trace_count;
   };
 
+
   /* The fixed prefix of events in the current execution. This may be
    * either the complete sequence of events executed thus far in the
    * execution, or the events executed followed by the subsequent
    * events that are determined in advance to be executed.
    */
-  std::vector<Event> prefix;
+  class Prefix_t{
+  private:
+    struct HistoryStep{
+      Event event;
+      HistoryStep *prev_br;
+      HistoryStep *next;
+      HistoryStep(const Event &e) :event(e) { prev_br = next = nullptr; }
+      ~HistoryStep() {
+        delete(prev_br);
+        delete(next);
+      }
+    };
+    std::vector<HistoryStep*> curexec;
+  public:
+    Prefix_t() {}
+    size_t size() const { return curexec.size(); }
+    Event &operator[](int i) {
+      assert(0 <= i && i < int(curexec.size()));
+      return curexec[i]->event;
+    }
+    const Event &operator[](int i) const{
+      assert(0 <= i && i < int(curexec.size()));
+      return curexec[i]->event;
+    }
+    Event &back() {
+      assert(!curexec.empty());
+      return curexec.back()->event;
+    }
+    const Event &back() const{
+      assert(!curexec.empty());
+      return curexec.back()->event;
+    }
+    void push_back(const Event &e) {
+      curexec.push_back(new HistoryStep(e));
+      if(1 < curexec.size())
+	curexec[curexec.size()-2]->next = curexec.back();
+    }
+    void pop_back() {
+      assert(curexec.size());
+      curexec.pop_back();
+      if(!curexec.empty()){
+	delete(curexec.back()->next);
+	curexec.back()->next = nullptr;
+      }
+    }
+    void take_next_branch(int i, const std::vector<Event> &v) {
+      assert(0 <= i && i < size());
+      auto prev_br = curexec[i];
+      if(0 < i) curexec[i-1]->next = nullptr;
+      curexec.resize(i);
+      for(int i = 0; i != v.size(); i++) {
+	push_back(std::move(v[i]));
+      }
+      curexec[i]->prev_br = prev_br;
+    }
+    bool previous_branch_exists(int i){
+      assert(0 <= i && i < size());
+      return (curexec[i]->prev_br != nullptr);
+    }
+    void take_previous_branch(int i){
+      assert(0 <= i && i < size());
+      assert(curexec[i]->prev_br != nullptr);
+      auto prev_br = curexec[i]->prev_br;
+      curexec[i]->prev_br = nullptr;
+      while(i < curexec.size()) pop_back();
+      curexec.back()->next = prev_br;
+      while(curexec.back()->next != nullptr)
+	curexec.push_back(curexec.back()->next);
+    }
+  };
+
+  Prefix_t prefix;
   std::set<std::pair<IID<IPid>,IID<IPid>>> currtrace;
   std::set<std::set<std::pair<IID<IPid>,IID<IPid>>>> Traces;
 
@@ -565,19 +637,19 @@ protected:
     return prefix[prefix_idx];
   }
 
-  /* Symbolic events in Branches in the wakeup tree do not record the
+  /* Symbolic events in SlpNodees in the wakeup tree do not record the
    * data of memory accesses as these can change between executions.
-   * branch_with_symbolic_data(i) returns a Branch of the event i, but
+   * slpnode_with_symbolic_data(i) returns a SlpNode of the event i, but
    * with data of memory accesses in the symbolic events.
    */
-  Branch branch_with_symbolic_data(unsigned index) const {
-    return Branch(prefix[index], prefix[index].sym);
+  SlpNode slpnode_with_symbolic_data(unsigned index) const {
+    return SlpNode(prefix[index], prefix[index].sym);
   }
 
   Event event_with_symbolic_data(unsigned index) const {
     const Event &e = prefix[index];
     Event re(e.iid, e.sym, e.alt, e.size);
-    re.origin_iid = e.origin_iid;
+    re.clock = e.clock;
     return re;
   }
 
@@ -624,7 +696,7 @@ protected:
   void wut_string_add_node(std::vector<std::string> &lines,
                            std::vector<int> &iid_map,
                            unsigned line, Event event,
-                           WakeupTreeRef<Branch> node) const;
+                           WakeupTreeRef<SlpNode> node) const;
 #ifndef NDEBUG
   void check_symev_vclock_equiv() const;
 #endif
@@ -650,8 +722,7 @@ protected:
   /* Check if two symbolic events conflict. */
   bool do_events_conflict(IPid fst_pid, const sym_ty &fst,
                           IPid snd_pid, const sym_ty &snd) const;
-  bool do_symevs_conflict(IPid fst_pid, const SymEv &fst,
-                          IPid snd_pid, const SymEv &snd) const;
+  bool do_symevs_conflict(const SymEv &fst, const SymEv &snd) const;
   /* Check if events fst and snd are in an observed race with thd as an
    * observer.
    */
@@ -707,7 +778,6 @@ protected:
   void compute_vclocks();
   /* Keep track of whether compute_vclocks has been called yet. */
   bool has_vclocks = false;
-  void reorganize_races();
   /* Perform planning of future executions. Requires the trace to be
    * maximal or sleepset blocked, and that the vector clocks have been
    * computed.
@@ -733,7 +803,7 @@ protected:
   void recompute_cmpxhg_success(sym_ty &es, const std::vector<Event> &v, int i)
     const;
   /* Recompute the observation states on the symbolic events in v. */
-  void recompute_observed(std::vector<Branch> &v) const;
+  void recompute_observed(std::vector<SlpNode> &v) const;
   /* Check whether an await would be satisfied if played at position i
    * in the current prefix.
    */
@@ -744,26 +814,10 @@ protected:
    */
   bool awaitcond_satisfied_by(unsigned i, const std::vector<unsigned> &seq,
                               const SymAddrSize &ml, const AwaitCond &cond) const;
-  struct obs_sleep {
-    struct sleeper {
-      IPid pid;
-      const sym_ty *sym;
-      Option<SymAddrSize> not_if_read;
-    };
-    std::vector<struct sleeper> sleep;
-    /* Addresses that must be read */
-    std::vector<SymAddrSize> must_read;
-    /* Check for pid in sleep */
-    bool count(IPid pid) const;
-  };  
-  /* Returns a string representation of a sleep set. */
-  std::string oslp_string(const sleepseqs_t &slp) const;
-  /* Traverses prefix to compute the set of threads that were sleeping
-   * as the first event of prefix[i] started executing. Returns that
-   * set.
-   */
-  struct obs_sleep obs_sleep_at(int i) const;
-  /* Performs the first half of a sleep set step, adding new sleepers
+  VClock<int> compute_clock_for_second(int i, int j) const;
+  /* Compute the wakeup sequence for reversing a race. */
+  std::vector<Event> wakeup_sequence(const Race&) const;
+    /* Performs the first half of a sleep set step, adding new sleepers
    * from e.
    */
   void obs_sleep_add(sleepseqs_t &sleep, const Event &e) const;
@@ -792,11 +846,8 @@ protected:
    * executed, it will never block, and thus has no return value.
    */
   void obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const;
-  /* Compute the wakeup sequence for reversing a race. */
-  std::vector<Event> wakeup_sequence(const Race&) const;
   bool blocked_wakeup_sequence(std::vector<Event> &seq,
 			       const sleepseqs_t &sleepseqs);
-  void update_sleepseqs();
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);
