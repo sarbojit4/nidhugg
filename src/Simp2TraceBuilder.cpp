@@ -2447,7 +2447,6 @@ bool Simp2TraceBuilder::do_race_detect() {
   /* Do race detection */
   sleepseqs_t sleepseqs;
   for (unsigned i = 0; i < prefix.size(); ++i){
-    obs_sleep_add(sleepseqs, prefix[i]);
     while(!prefix[i].races.empty()) {
       Race race = prefix[i].races.back();
       unsigned j = race.second_event;
@@ -2477,6 +2476,7 @@ bool Simp2TraceBuilder::do_race_detect() {
       }
       killed_by_sleepset++;
     }
+    obs_sleep_add(sleepseqs, prefix[i]);
     obs_sleep_wake(sleepseqs, prefix[i]);
   }
   return false;

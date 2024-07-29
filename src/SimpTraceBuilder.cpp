@@ -2479,7 +2479,6 @@ void SimpTraceBuilder::do_race_detect() {
   /* Do race detection */
   sleepseqs_t sleepseqs;
   for (unsigned i = 0; i < races.size(); ++i){
-    obs_sleep_add(sleepseqs, prefix[i].event);
     // llvm::dbgs()<<i<<sleepseqs.size()<<":\n";/////////////////
     // for(auto slp : sleepseqs)
     //   llvm::dbgs()<<"Sleep"<<threads[slp.front().pid].cpid
@@ -2488,6 +2487,7 @@ void SimpTraceBuilder::do_race_detect() {
       assert(race->first_event == int(i));
       race_detect_optimal(*race, (const sleepseqs_t&)sleepseqs);
     }
+    obs_sleep_add(sleepseqs, prefix[i].event);
     obs_sleep_wake(sleepseqs, prefix[i].event);
   }
 
