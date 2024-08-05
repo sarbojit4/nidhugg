@@ -3,10 +3,10 @@ SHELL = /bin/bash -o pipefail
 #
 # Set this to the proper value
 #
-HOME_DIR = /home/sarbojit
+HOME_DIR = /home/dpop-artifact
 
-NIDHUGGCPOP ?= ${HOME_DIR}/local/nidhugg/src/nidhuggc
-NIDHUGGC    ?= ${HOME_DIR}/local/nidhugg/src/nidhuggc
+NIDHUGGCPOP ?= ${HOME_DIR}/nidhugg-pop/src/nidhuggc
+NIDHUGGC    ?= ${HOME_DIR}/nidhugg/src/nidhuggc
 GENMC       ?= ${HOME_DIR}/genmc/genmc
 
 TIME_LIMIT ?= 7200 # seconds
