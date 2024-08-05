@@ -5,8 +5,8 @@ SHELL = /bin/bash -o pipefail
 #
 HOME_DIR = /home/sarbojit
 
-NIDHUGGCPOP ?= ${HOME_DIR}/nidhugg-pop/src/nidhuggc
-NIDHUGGC    ?= ${HOME_DIR}/nidhugg/src/nidhuggc
+NIDHUGGCPOP ?= ${HOME_DIR}/local/nidhugg/src/nidhuggc
+NIDHUGGC    ?= ${HOME_DIR}/local/nidhugg/src/nidhuggc
 GENMC       ?= ${HOME_DIR}/genmc/genmc
 
 TIME_LIMIT ?= 7200 # seconds
@@ -24,8 +24,8 @@ CLANGFLAGS = -c -emit-llvm -g -Xclang -disable-O0-optnone $(TOOLCLANGFLAGS)
 SOURCE    = $(NIDHUGGC) $(1) -- -c11 -sc -source
 OPTIMAL   = $(NIDHUGGC) $(1) -- -sc -optimal --extfun-no-race=pow #-no-assume-await
 POP       = $(NIDHUGGCPOP) $(1) -- -sc -pop   --extfun-no-race=pow
-DPOP       = $(NIDHUGGCPOP) $(1) -- -sc -simp   --extfun-no-race=pow
-DEPOP       = $(NIDHUGGCPOP) $(1) -- -sc -simp2   --extfun-no-race=pow
+LPOP       = $(NIDHUGGCPOP) $(1) -- -sc -lpop   --extfun-no-race=pow
+EPOP       = $(NIDHUGGCPOP) $(1) -- -sc -epop   --extfun-no-race=pow
 OBSERVERS = $(NIDHUGGC) $(1) -- -c11 -sc -observers
 RFSC      = $(NIDHUGGC) $(1) -- -c11 -sc -rf
 GENMCSC   = $(GENMC) -sc --disable-instruction-caching --disable-sr --disable-ipr --disable-estimation -- $(1)
@@ -35,7 +35,7 @@ ULIMIT = ulimit -Ss $(STACK_LIMIT) && ulimit -Sv $(MEM_LIMIT) &&
 RUN = -$(ULIMIT) $(TIMEOUT) $(TIME)
 TABULATE = ../../tabulate.sh
 
-TOOLS = optimal pop dpop depop
+TOOLS = optimal pop lpop epop
 
 TABLES = $(TOOLS:%=%.txt) wide.txt
 # Only for wide.txt (not including $(tool)_THREADS
