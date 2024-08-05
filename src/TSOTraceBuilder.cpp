@@ -384,6 +384,7 @@ bool TSOTraceBuilder::reset(){
   last_md = 0;
   reset_cond_branch_log();
   has_vclocks = false;
+  current_branch_count--;
 
   return true;
 }
@@ -2793,6 +2794,7 @@ void TSOTraceBuilder::race_detect_optimal
       for (SymEv &e : ve.sym) e.purge_data();
       node = node.put_child(std::move(ve));
     }
+    current_branch_count++;
     return;
   }
 }
