@@ -18,7 +18,7 @@
  */
 
 #include "Debug.h"
-#include "Simp2TraceBuilder.h"
+#include "EPOPTraceBuilder.h"
 #include "TraceUtil.h"
 
 #include <algorithm>
@@ -99,7 +99,7 @@ inline static bool event_accesses_mutex(const sym_ty &sym) {
   return false;
 }
 
-Simp2TraceBuilder::Simp2TraceBuilder(const Configuration &conf) : TSOPSOTraceBuilder(conf) {
+EPOPTraceBuilder::EPOPTraceBuilder(const Configuration &conf) : TSOPSOTraceBuilder(conf) {
   threads.push_back(Thread(CPid(), -1));
   threads.push_back(Thread(CPS.new_aux(CPid()), -1));
   threads[1].available = false; // Store buffer is empty.
@@ -112,10 +112,10 @@ Simp2TraceBuilder::Simp2TraceBuilder(const Configuration &conf) : TSOPSOTraceBui
   end_of_ws = -1;
 }
 
-Simp2TraceBuilder::~Simp2TraceBuilder(){
+EPOPTraceBuilder::~EPOPTraceBuilder(){
 }
 
-bool Simp2TraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
+bool EPOPTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   assert(!has_vclocks && "Can't add more events after analysing the trace");
 
   *dryrun = false;
@@ -272,7 +272,7 @@ bool Simp2TraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   return false; // No available threads
 }
 
-void Simp2TraceBuilder::refuse_schedule(){
+void EPOPTraceBuilder::refuse_schedule(){
   assert(prefix_idx == int(prefix.size())-1);
   assert(prefix.back().size == 1);
   assert(!prefix.back().may_conflict);
@@ -285,19 +285,19 @@ void Simp2TraceBuilder::refuse_schedule(){
   mark_unavailable(last_pid/2,last_pid % 2 - 1);
 }
 
-void Simp2TraceBuilder::mark_available(int proc, int aux){
+void EPOPTraceBuilder::mark_available(int proc, int aux){
   threads[ipid(proc,aux)].available = true;
 }
 
-void Simp2TraceBuilder::mark_unavailable(int proc, int aux){
+void EPOPTraceBuilder::mark_unavailable(int proc, int aux){
   threads[ipid(proc,aux)].available = false;
 }
 
-bool Simp2TraceBuilder::is_replaying() const {
+bool EPOPTraceBuilder::is_replaying() const {
   return prefix_idx < replay_point;
 }
 
-void Simp2TraceBuilder::cancel_replay(){
+void EPOPTraceBuilder::cancel_replay(){
   if(!replay) return;
   replay = false;
   while (prefix_idx + 1 < int(prefix.size())) prefix.pop_back();
@@ -307,21 +307,21 @@ void Simp2TraceBuilder::cancel_replay(){
   }
 }
 
-void Simp2TraceBuilder::metadata(const llvm::MDNode *md){
+void EPOPTraceBuilder::metadata(const llvm::MDNode *md){
   if(!dryrun){
     curev().md = md;
   }
   last_md = md;
 }
 
-bool Simp2TraceBuilder::sleepset_is_empty() const{
+bool EPOPTraceBuilder::sleepset_is_empty() const{
   for(unsigned i = 0; i < threads.size(); ++i){
     if(threads[i].sleeping) return false;
   }
   return true;
 }
 
-bool Simp2TraceBuilder::check_for_cycles(){
+bool EPOPTraceBuilder::check_for_cycles(){
   /* We need vector clocks for this check */
   compute_vclocks();
 
@@ -338,7 +338,7 @@ bool Simp2TraceBuilder::check_for_cycles(){
   return true;
 }
 
-Trace *Simp2TraceBuilder::get_trace() const{
+Trace *EPOPTraceBuilder::get_trace() const{
   std::vector<IID<CPid> > cmp;
   SrcLocVectorBuilder cmp_md;
   std::vector<Error*> errs;
@@ -354,7 +354,7 @@ Trace *Simp2TraceBuilder::get_trace() const{
   return t;
 }
 
-bool Simp2TraceBuilder::reset(){
+bool EPOPTraceBuilder::reset(){
   /* Checking if current exploration is redundant */
   // auto trace_it = Traces.find(currtrace);
   // if(trace_it != Traces.end()){
@@ -379,7 +379,7 @@ bool Simp2TraceBuilder::reset(){
   compute_vclocks();
 
   if(conf.debug_print_on_reset){
-    llvm::dbgs() << " === Simp2TraceBuilder reset ===\n";
+    llvm::dbgs() << " === EPOPTraceBuilder reset ===\n";
     debug_print();
     llvm::dbgs() << " =============================\n";
   }
@@ -467,10 +467,10 @@ bool Simp2TraceBuilder::reset(){
   return true;
 }
 
-IID<CPid> Simp2TraceBuilder::get_iid() const{
+IID<CPid> EPOPTraceBuilder::get_iid() const{
   return get_iid(prefix_idx);
 }
-IID<CPid> Simp2TraceBuilder::get_iid(unsigned i) const{
+IID<CPid> EPOPTraceBuilder::get_iid(unsigned i) const{
   IPid pid = prefix[i].iid.get_pid();
   int idx = prefix[i].iid.get_index();
   return IID<CPid>(threads[pid].cpid,idx);
@@ -481,11 +481,11 @@ static std::string rpad(std::string s, int n){
   return s;
 }
 
-std::string Simp2TraceBuilder::iid_string(std::size_t pos) const{
+std::string EPOPTraceBuilder::iid_string(std::size_t pos) const{
   return iid_string(prefix[pos], prefix[pos].iid.get_index());
 }
 
-std::string Simp2TraceBuilder::iid_string(const Event &event, int index) const{
+std::string EPOPTraceBuilder::iid_string(const Event &event, int index) const{
   std::stringstream ss;
   ss << "(" << threads[event.iid.get_pid()].cpid << "," << index;
   if(event.size > 1){
@@ -509,7 +509,7 @@ str_join(const std::vector<std::string> &vec, const std::string &sep) {
 }
 
 /* For debug-printing the wakeup tree; adds a node and its children to lines */
-void Simp2TraceBuilder::wut_string_add_node
+void EPOPTraceBuilder::wut_string_add_node
 (std::vector<std::string> &lines, std::vector<int> &iid_map,
  unsigned line, Event event, WakeupTreeRef<SlpNode> node) const{
   // unsigned offset = 2 + ((lines.size() < line)?0:lines[line].size());
@@ -558,7 +558,7 @@ static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
 }
 
 #ifndef NDEBUG
-void Simp2TraceBuilder::check_symev_vclock_equiv() const {
+void EPOPTraceBuilder::check_symev_vclock_equiv() const {
   /* Check for SymEv<->VClock equivalence
    * SymEv considers that event i happens after event j iff there is a
    * subsequence s of i..j including i and j s.t.
@@ -652,8 +652,8 @@ void Simp2TraceBuilder::check_symev_vclock_equiv() const {
 }
 #endif /* !defined(NDEBUG) */
 
-void Simp2TraceBuilder::debug_print() const {
-  llvm::dbgs() << "Simp2TraceBuilder (debug print):\n";
+void EPOPTraceBuilder::debug_print() const {
+  llvm::dbgs() << "EPOPTraceBuilder (debug print):\n";
   int iid_offs = 0;
   int symev_offs = 0;
   std::vector<std::string> lines(prefix.size());
@@ -721,7 +721,7 @@ void Simp2TraceBuilder::debug_print() const {
   // }
 }
 
-bool Simp2TraceBuilder::spawn(){
+bool EPOPTraceBuilder::spawn(){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Spawn(threads.size() / 2))) return false;
   IPid parent_ipid = curev().iid.get_pid();
@@ -733,7 +733,7 @@ bool Simp2TraceBuilder::spawn(){
   return true;
 }
 
-bool Simp2TraceBuilder::store(const SymData &sd){
+bool EPOPTraceBuilder::store(const SymData &sd){
   curev().may_conflict = true; /* prefix_idx might become bad otherwise */
   IPid ipid = curev().iid.get_pid();
   threads[ipid].store_buffer.push_back(PendingStore(sd.get_ref(),prefix_idx,last_md));
@@ -741,7 +741,7 @@ bool Simp2TraceBuilder::store(const SymData &sd){
   return true;
 }
 
-bool Simp2TraceBuilder::atomic_store(const SymData &sd){
+bool EPOPTraceBuilder::atomic_store(const SymData &sd){
   if (conf.dpor_algorithm == Configuration::OBSERVERS) {
     if (!record_symbolic(SymEv::UnobsStore(sd))) return false;
   } else {
@@ -761,7 +761,7 @@ static VecSet<int> to_vecset_and_clear
   return ret;
 }
 
-void Simp2TraceBuilder::do_atomic_store(const SymData &sd){
+void EPOPTraceBuilder::do_atomic_store(const SymData &sd){
   const SymAddrSize &ml = sd.get_ref();
   IPid ipid = curev().iid.get_pid();
   curev().may_conflict = true;
@@ -860,7 +860,7 @@ static bool rmwaction_commutes(const Configuration &conf,
   }
 }
 
-bool Simp2TraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
+bool EPOPTraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Rmw(sd, action))) return false;
   const SymAddrSize &ml = sd.get_ref();
@@ -928,7 +928,7 @@ bool Simp2TraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
   return true;
 }
 
-bool Simp2TraceBuilder::xchg_await(const SymData &sd, AwaitCond cond) {
+bool EPOPTraceBuilder::xchg_await(const SymData &sd, AwaitCond cond) {
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::XchgAwait(sd, cond))) return false;
   const SymAddrSize &ml = sd.get_ref();
@@ -998,7 +998,7 @@ bool Simp2TraceBuilder::xchg_await(const SymData &sd, AwaitCond cond) {
   return true;
 }
 
-bool Simp2TraceBuilder::xchg_await_fail(const SymData &sd, AwaitCond cond) {
+bool EPOPTraceBuilder::xchg_await_fail(const SymData &sd, AwaitCond cond) {
   if (conf.memory_model != Configuration::SC) {
     invalid_input_error("Exchange-Await is only implemented for SC right now");
     return false;
@@ -1027,13 +1027,13 @@ bool Simp2TraceBuilder::xchg_await_fail(const SymData &sd, AwaitCond cond) {
   return true;
 }
 
-bool Simp2TraceBuilder::load(const SymAddrSize &ml){
+bool EPOPTraceBuilder::load(const SymAddrSize &ml){
   if (!record_symbolic(SymEv::Load(ml))) return false;
   do_load(ml);
   return true;
 }
 
-void Simp2TraceBuilder::do_load(const SymAddrSize &ml){
+void EPOPTraceBuilder::do_load(const SymAddrSize &ml){
   curev().may_conflict = true;
   IPid ipid = curev().iid.get_pid();
 
@@ -1073,7 +1073,7 @@ void Simp2TraceBuilder::do_load(const SymAddrSize &ml){
   see_event_pairs(seen_pairs);
 }
 
-bool Simp2TraceBuilder::compare_exchange
+bool EPOPTraceBuilder::compare_exchange
 (const SymData &sd, const SymData::block_type expected, bool success){
   if(success){
     if (!record_symbolic(SymEv::CmpXhg(sd, expected))) return false;
@@ -1086,7 +1086,7 @@ bool Simp2TraceBuilder::compare_exchange
   return true;
 }
 
-bool Simp2TraceBuilder::load_await(const SymAddrSize &ml, AwaitCond cond) {
+bool EPOPTraceBuilder::load_await(const SymAddrSize &ml, AwaitCond cond) {
   curev().may_conflict = true;
   if (conf.memory_model != Configuration::SC) {
     invalid_input_error("Load-Await is only implemented for SC right now");
@@ -1120,7 +1120,7 @@ bool Simp2TraceBuilder::load_await(const SymAddrSize &ml, AwaitCond cond) {
   return true;
 }
 
-bool Simp2TraceBuilder::load_await_fail(const SymAddrSize &ml, AwaitCond cond) {
+bool EPOPTraceBuilder::load_await_fail(const SymAddrSize &ml, AwaitCond cond) {
   if (conf.memory_model != Configuration::SC) {
     invalid_input_error("Load-Await is only implemented for SC right now");
     return false;
@@ -1163,7 +1163,7 @@ static bool shadows_all_of(const sym_ty &sym, const SymAddrSize &ml) {
   return false;
 }
 
-bool Simp2TraceBuilder::do_await(unsigned j, const IID<IPid> &iid, const SymEv &e,
+bool EPOPTraceBuilder::do_await(unsigned j, const IID<IPid> &iid, const SymEv &e,
                                const VClock<IPid> &above_clock,
                                std::vector<Race> &races) {
   bool can_stop = false;
@@ -1259,7 +1259,7 @@ bool Simp2TraceBuilder::do_await(unsigned j, const IID<IPid> &iid, const SymEv &
   return true;
 }
 
-bool Simp2TraceBuilder::full_memory_conflict(){
+bool EPOPTraceBuilder::full_memory_conflict(){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Fullmem())) return false;
 
@@ -1317,7 +1317,7 @@ static void add_to_seen
   seen_accesses.insert(VecSet<int>(std::move(es)));
 }
 
-void Simp2TraceBuilder::observe_memory(SymAddr ml, ByteInfo &m,
+void EPOPTraceBuilder::observe_memory(SymAddr ml, ByteInfo &m,
                                      VecSet<int> &seen_accesses,
                                      VecSet<std::pair<int,int>> &seen_pairs,
                                      bool is_update){
@@ -1360,7 +1360,7 @@ void Simp2TraceBuilder::observe_memory(SymAddr ml, ByteInfo &m,
   assert(!is_update || m.unordered_updates.size() == 0);
 }
 
-bool Simp2TraceBuilder::fence(){
+bool EPOPTraceBuilder::fence(){
   IPid ipid = curev().iid.get_pid();
   assert(ipid % 2 == 0);
   assert(threads[ipid].store_buffer.empty());
@@ -1368,7 +1368,7 @@ bool Simp2TraceBuilder::fence(){
   return true;
 }
 
-bool Simp2TraceBuilder::join(int tgt_proc){
+bool EPOPTraceBuilder::join(int tgt_proc){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Join(tgt_proc))) return false;
   assert(threads[tgt_proc*2].store_buffer.empty());
@@ -1377,7 +1377,7 @@ bool Simp2TraceBuilder::join(int tgt_proc){
   return true;
 }
 
-bool Simp2TraceBuilder::mutex_lock(const SymAddrSize &ml){
+bool EPOPTraceBuilder::mutex_lock(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MLock(ml))) return false;
   if (!fence()) return false;
@@ -1402,7 +1402,7 @@ bool Simp2TraceBuilder::mutex_lock(const SymAddrSize &ml){
   return true;
 }
 
-bool Simp2TraceBuilder::mutex_lock_fail(const SymAddrSize &ml){
+bool EPOPTraceBuilder::mutex_lock_fail(const SymAddrSize &ml){
   assert(!dryrun);
   if(!conf.mutex_require_init && !mutexes.count(ml.addr)){
     // Assume static initialization
@@ -1419,7 +1419,7 @@ bool Simp2TraceBuilder::mutex_lock_fail(const SymAddrSize &ml){
   return true;
 }
 
-bool Simp2TraceBuilder::mutex_trylock(const SymAddrSize &ml){
+bool EPOPTraceBuilder::mutex_trylock(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MLock(ml))) return false;
   if (!fence()) return false;
@@ -1439,7 +1439,7 @@ bool Simp2TraceBuilder::mutex_trylock(const SymAddrSize &ml){
   return true;
 }
 
-bool Simp2TraceBuilder::mutex_unlock(const SymAddrSize &ml){
+bool EPOPTraceBuilder::mutex_unlock(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MUnlock(ml))) return false;
   if (!fence()) return false;
@@ -1458,7 +1458,7 @@ bool Simp2TraceBuilder::mutex_unlock(const SymAddrSize &ml){
   return true;
 }
 
-bool Simp2TraceBuilder::mutex_init(const SymAddrSize &ml){
+bool EPOPTraceBuilder::mutex_init(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MInit(ml))) return false;
   if (!fence()) return false;
@@ -1469,7 +1469,7 @@ bool Simp2TraceBuilder::mutex_init(const SymAddrSize &ml){
   return true;
 }
 
-bool Simp2TraceBuilder::mutex_destroy(const SymAddrSize &ml){
+bool EPOPTraceBuilder::mutex_destroy(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MDelete(ml))) return false;
   if (!fence()) return false;
@@ -1487,7 +1487,7 @@ bool Simp2TraceBuilder::mutex_destroy(const SymAddrSize &ml){
   return true;
 }
 
-bool Simp2TraceBuilder::cond_init(const SymAddrSize &ml){
+bool EPOPTraceBuilder::cond_init(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::CInit(ml))) return false;
   if (!fence()) return false;
@@ -1500,7 +1500,7 @@ bool Simp2TraceBuilder::cond_init(const SymAddrSize &ml){
   return true;
 }
 
-bool Simp2TraceBuilder::cond_signal(const SymAddrSize &ml){
+bool EPOPTraceBuilder::cond_signal(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::CSignal(ml))) return false;
   if (!fence()) return false;
@@ -1540,7 +1540,7 @@ bool Simp2TraceBuilder::cond_signal(const SymAddrSize &ml){
   return true;
 }
 
-bool Simp2TraceBuilder::cond_broadcast(const SymAddrSize &ml){
+bool EPOPTraceBuilder::cond_broadcast(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::CBrdcst(ml))) return false;
   if (!fence()) return false;
@@ -1568,7 +1568,7 @@ bool Simp2TraceBuilder::cond_broadcast(const SymAddrSize &ml){
   return true;
 }
 
-bool Simp2TraceBuilder::cond_wait(const SymAddrSize &cond_ml, const SymAddrSize &mutex_ml){
+bool EPOPTraceBuilder::cond_wait(const SymAddrSize &cond_ml, const SymAddrSize &mutex_ml){
   {
     auto it = mutexes.find(mutex_ml.addr);
     if(!dryrun && it == mutexes.end()){
@@ -1607,7 +1607,7 @@ bool Simp2TraceBuilder::cond_wait(const SymAddrSize &cond_ml, const SymAddrSize 
   return true;
 }
 
-bool Simp2TraceBuilder::cond_awake(const SymAddrSize &cond_ml, const SymAddrSize &mutex_ml){
+bool EPOPTraceBuilder::cond_awake(const SymAddrSize &cond_ml, const SymAddrSize &mutex_ml){
   assert(cond_vars.count(cond_ml.addr));
   CondVar &cond_var = cond_vars[cond_ml.addr];
   add_happens_after(prefix_idx, cond_var.last_signal);
@@ -1619,7 +1619,7 @@ bool Simp2TraceBuilder::cond_awake(const SymAddrSize &cond_ml, const SymAddrSize
   return true;
 }
 
-int Simp2TraceBuilder::cond_destroy(const SymAddrSize &ml){
+int EPOPTraceBuilder::cond_destroy(const SymAddrSize &ml){
   const int err = (EBUSY == 1) ? 2 : 1; // Chose an error value different from EBUSY
 
   curev().may_conflict = true;
@@ -1643,7 +1643,7 @@ int Simp2TraceBuilder::cond_destroy(const SymAddrSize &ml){
   return rv;
 }
 
-bool Simp2TraceBuilder::register_alternatives(int alt_count){
+bool EPOPTraceBuilder::register_alternatives(int alt_count){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Nondet(alt_count))) return false;
   if(curev().alt == 0) {
@@ -1675,13 +1675,13 @@ static void clear_observed(sym_ty &syms){
   }
 }
 
-void Simp2TraceBuilder::obs_sleep_add(sleepseqs_t &sleep,
+void EPOPTraceBuilder::obs_sleep_add(sleepseqs_t &sleep,
                                     const Event &e) const{
   sleep.insert(sleep.end(),e.doneseqs.begin(), e.doneseqs.end());
 }
 
 void
-Simp2TraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const{
+EPOPTraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const{
   // if (conf.memory_model == Configuration::TSO) {
   //   assert(!conf.commute_rmws);
   //   if (e.wakeup.size()) {
@@ -1709,8 +1709,8 @@ Simp2TraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const{
   // }
 }
 
-Simp2TraceBuilder::obs_wake_res
-Simp2TraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs,
+EPOPTraceBuilder::obs_wake_res
+EPOPTraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs,
                                 IPid p, const sym_ty &sym) const{
 
   // if (conf.dpor_algorithm == Configuration::OBSERVERS) {
@@ -1785,7 +1785,7 @@ Simp2TraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs,
   }
 }
 
-bool Simp2TraceBuilder::blocked_wakeup_sequence(std::vector<Event> &seq,
+bool EPOPTraceBuilder::blocked_wakeup_sequence(std::vector<Event> &seq,
 					       const sleepseqs_t &sleepseqs){
   sleepseqs_t isleepseqs = sleepseqs;
   obs_wake_res state = obs_wake_res::CONTINUE;
@@ -1885,7 +1885,7 @@ static void recompute_replay_fwd
   }
 }
 
-bool Simp2TraceBuilder::awaitcond_satisfied_before
+bool EPOPTraceBuilder::awaitcond_satisfied_before
 (unsigned i, const SymAddrSize &ml, const AwaitCond &cond) const {
   /* Recompute what's written */
   SymData data(ml, ml.size);
@@ -1901,7 +1901,7 @@ bool Simp2TraceBuilder::awaitcond_satisfied_before
   return cond.satisfied_by(data);
 }
 
-bool Simp2TraceBuilder::awaitcond_satisfied_by
+bool EPOPTraceBuilder::awaitcond_satisfied_by
 (unsigned i, const std::vector<unsigned> &seq, const SymAddrSize &ml,
  const AwaitCond &cond) const {
   /* Recompute what's written */
@@ -1929,7 +1929,7 @@ bool Simp2TraceBuilder::awaitcond_satisfied_by
   return cond.satisfied_by(data);
 }
 
-void Simp2TraceBuilder::recompute_cmpxhg_success
+void EPOPTraceBuilder::recompute_cmpxhg_success
 (sym_ty &es, const std::vector<Event> &v, int i) const {
   for (auto ei = es.begin(); ei != es.end(); ++ei) {
     SymEv &e = *ei;
@@ -1963,7 +1963,7 @@ void Simp2TraceBuilder::recompute_cmpxhg_success
   }
 }
 
-// void Simp2TraceBuilder::recompute_observed(std::vector<Branch> &v) const {
+// void EPOPTraceBuilder::recompute_observed(std::vector<Branch> &v) const {
 //   for (Branch &b : v) {
 //     clear_observed(b.sym);
 //   }
@@ -2013,7 +2013,7 @@ void Simp2TraceBuilder::recompute_cmpxhg_success
 //   }
 // }
 
-void Simp2TraceBuilder::see_events(const VecSet<int> &seen_accesses){
+void EPOPTraceBuilder::see_events(const VecSet<int> &seen_accesses){
   for(int i : seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
@@ -2022,14 +2022,14 @@ void Simp2TraceBuilder::see_events(const VecSet<int> &seen_accesses){
   }
 }
 
-void Simp2TraceBuilder::see_event_pairs
+void EPOPTraceBuilder::see_event_pairs
 (const VecSet<std::pair<int,int>> &seen_accesses){
   for (std::pair<int,int> p : seen_accesses){
     add_observed_race(p.first, p.second);
   }
 }
 
-void Simp2TraceBuilder::add_noblock_race(int event){
+void EPOPTraceBuilder::add_noblock_race(int event){
   assert(0 <= event);
   assert(event < prefix_idx);
   assert(do_events_conflict(event, prefix_idx));
@@ -2045,7 +2045,7 @@ void Simp2TraceBuilder::add_noblock_race(int event){
   races.push_back(Race::Nonblock(event,prefix_idx));
 }
 
-void Simp2TraceBuilder::add_lock_suc_race(int lock, int unlock){
+void EPOPTraceBuilder::add_lock_suc_race(int lock, int unlock){
   assert(0 <= lock);
   assert(lock < unlock);
   assert(unlock < prefix_idx);
@@ -2053,14 +2053,14 @@ void Simp2TraceBuilder::add_lock_suc_race(int lock, int unlock){
   curev().races.push_back(Race::LockSuc(lock,prefix_idx,unlock));
 }
 
-void Simp2TraceBuilder::add_lock_fail_race(int event){
+void EPOPTraceBuilder::add_lock_fail_race(int event){
   assert(0 <= event);
   assert(event < prefix_idx);
 
   lock_fail_races.push_back(Race::LockFail(event,prefix_idx,curev().iid));
 }
 
-void Simp2TraceBuilder::add_observed_race(int first, int second){
+void EPOPTraceBuilder::add_observed_race(int first, int second){
   assert(0 <= first);
   assert(first < second);
   assert(second < prefix_idx);
@@ -2080,7 +2080,7 @@ void Simp2TraceBuilder::add_observed_race(int first, int second){
   races.push_back(Race::Observed(first,second,prefix_idx));
 }
 
-void Simp2TraceBuilder::add_happens_after(unsigned second, unsigned first){
+void EPOPTraceBuilder::add_happens_after(unsigned second, unsigned first){
   assert(first != ~0u);
   assert(second != ~0u);
   assert(first != second);
@@ -2093,7 +2093,7 @@ void Simp2TraceBuilder::add_happens_after(unsigned second, unsigned first){
   vec.push_back(first);
 }
 
-void Simp2TraceBuilder::add_happens_after_thread(unsigned second, IPid thread){
+void EPOPTraceBuilder::add_happens_after_thread(unsigned second, IPid thread){
   assert((int_fast64_t)second == prefix_idx);
   if (threads[thread].event_indices.empty()) return;
   add_happens_after(second, threads[thread].event_indices.back());
@@ -2132,7 +2132,7 @@ static It frontier_filter(It first, It last, LessFn less){
   return fill;
 }
 
-void Simp2TraceBuilder::compute_vclocks(){
+void EPOPTraceBuilder::compute_vclocks(){
   /* Be idempotent */
   if (has_vclocks) return;
 
@@ -2315,7 +2315,7 @@ void Simp2TraceBuilder::compute_vclocks(){
   has_vclocks = true;
 }
 
-bool Simp2TraceBuilder::record_symbolic(SymEv event){
+bool EPOPTraceBuilder::record_symbolic(SymEv event){
   if (!replay) {
     assert(sym_idx == curev().sym.size());
     /* New event */
@@ -2340,11 +2340,11 @@ bool Simp2TraceBuilder::record_symbolic(SymEv event){
   return true;
 }
 
-bool Simp2TraceBuilder::do_events_conflict(int i, int j) const{
+bool EPOPTraceBuilder::do_events_conflict(int i, int j) const{
   return do_events_conflict(prefix[i], prefix[j]);
 }
 
-bool Simp2TraceBuilder::do_events_conflict
+bool EPOPTraceBuilder::do_events_conflict
 (const Event &fst, const Event &snd) const{
   return do_events_conflict(fst.iid.get_pid(), fst.sym,
                             snd.iid.get_pid(), snd.sym);
@@ -2358,7 +2358,7 @@ static bool symev_is_unobs_store(const SymEv &e) {
   return e.kind == SymEv::UNOBS_STORE;
 }
 
-bool Simp2TraceBuilder::do_symevs_conflict
+bool EPOPTraceBuilder::do_symevs_conflict
 (const SymEv &fst, const SymEv &snd) const {
   if (fst.kind == SymEv::NONDET || snd.kind == SymEv::NONDET) return false;
   if (fst.kind == SymEv::FULLMEM || snd.kind == SymEv::FULLMEM) return true;
@@ -2384,7 +2384,7 @@ bool Simp2TraceBuilder::do_symevs_conflict
   }
 }
 
-bool Simp2TraceBuilder::do_events_conflict
+bool EPOPTraceBuilder::do_events_conflict
 (IPid fst_pid, const sym_ty &fst,
  IPid snd_pid, const sym_ty &snd) const{
   if (fst_pid == snd_pid) return true;
@@ -2402,14 +2402,14 @@ bool Simp2TraceBuilder::do_events_conflict
   return false;
 }
 
-bool Simp2TraceBuilder::is_observed_conflict
+bool EPOPTraceBuilder::is_observed_conflict
 (const Event &fst, const Event &snd, const Event &thd) const{
   return is_observed_conflict(fst.iid.get_pid(), fst.sym,
                               snd.iid.get_pid(), snd.sym,
                               thd.iid.get_pid(), thd.sym);
 }
 
-bool Simp2TraceBuilder::is_observed_conflict
+bool EPOPTraceBuilder::is_observed_conflict
 (IPid fst_pid, const sym_ty &fst,
  IPid snd_pid, const sym_ty &snd,
  IPid thd_pid, const sym_ty &thd) const{
@@ -2429,7 +2429,7 @@ bool Simp2TraceBuilder::is_observed_conflict
   return false;
 }
 
-bool Simp2TraceBuilder::is_observed_conflict
+bool EPOPTraceBuilder::is_observed_conflict
 (IPid fst_pid, const SymEv &fst,
  IPid snd_pid, const SymEv &snd,
  IPid thd_pid, const SymEv &thd) const {
@@ -2441,7 +2441,7 @@ bool Simp2TraceBuilder::is_observed_conflict
   return symev_does_load(thd) && thd.addr().overlaps(snd.addr());
 }
 
-bool Simp2TraceBuilder::do_race_detect() {
+bool EPOPTraceBuilder::do_race_detect() {
   assert(has_vclocks);
   
   /* Do race detection */
@@ -2482,7 +2482,7 @@ bool Simp2TraceBuilder::do_race_detect() {
   return false;
 }
 
-VClock<int> Simp2TraceBuilder::compute_clock_for_second(int i, int j) const {
+VClock<int> EPOPTraceBuilder::compute_clock_for_second(int i, int j) const {
   VClock<IPid> clock;
   IPid ipid = prefix[i].iid.get_pid();
   IPid jpid = prefix[j].iid.get_pid();
@@ -2636,7 +2636,7 @@ VClock<int> Simp2TraceBuilder::compute_clock_for_second(int i, int j) const {
   return clock;
 }
 
-std::vector<Simp2TraceBuilder::Event> Simp2TraceBuilder::
+std::vector<EPOPTraceBuilder::Event> EPOPTraceBuilder::
 wakeup_sequence(const Race &race) const{
   const int i = race.first_event;
   const int j = race.second_event;
@@ -2745,7 +2745,7 @@ wakeup_sequence(const Race &race) const{
   return v;
 }
 
-std::vector<int> Simp2TraceBuilder::iid_map_at(int event) const{
+std::vector<int> EPOPTraceBuilder::iid_map_at(int event) const{
   std::vector<int> map(threads.size(), 1);
   for (int i = 0; i < event; ++i) {
     iid_map_step(map, prefix[i]);
@@ -2753,16 +2753,16 @@ std::vector<int> Simp2TraceBuilder::iid_map_at(int event) const{
   return map;
 }
 
-void Simp2TraceBuilder::iid_map_step(std::vector<int> &iid_map, const Event &event) const{
+void EPOPTraceBuilder::iid_map_step(std::vector<int> &iid_map, const Event &event) const{
   if (iid_map.size() <= unsigned(event.iid.get_pid())) iid_map.resize(event.iid.get_pid()+1, 1);
   iid_map[event.iid.get_pid()] += event.size;
 }
 
-void Simp2TraceBuilder::iid_map_step_rev(std::vector<int> &iid_map, const Event &event) const{
+void EPOPTraceBuilder::iid_map_step_rev(std::vector<int> &iid_map, const Event &event) const{
   iid_map[event.iid.get_pid()] -= event.size;
 }
 
-VClock<int> Simp2TraceBuilder::reconstruct_blocked_clock(IID<IPid> event) const {
+VClock<int> EPOPTraceBuilder::reconstruct_blocked_clock(IID<IPid> event) const {
   VClock<IPid> ret;
   /* Compute the clock of the blocking process (event k in prefix is
    * something unrelated since this is a blocked event) */
@@ -2778,7 +2778,7 @@ VClock<int> Simp2TraceBuilder::reconstruct_blocked_clock(IID<IPid> event) const 
   return ret;
 }
 
-Simp2TraceBuilder::Event Simp2TraceBuilder::
+EPOPTraceBuilder::Event EPOPTraceBuilder::
 reconstruct_blocked_event(const Race &race) const {
   assert(race.is_fail_kind());
   Event ret(race.second_process);
@@ -2797,7 +2797,7 @@ reconstruct_blocked_event(const Race &race) const {
   return ret;
 }
 
-inline std::pair<bool,unsigned> Simp2TraceBuilder::
+inline std::pair<bool,unsigned> EPOPTraceBuilder::
 try_find_process_event(IPid pid, int index) const{
   assert(pid >= 0 && pid < int(threads.size()));
   assert(index >= 1);
@@ -2815,7 +2815,7 @@ try_find_process_event(IPid pid, int index) const{
   return {true, k};
 }
 
-inline unsigned Simp2TraceBuilder::find_process_event(IPid pid, int index) const{
+inline unsigned EPOPTraceBuilder::find_process_event(IPid pid, int index) const{
   assert(pid >= 0 && pid < int(threads.size()));
   assert(index >= 1 && index <= int(threads[pid].event_indices.size()));
   unsigned k = threads[pid].event_indices[index-1];
@@ -2828,7 +2828,7 @@ inline unsigned Simp2TraceBuilder::find_process_event(IPid pid, int index) const
   return k;
 }
 
-bool Simp2TraceBuilder::has_pending_store(IPid pid, SymAddr ml) const {
+bool EPOPTraceBuilder::has_pending_store(IPid pid, SymAddr ml) const {
   const std::vector<PendingStore> &sb = threads[pid].store_buffer;
   for(unsigned i = 0; i < sb.size(); ++i){
     if(sb[i].ml.includes(ml)){
@@ -2844,10 +2844,10 @@ bool Simp2TraceBuilder::has_pending_store(IPid pid, SymAddr ml) const {
 #  define IFDEBUG(X) ((void)0)
 #endif
 
-void Simp2TraceBuilder::wakeup(Access::Type type, SymAddr ml){
+void EPOPTraceBuilder::wakeup(Access::Type type, SymAddr ml){
 }
 
-bool Simp2TraceBuilder::has_cycle(IID<IPid> *loc) const{
+bool EPOPTraceBuilder::has_cycle(IID<IPid> *loc) const{
   int proc_count = threads.size();
   int pfx_size = prefix.size();
 
@@ -2986,11 +2986,11 @@ bool Simp2TraceBuilder::has_cycle(IID<IPid> *loc) const{
   }
 }
 
-long double Simp2TraceBuilder::estimate_trace_count() const{
+long double EPOPTraceBuilder::estimate_trace_count() const{
   return estimate_trace_count(0);
 }
 
-long double Simp2TraceBuilder::estimate_trace_count(int idx) const{
+long double EPOPTraceBuilder::estimate_trace_count(int idx) const{
   if(idx > int(prefix.size())) return 0;
   if(idx == int(prefix.size())) return 1;
 

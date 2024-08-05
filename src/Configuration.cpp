@@ -105,9 +105,10 @@ cl_dpor_algorithm(llvm::cl::NotHidden, llvm::cl::init(Configuration::SOURCE),
                                    clEnumValN(Configuration::OPTIMAL,"optimal","Optimal-DPOR"),
                                    clEnumValN(Configuration::OBSERVERS,"observers","Optimal-DPOR with Observers"),
                                    clEnumValN(Configuration::READS_FROM,"rf","Optimal Reads-From-centric SMC"),
-				   clEnumValN(Configuration::SIMP_DPOR,"simp","Simplified Optimal DPOR algorithm"),
-				   clEnumValN(Configuration::SIMP2_DPOR,"simp2","Simplified Optimal DPOR algorithm with eager race reversal"),
-				   clEnumValN(Configuration::POP_DPOR,"pop","Polyspace Optimal DPOR algorithm with eager race reversal")
+				   clEnumValN(Configuration::POP_DPOR,"pop","Polyspace Optimal (POP) DPOR algorithm with eager race reversal"),
+				   clEnumValN(Configuration::LPOP_DPOR,"lpop","Lazy POP DPOR algorithm"),
+				   clEnumValN(Configuration::EPOP_DPOR,"epop","Eager DPOR algorithm with eager race reversal")
+
 #ifdef LLVM_CL_VALUES_USES_SENTINEL
                                   ,clEnumValEnd
 #endif
@@ -221,7 +222,7 @@ const std::set<std::string> &Configuration::commandline_opts(){
     "no-cpubind","no-cpubind-singlify",
     "sc","tso","pso","power","arm",
     "smtlib",
-    "source","optimal","observers","rf","pop",
+    "source","optimal","observers","rf","pop","lpop","epop",
     "check-robustness",
     "spin-assume",
     "no-partial-loop-purity",
@@ -343,12 +344,12 @@ void Configuration::check_commandline(){
         << "WARNING: Optimal-DPOR not implemented for memory model " << mm << ".\n";
     }
     if ((cl_dpor_algorithm == Configuration::READS_FROM
-	 || cl_dpor_algorithm == Configuration::SIMP_DPOR
-	 || cl_dpor_algorithm == Configuration::SIMP2_DPOR
-	 || cl_dpor_algorithm == Configuration::POP_DPOR)
+	 || cl_dpor_algorithm == Configuration::POP_DPOR
+	 || cl_dpor_algorithm == Configuration::LPOP_DPOR
+	 || cl_dpor_algorithm == Configuration::EPOP_DPOR)
         && cl_memory_model != Configuration::SC) {
       Debug::warn("Configuration::check_commandline:dpor:mm")
-        << "WARNING: Optimal Reads-From-SMC and Simplified DPOR not implemented for memory model " << mm << ".\n";
+        << "WARNING: Optimal Reads-From-SMC and POP DPOR algorithms not implemented for memory model " << mm << ".\n";
     }
 
     if (cl_c11 && cl_memory_model != Configuration::SC) {

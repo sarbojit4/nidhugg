@@ -30,9 +30,9 @@
 #include "TSOInterpreter.h"
 #include "TSOTraceBuilder.h"
 #include "RFSCTraceBuilder.h"
-#include "SimpTraceBuilder.h"
-#include "Simp2TraceBuilder.h"
 #include "POPTraceBuilder.h"
+#include "LPOPTraceBuilder.h"
+#include "EPOPTraceBuilder.h"
 #include "RFSCUnfoldingTree.h"
 #include "Cpubind.h"
 
@@ -431,12 +431,12 @@ DPORDriver::Result DPORDriver::run(){
         res = run_rfsc_parallel();
       }
       return res;
-    }else if(conf.dpor_algorithm == Configuration::SIMP_DPOR){
-      TB = new SimpTraceBuilder(conf);
-    }else if(conf.dpor_algorithm == Configuration::SIMP2_DPOR){
-      TB = new Simp2TraceBuilder(conf);
     }else if(conf.dpor_algorithm == Configuration::POP_DPOR){
       TB = new POPTraceBuilder(conf);
+    }else if(conf.dpor_algorithm == Configuration::LPOP_DPOR){
+      TB = new LPOPTraceBuilder(conf);
+    }else if(conf.dpor_algorithm == Configuration::EPOP_DPOR){
+      TB = new EPOPTraceBuilder(conf);
     }else{
       TB = new TSOTraceBuilder(conf);
     }

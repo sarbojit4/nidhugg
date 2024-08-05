@@ -18,7 +18,7 @@
  */
 
 #include "Debug.h"
-#include "SimpTraceBuilder.h"
+#include "LPOPTraceBuilder.h"
 #include "TraceUtil.h"
 
 #include <algorithm>
@@ -32,7 +32,7 @@
 
 static void clear_observed(sym_ty &syms);
 
-SimpTraceBuilder::SimpTraceBuilder(const Configuration &conf) : TSOPSOTraceBuilder(conf) {
+LPOPTraceBuilder::LPOPTraceBuilder(const Configuration &conf) : TSOPSOTraceBuilder(conf) {
   threads.push_back(Thread(CPid(), -1));
   threads.push_back(Thread(CPS.new_aux(CPid()), -1));
   threads[1].available = false; // Store buffer is empty.
@@ -43,13 +43,14 @@ SimpTraceBuilder::SimpTraceBuilder(const Configuration &conf) : TSOPSOTraceBuild
   last_md = 0;
   replay_point = 0;
   end_of_ws = 0;
+  current_branch_count = 0;
   
 }
 
-SimpTraceBuilder::~SimpTraceBuilder(){
+LPOPTraceBuilder::~LPOPTraceBuilder(){
 }
 
-bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
+bool LPOPTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   assert(!has_vclocks && "Can't add more events after analysing the trace");
 
   *dryrun = false;
@@ -201,7 +202,7 @@ bool SimpTraceBuilder::schedule(int *proc, int *aux, int *alt, bool *dryrun){
   return false; // No available threads
 }
 
-void SimpTraceBuilder::refuse_schedule(){
+void LPOPTraceBuilder::refuse_schedule(){
   assert(prefix_idx == int(prefix.size())-1);
   assert(prefix.back().branch.size == 1);
   assert(!prefix.back().event.may_conflict);
@@ -215,19 +216,19 @@ void SimpTraceBuilder::refuse_schedule(){
   mark_unavailable(last_pid/2,last_pid % 2 - 1);
 }
 
-void SimpTraceBuilder::mark_available(int proc, int aux){
+void LPOPTraceBuilder::mark_available(int proc, int aux){
   threads[ipid(proc,aux)].available = true;
 }
 
-void SimpTraceBuilder::mark_unavailable(int proc, int aux){
+void LPOPTraceBuilder::mark_unavailable(int proc, int aux){
   threads[ipid(proc,aux)].available = false;
 }
 
-bool SimpTraceBuilder::is_replaying() const {
+bool LPOPTraceBuilder::is_replaying() const {
   return prefix_idx < replay_point;
 }
 
-void SimpTraceBuilder::cancel_replay(){
+void LPOPTraceBuilder::cancel_replay(){
   if(!replay) return;
   replay = false;
   while (prefix_idx + 1 < int(prefix.size())) prefix.pop_back();
@@ -237,21 +238,21 @@ void SimpTraceBuilder::cancel_replay(){
   }
 }
 
-void SimpTraceBuilder::metadata(const llvm::MDNode *md){
+void LPOPTraceBuilder::metadata(const llvm::MDNode *md){
   if(!dryrun){
     curev().md = md;
   }
   last_md = md;
 }
 
-bool SimpTraceBuilder::sleepset_is_empty() const{
+bool LPOPTraceBuilder::sleepset_is_empty() const{
   for(unsigned i = 0; i < threads.size(); ++i){
     if(threads[i].sleeping) return false;
   }
   return true;
 }
 
-bool SimpTraceBuilder::check_for_cycles(){
+bool LPOPTraceBuilder::check_for_cycles(){
   /* We need vector clocks for this check */
   compute_vclocks();
 
@@ -268,7 +269,7 @@ bool SimpTraceBuilder::check_for_cycles(){
   return true;
 }
 
-Trace *SimpTraceBuilder::get_trace() const{
+Trace *LPOPTraceBuilder::get_trace() const{
   std::vector<IID<CPid> > cmp;
   SrcLocVectorBuilder cmp_md;
   std::vector<Error*> errs;
@@ -291,7 +292,7 @@ static bool event_is_load(const sym_ty &sym) {
   return false;
 }
 
-bool SimpTraceBuilder::reset(){
+bool LPOPTraceBuilder::reset(){
   /* Checking if current exploration is redundant */
   // auto trace_it = Traces.find(currtrace);
   // if(trace_it != Traces.end()){
@@ -318,7 +319,7 @@ bool SimpTraceBuilder::reset(){
   do_race_detect();
 
   if(conf.debug_print_on_reset){
-    llvm::dbgs() << " === SimpTraceBuilder reset ===\n";
+    llvm::dbgs() << " === LPOPTraceBuilder reset ===\n";
     debug_print();
     llvm::dbgs() << " =============================\n";
   }
@@ -401,14 +402,15 @@ bool SimpTraceBuilder::reset(){
   last_md = 0;
   reset_cond_branch_log();
   has_vclocks = false;
+  current_branch_count--;
 
   return true;
 }
 
-IID<CPid> SimpTraceBuilder::get_iid() const{
+IID<CPid> LPOPTraceBuilder::get_iid() const{
   return get_iid(prefix_idx);
 }
-IID<CPid> SimpTraceBuilder::get_iid(unsigned i) const{
+IID<CPid> LPOPTraceBuilder::get_iid(unsigned i) const{
   IPid pid = prefix[i].event.iid.get_pid();
   int idx = prefix[i].event.iid.get_index();
   return IID<CPid>(threads[pid].cpid,idx);
@@ -419,11 +421,11 @@ static std::string rpad(std::string s, int n){
   return s;
 }
 
-std::string SimpTraceBuilder::iid_string(std::size_t pos) const{
+std::string LPOPTraceBuilder::iid_string(std::size_t pos) const{
   return iid_string(prefix[pos].branch, prefix[pos].event.iid.get_index());
 }
 
-std::string SimpTraceBuilder::iid_string(const Branch &branch, int index) const{
+std::string LPOPTraceBuilder::iid_string(const Branch &branch, int index) const{
   std::stringstream ss;
   ss << "(" << threads[branch.pid].cpid << "," << index;
   if(branch.size > 1){
@@ -446,7 +448,7 @@ str_join(const std::vector<std::string> &vec, const std::string &sep) {
   return res;
 }
 
-std::string SimpTraceBuilder::oslp_string(const sleepseqs_t &os) const {
+std::string LPOPTraceBuilder::oslp_string(const sleepseqs_t &os) const {
   std::vector<std::string> elems;
   auto pid_str = [this](IPid p) { return threads[p].cpid.to_string(); };
   // for (const auto &sleeper : os.sleep) {
@@ -462,7 +464,7 @@ std::string SimpTraceBuilder::oslp_string(const sleepseqs_t &os) const {
 }
 
 /* For debug-printing the wakeup tree; adds a node and its children to lines */
-void SimpTraceBuilder::wut_string_add_node
+void LPOPTraceBuilder::wut_string_add_node
 (std::vector<std::string> &lines, std::vector<int> &iid_map,
  unsigned line, Branch branch, WakeupTreeRef<Branch> node) const{
   unsigned offset = 2 + ((lines.size() < line)?0:lines[line].size());
@@ -511,7 +513,7 @@ static std::string events_to_string(const llvm::SmallVectorImpl<SymEv> &e) {
 }
 
 #ifndef NDEBUG
-void SimpTraceBuilder::check_symev_vclock_equiv() const {
+void LPOPTraceBuilder::check_symev_vclock_equiv() const {
   /* Check for SymEv<->VClock equivalence
    * SymEv considers that event i happens after event j iff there is a
    * subsequence s of i..j including i and j s.t.
@@ -605,8 +607,8 @@ void SimpTraceBuilder::check_symev_vclock_equiv() const {
 }
 #endif /* !defined(NDEBUG) */
 
-void SimpTraceBuilder::debug_print() const {
-  llvm::dbgs() << "SimpTraceBuilder (debug print):\n";
+void LPOPTraceBuilder::debug_print() const {
+  llvm::dbgs() << "LPOPTraceBuilder (debug print):\n";
   int iid_offs = 0;
   int symev_offs = 0;
   std::vector<std::string> lines;
@@ -678,7 +680,7 @@ void SimpTraceBuilder::debug_print() const {
   }
 }
 
-bool SimpTraceBuilder::spawn(){
+bool LPOPTraceBuilder::spawn(){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Spawn(threads.size() / 2))) return false;
   IPid parent_ipid = curev().iid.get_pid();
@@ -690,7 +692,7 @@ bool SimpTraceBuilder::spawn(){
   return true;
 }
 
-bool SimpTraceBuilder::store(const SymData &sd){
+bool LPOPTraceBuilder::store(const SymData &sd){
   curev().may_conflict = true; /* prefix_idx might become bad otherwise */
   IPid ipid = curev().iid.get_pid();
   threads[ipid].store_buffer.push_back(PendingStore(sd.get_ref(),prefix_idx,last_md));
@@ -698,7 +700,7 @@ bool SimpTraceBuilder::store(const SymData &sd){
   return true;
 }
 
-bool SimpTraceBuilder::atomic_store(const SymData &sd){
+bool LPOPTraceBuilder::atomic_store(const SymData &sd){
   if (conf.dpor_algorithm == Configuration::OBSERVERS) {
     if (!record_symbolic(SymEv::UnobsStore(sd))) return false;
   } else {
@@ -728,7 +730,7 @@ static VecSet<int> to_vecset_and_clear
   return ret;
 }
 
-void SimpTraceBuilder::do_atomic_store(const SymData &sd){
+void LPOPTraceBuilder::do_atomic_store(const SymData &sd){
   const SymAddrSize &ml = sd.get_ref();
   IPid ipid = curev().iid.get_pid();
   curev().may_conflict = true;
@@ -827,7 +829,7 @@ static bool rmwaction_commutes(const Configuration &conf,
   }
 }
 
-bool SimpTraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
+bool LPOPTraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Rmw(sd, action))) return false;
   const SymAddrSize &ml = sd.get_ref();
@@ -895,7 +897,7 @@ bool SimpTraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
   return true;
 }
 
-bool SimpTraceBuilder::xchg_await(const SymData &sd, AwaitCond cond) {
+bool LPOPTraceBuilder::xchg_await(const SymData &sd, AwaitCond cond) {
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::XchgAwait(sd, cond))) return false;
   const SymAddrSize &ml = sd.get_ref();
@@ -965,7 +967,7 @@ bool SimpTraceBuilder::xchg_await(const SymData &sd, AwaitCond cond) {
   return true;
 }
 
-bool SimpTraceBuilder::xchg_await_fail(const SymData &sd, AwaitCond cond) {
+bool LPOPTraceBuilder::xchg_await_fail(const SymData &sd, AwaitCond cond) {
   if (conf.memory_model != Configuration::SC) {
     invalid_input_error("Exchange-Await is only implemented for SC right now");
     return false;
@@ -994,13 +996,13 @@ bool SimpTraceBuilder::xchg_await_fail(const SymData &sd, AwaitCond cond) {
   return true;
 }
 
-bool SimpTraceBuilder::load(const SymAddrSize &ml){
+bool LPOPTraceBuilder::load(const SymAddrSize &ml){
   if (!record_symbolic(SymEv::Load(ml))) return false;
   do_load(ml);
   return true;
 }
 
-void SimpTraceBuilder::do_load(const SymAddrSize &ml){
+void LPOPTraceBuilder::do_load(const SymAddrSize &ml){
   curev().may_conflict = true;
   IPid ipid = curev().iid.get_pid();
 
@@ -1040,7 +1042,7 @@ void SimpTraceBuilder::do_load(const SymAddrSize &ml){
   see_event_pairs(seen_pairs);
 }
 
-bool SimpTraceBuilder::compare_exchange
+bool LPOPTraceBuilder::compare_exchange
 (const SymData &sd, const SymData::block_type expected, bool success){
   if(success){
     if (!record_symbolic(SymEv::CmpXhg(sd, expected))) return false;
@@ -1053,7 +1055,7 @@ bool SimpTraceBuilder::compare_exchange
   return true;
 }
 
-bool SimpTraceBuilder::load_await(const SymAddrSize &ml, AwaitCond cond) {
+bool LPOPTraceBuilder::load_await(const SymAddrSize &ml, AwaitCond cond) {
   curev().may_conflict = true;
   if (conf.memory_model != Configuration::SC) {
     invalid_input_error("Load-Await is only implemented for SC right now");
@@ -1087,7 +1089,7 @@ bool SimpTraceBuilder::load_await(const SymAddrSize &ml, AwaitCond cond) {
   return true;
 }
 
-bool SimpTraceBuilder::load_await_fail(const SymAddrSize &ml, AwaitCond cond) {
+bool LPOPTraceBuilder::load_await_fail(const SymAddrSize &ml, AwaitCond cond) {
   if (conf.memory_model != Configuration::SC) {
     invalid_input_error("Load-Await is only implemented for SC right now");
     return false;
@@ -1130,7 +1132,7 @@ static bool shadows_all_of(const sym_ty &sym, const SymAddrSize &ml) {
   return false;
 }
 
-bool SimpTraceBuilder::do_await(unsigned j, const IID<IPid> &iid, const SymEv &e,
+bool LPOPTraceBuilder::do_await(unsigned j, const IID<IPid> &iid, const SymEv &e,
                                const VClock<IPid> &above_clock,
                                std::vector<Race> &races) {
   bool can_stop = false;
@@ -1226,7 +1228,7 @@ bool SimpTraceBuilder::do_await(unsigned j, const IID<IPid> &iid, const SymEv &e
   return true;
 }
 
-bool SimpTraceBuilder::full_memory_conflict(){
+bool LPOPTraceBuilder::full_memory_conflict(){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Fullmem())) return false;
   /* See all previous memory accesses */
@@ -1283,7 +1285,7 @@ static void add_to_seen
   seen_accesses.insert(VecSet<int>(std::move(es)));
 }
 
-void SimpTraceBuilder::observe_memory(SymAddr ml, ByteInfo &m,
+void LPOPTraceBuilder::observe_memory(SymAddr ml, ByteInfo &m,
                                      VecSet<int> &seen_accesses,
                                      VecSet<std::pair<int,int>> &seen_pairs,
                                      bool is_update){
@@ -1326,7 +1328,7 @@ void SimpTraceBuilder::observe_memory(SymAddr ml, ByteInfo &m,
   assert(!is_update || m.unordered_updates.size() == 0);
 }
 
-bool SimpTraceBuilder::fence(){
+bool LPOPTraceBuilder::fence(){
   IPid ipid = curev().iid.get_pid();
   assert(ipid % 2 == 0);
   assert(threads[ipid].store_buffer.empty());
@@ -1334,7 +1336,7 @@ bool SimpTraceBuilder::fence(){
   return true;
 }
 
-bool SimpTraceBuilder::join(int tgt_proc){
+bool LPOPTraceBuilder::join(int tgt_proc){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Join(tgt_proc))) return false;
   assert(threads[tgt_proc*2].store_buffer.empty());
@@ -1343,7 +1345,7 @@ bool SimpTraceBuilder::join(int tgt_proc){
   return true;
 }
 
-bool SimpTraceBuilder::mutex_lock(const SymAddrSize &ml){
+bool LPOPTraceBuilder::mutex_lock(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MLock(ml))) return false;
   if (!fence()) return false;
@@ -1368,7 +1370,7 @@ bool SimpTraceBuilder::mutex_lock(const SymAddrSize &ml){
   return true;
 }
 
-bool SimpTraceBuilder::mutex_lock_fail(const SymAddrSize &ml){
+bool LPOPTraceBuilder::mutex_lock_fail(const SymAddrSize &ml){
   assert(!dryrun);
   if(!conf.mutex_require_init && !mutexes.count(ml.addr)){
     // Assume static initialization
@@ -1385,7 +1387,7 @@ bool SimpTraceBuilder::mutex_lock_fail(const SymAddrSize &ml){
   return true;
 }
 
-bool SimpTraceBuilder::mutex_trylock(const SymAddrSize &ml){
+bool LPOPTraceBuilder::mutex_trylock(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MLock(ml))) return false;
   if (!fence()) return false;
@@ -1405,7 +1407,7 @@ bool SimpTraceBuilder::mutex_trylock(const SymAddrSize &ml){
   return true;
 }
 
-bool SimpTraceBuilder::mutex_unlock(const SymAddrSize &ml){
+bool LPOPTraceBuilder::mutex_unlock(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MUnlock(ml))) return false;
   if (!fence()) return false;
@@ -1424,7 +1426,7 @@ bool SimpTraceBuilder::mutex_unlock(const SymAddrSize &ml){
   return true;
 }
 
-bool SimpTraceBuilder::mutex_init(const SymAddrSize &ml){
+bool LPOPTraceBuilder::mutex_init(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MInit(ml))) return false;
   if (!fence()) return false;
@@ -1435,7 +1437,7 @@ bool SimpTraceBuilder::mutex_init(const SymAddrSize &ml){
   return true;
 }
 
-bool SimpTraceBuilder::mutex_destroy(const SymAddrSize &ml){
+bool LPOPTraceBuilder::mutex_destroy(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::MDelete(ml))) return false;
   if (!fence()) return false;
@@ -1453,7 +1455,7 @@ bool SimpTraceBuilder::mutex_destroy(const SymAddrSize &ml){
   return true;
 }
 
-bool SimpTraceBuilder::cond_init(const SymAddrSize &ml){
+bool LPOPTraceBuilder::cond_init(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::CInit(ml))) return false;
   if (!fence()) return false;
@@ -1466,7 +1468,7 @@ bool SimpTraceBuilder::cond_init(const SymAddrSize &ml){
   return true;
 }
 
-bool SimpTraceBuilder::cond_signal(const SymAddrSize &ml){
+bool LPOPTraceBuilder::cond_signal(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::CSignal(ml))) return false;
   if (!fence()) return false;
@@ -1506,7 +1508,7 @@ bool SimpTraceBuilder::cond_signal(const SymAddrSize &ml){
   return true;
 }
 
-bool SimpTraceBuilder::cond_broadcast(const SymAddrSize &ml){
+bool LPOPTraceBuilder::cond_broadcast(const SymAddrSize &ml){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::CBrdcst(ml))) return false;
   if (!fence()) return false;
@@ -1534,7 +1536,7 @@ bool SimpTraceBuilder::cond_broadcast(const SymAddrSize &ml){
   return true;
 }
 
-bool SimpTraceBuilder::cond_wait(const SymAddrSize &cond_ml, const SymAddrSize &mutex_ml){
+bool LPOPTraceBuilder::cond_wait(const SymAddrSize &cond_ml, const SymAddrSize &mutex_ml){
   {
     auto it = mutexes.find(mutex_ml.addr);
     if(!dryrun && it == mutexes.end()){
@@ -1573,7 +1575,7 @@ bool SimpTraceBuilder::cond_wait(const SymAddrSize &cond_ml, const SymAddrSize &
   return true;
 }
 
-bool SimpTraceBuilder::cond_awake(const SymAddrSize &cond_ml, const SymAddrSize &mutex_ml){
+bool LPOPTraceBuilder::cond_awake(const SymAddrSize &cond_ml, const SymAddrSize &mutex_ml){
   if (!dryrun){
     assert(cond_vars.count(cond_ml.addr));
     CondVar &cond_var = cond_vars[cond_ml.addr];
@@ -1587,7 +1589,7 @@ bool SimpTraceBuilder::cond_awake(const SymAddrSize &cond_ml, const SymAddrSize 
   return true;
 }
 
-int SimpTraceBuilder::cond_destroy(const SymAddrSize &ml){
+int LPOPTraceBuilder::cond_destroy(const SymAddrSize &ml){
   const int err = (EBUSY == 1) ? 2 : 1; // Chose an error value different from EBUSY
 
   curev().may_conflict = true;
@@ -1611,7 +1613,7 @@ int SimpTraceBuilder::cond_destroy(const SymAddrSize &ml){
   return rv;
 }
 
-bool SimpTraceBuilder::register_alternatives(int alt_count){
+bool LPOPTraceBuilder::register_alternatives(int alt_count){
   curev().may_conflict = true;
   if (!record_symbolic(SymEv::Nondet(alt_count))) return false;
   if(curbranch().alt == 0) {
@@ -1622,14 +1624,14 @@ bool SimpTraceBuilder::register_alternatives(int alt_count){
   return true;
 }
 
-bool SimpTraceBuilder::obs_sleep::count(IPid p) const {
+bool LPOPTraceBuilder::obs_sleep::count(IPid p) const {
   return std::any_of(sleep.begin(), sleep.end(),
                      [p](const struct sleeper &s) {
                        return s.pid == p;
                      });
 }
 
-void SimpTraceBuilder::obs_sleep_add(sleepseqs_t &sleep,
+void LPOPTraceBuilder::obs_sleep_add(sleepseqs_t &sleep,
                                     const Event &e) const{
   sleep.insert(sleep.end(),e.doneseqs.begin(), e.doneseqs.end());
 }
@@ -1644,7 +1646,7 @@ void unordered_vector_delete(std::vector<T> &vec, std::size_t pos) {
 }
 
 void
-SimpTraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const{
+LPOPTraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs, const Event &e) const{
   // if (conf.memory_model == Configuration::TSO) {
   //   assert(!conf.commute_rmws);
   //   if (e.wakeup.size()) {
@@ -1679,8 +1681,8 @@ static bool symev_does_load(const SymEv &e) {
     || e.kind == SymEv::FULLMEM;
 }
 
-SimpTraceBuilder::obs_wake_res
-SimpTraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs,
+LPOPTraceBuilder::obs_wake_res
+LPOPTraceBuilder::obs_sleep_wake(sleepseqs_t &sleepseqs,
                                 IPid p, const sym_ty &sym) const{
 
   // if (conf.dpor_algorithm == Configuration::OBSERVERS) {
@@ -1767,7 +1769,7 @@ static void clear_observed(sym_ty &syms){
   }
 }
 
-bool SimpTraceBuilder::blocked_wakeup_sequence(std::vector<Branch> &seq,
+bool LPOPTraceBuilder::blocked_wakeup_sequence(std::vector<Branch> &seq,
 					       const sleepseqs_t &sleepseqs){
   sleepseqs_t isleepseqs = sleepseqs;
   obs_wake_res state = obs_wake_res::CONTINUE;
@@ -1780,7 +1782,7 @@ bool SimpTraceBuilder::blocked_wakeup_sequence(std::vector<Branch> &seq,
   return (state == obs_wake_res::BLOCK);
 }
 
-void SimpTraceBuilder::update_sleepseqs(){
+void LPOPTraceBuilder::update_sleepseqs(){
   obs_sleep_wake(prefix[prefix_idx-1].branch.sleepseqs,
    		 curev().iid.get_pid(), curev().sym);
   curbranch().sleepseqs = std::move(prefix[prefix_idx-1].branch.sleepseqs);
@@ -1874,7 +1876,7 @@ static void recompute_replay_fwd
   }
 }
 
-bool SimpTraceBuilder::awaitcond_satisfied_before
+bool LPOPTraceBuilder::awaitcond_satisfied_before
 (unsigned i, const SymAddrSize &ml, const AwaitCond &cond) const {
   /* Recompute what's written */
   SymData data(ml, ml.size);
@@ -1890,7 +1892,7 @@ bool SimpTraceBuilder::awaitcond_satisfied_before
   return cond.satisfied_by(data);
 }
 
-bool SimpTraceBuilder::awaitcond_satisfied_by
+bool LPOPTraceBuilder::awaitcond_satisfied_by
 (unsigned i, const std::vector<unsigned> &seq, const SymAddrSize &ml,
  const AwaitCond &cond) const {
   /* Recompute what's written */
@@ -1918,7 +1920,7 @@ bool SimpTraceBuilder::awaitcond_satisfied_by
   return cond.satisfied_by(data);
 }
 
-void SimpTraceBuilder::recompute_cmpxhg_success
+void LPOPTraceBuilder::recompute_cmpxhg_success
 (sym_ty &es, const std::vector<Branch> &v, int i) const {
   for (auto ei = es.begin(); ei != es.end(); ++ei) {
     SymEv &e = *ei;
@@ -1952,7 +1954,7 @@ void SimpTraceBuilder::recompute_cmpxhg_success
   }
 }
 
-void SimpTraceBuilder::recompute_observed(std::vector<Branch> &v) const {
+void LPOPTraceBuilder::recompute_observed(std::vector<Branch> &v) const {
   for (Branch &b : v) {
     clear_observed(b.sym);
   }
@@ -2002,7 +2004,7 @@ void SimpTraceBuilder::recompute_observed(std::vector<Branch> &v) const {
   }
 }
 
-void SimpTraceBuilder::see_events(const VecSet<int> &seen_accesses){
+void LPOPTraceBuilder::see_events(const VecSet<int> &seen_accesses){
   for(int i : seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
@@ -2011,14 +2013,14 @@ void SimpTraceBuilder::see_events(const VecSet<int> &seen_accesses){
   }
 }
 
-void SimpTraceBuilder::see_event_pairs
+void LPOPTraceBuilder::see_event_pairs
 (const VecSet<std::pair<int,int>> &seen_accesses){
   for (std::pair<int,int> p : seen_accesses){
     add_observed_race(p.first, p.second);
   }
 }
 
-void SimpTraceBuilder::add_noblock_race(int event){
+void LPOPTraceBuilder::add_noblock_race(int event){
   assert(0 <= event);
   assert(event < prefix_idx);
   assert(do_events_conflict(event, prefix_idx));
@@ -2034,7 +2036,7 @@ void SimpTraceBuilder::add_noblock_race(int event){
   races.push_back(Race::Nonblock(event,prefix_idx));
 }
 
-void SimpTraceBuilder::add_lock_suc_race(int lock, int unlock){
+void LPOPTraceBuilder::add_lock_suc_race(int lock, int unlock){
   assert(0 <= lock);
   assert(lock < unlock);
   assert(unlock < prefix_idx);
@@ -2042,14 +2044,14 @@ void SimpTraceBuilder::add_lock_suc_race(int lock, int unlock){
   curev().races.push_back(Race::LockSuc(lock,prefix_idx,unlock));
 }
 
-void SimpTraceBuilder::add_lock_fail_race(int event){
+void LPOPTraceBuilder::add_lock_fail_race(int event){
   assert(0 <= event);
   assert(event < prefix_idx);
 
   lock_fail_races.push_back(Race::LockFail(event,prefix_idx,curev().iid));
 }
 
-void SimpTraceBuilder::add_observed_race(int first, int second){
+void LPOPTraceBuilder::add_observed_race(int first, int second){
   assert(0 <= first);
   assert(first < second);
   assert(second < prefix_idx);
@@ -2069,7 +2071,7 @@ void SimpTraceBuilder::add_observed_race(int first, int second){
   races.push_back(Race::Observed(first,second,prefix_idx));
 }
 
-void SimpTraceBuilder::add_happens_after(unsigned second, unsigned first){
+void LPOPTraceBuilder::add_happens_after(unsigned second, unsigned first){
   assert(first != ~0u);
   assert(second != ~0u);
   assert(first != second);
@@ -2082,7 +2084,7 @@ void SimpTraceBuilder::add_happens_after(unsigned second, unsigned first){
   vec.push_back(first);
 }
 
-void SimpTraceBuilder::add_happens_after_thread(unsigned second, IPid thread){
+void LPOPTraceBuilder::add_happens_after_thread(unsigned second, IPid thread){
   assert((int_fast64_t)second == prefix_idx);
   if (threads[thread].event_indices.empty()) return;
   add_happens_after(second, threads[thread].event_indices.back());
@@ -2121,7 +2123,7 @@ static It frontier_filter(It first, It last, LessFn less){
   return fill;
 }
 
-void SimpTraceBuilder::compute_vclocks(){
+void LPOPTraceBuilder::compute_vclocks(){
   /* Be idempotent */
   if (has_vclocks) return;
 
@@ -2314,7 +2316,7 @@ void SimpTraceBuilder::compute_vclocks(){
   has_vclocks = true;
 }
 
-bool SimpTraceBuilder::record_symbolic(SymEv event){
+bool LPOPTraceBuilder::record_symbolic(SymEv event){
   if (!replay) {
     assert(sym_idx == curev().sym.size());
     /* New event */
@@ -2339,11 +2341,11 @@ bool SimpTraceBuilder::record_symbolic(SymEv event){
   return true;
 }
 
-bool SimpTraceBuilder::do_events_conflict(int i, int j) const{
+bool LPOPTraceBuilder::do_events_conflict(int i, int j) const{
   return do_events_conflict(prefix[i].event, prefix[j].event);
 }
 
-bool SimpTraceBuilder::do_events_conflict
+bool LPOPTraceBuilder::do_events_conflict
 (const Event &fst, const Event &snd) const{
   return do_events_conflict(fst.iid.get_pid(), fst.sym,
                             snd.iid.get_pid(), snd.sym);
@@ -2362,7 +2364,7 @@ static bool symev_is_unobs_store(const SymEv &e) {
   return e.kind == SymEv::UNOBS_STORE;
 }
 
-bool SimpTraceBuilder::do_symevs_conflict
+bool LPOPTraceBuilder::do_symevs_conflict
 (IPid fst_pid, const SymEv &fst,
  IPid snd_pid, const SymEv &snd) const {
   if (fst.kind == SymEv::NONDET || snd.kind == SymEv::NONDET) return false;
@@ -2389,7 +2391,7 @@ bool SimpTraceBuilder::do_symevs_conflict
   }
 }
 
-bool SimpTraceBuilder::do_events_conflict
+bool LPOPTraceBuilder::do_events_conflict
 (IPid fst_pid, const sym_ty &fst,
  IPid snd_pid, const sym_ty &snd) const{
   if (fst_pid == snd_pid) return true;
@@ -2407,14 +2409,14 @@ bool SimpTraceBuilder::do_events_conflict
   return false;
 }
 
-bool SimpTraceBuilder::is_observed_conflict
+bool LPOPTraceBuilder::is_observed_conflict
 (const Event &fst, const Event &snd, const Event &thd) const{
   return is_observed_conflict(fst.iid.get_pid(), fst.sym,
                               snd.iid.get_pid(), snd.sym,
                               thd.iid.get_pid(), thd.sym);
 }
 
-bool SimpTraceBuilder::is_observed_conflict
+bool LPOPTraceBuilder::is_observed_conflict
 (IPid fst_pid, const sym_ty &fst,
  IPid snd_pid, const sym_ty &snd,
  IPid thd_pid, const sym_ty &thd) const{
@@ -2434,7 +2436,7 @@ bool SimpTraceBuilder::is_observed_conflict
   return false;
 }
 
-bool SimpTraceBuilder::is_observed_conflict
+bool LPOPTraceBuilder::is_observed_conflict
 (IPid fst_pid, const SymEv &fst,
  IPid snd_pid, const SymEv &snd,
  IPid thd_pid, const SymEv &thd) const {
@@ -2446,7 +2448,7 @@ bool SimpTraceBuilder::is_observed_conflict
   return symev_does_load(thd) && thd.addr().overlaps(snd.addr());
 }
 
-void SimpTraceBuilder::do_race_detect() {
+void LPOPTraceBuilder::do_race_detect() {
   assert(has_vclocks);
 
   /* Compute all races of blocked awaits. */
@@ -2495,7 +2497,7 @@ void SimpTraceBuilder::do_race_detect() {
   lock_fail_races.clear();
 }
 
-void SimpTraceBuilder::race_detect_optimal
+void LPOPTraceBuilder::race_detect_optimal
 (const Race &race, const sleepseqs_t &isleepseqs){
   const int i = race.first_event;
   // llvm::dbgs()<<"Race (<"<<threads[prefix[i].event.iid.get_pid()].cpid<<","
@@ -2515,12 +2517,13 @@ void SimpTraceBuilder::race_detect_optimal
   if(!blocked_wakeup_sequence(v,isleepseqs)){
     // llvm::dbgs()<<"Inserting WS\n";///////////
     prefix[i].event.schedules.push_back(std::move(v));
+    current_branch_count++;
   } else {
     killed_by_sleepset++;
   }
 }
 
-std::vector<SimpTraceBuilder::Branch> SimpTraceBuilder::
+std::vector<LPOPTraceBuilder::Branch> LPOPTraceBuilder::
 wakeup_sequence(const Race &race) const{
   const int i = race.first_event;
   const int j = race.second_event;
@@ -2628,7 +2631,7 @@ wakeup_sequence(const Race &race) const{
   return v;
 }
 
-std::vector<int> SimpTraceBuilder::iid_map_at(int event) const{
+std::vector<int> LPOPTraceBuilder::iid_map_at(int event) const{
   std::vector<int> map(threads.size(), 1);
   for (int i = 0; i < event; ++i) {
     iid_map_step(map, prefix[i].branch);
@@ -2636,16 +2639,16 @@ std::vector<int> SimpTraceBuilder::iid_map_at(int event) const{
   return map;
 }
 
-void SimpTraceBuilder::iid_map_step(std::vector<int> &iid_map, const Branch &event) const{
+void LPOPTraceBuilder::iid_map_step(std::vector<int> &iid_map, const Branch &event) const{
   if (iid_map.size() <= unsigned(event.pid)) iid_map.resize(event.pid+1, 1);
   iid_map[event.pid] += event.size;
 }
 
-void SimpTraceBuilder::iid_map_step_rev(std::vector<int> &iid_map, const Branch &event) const{
+void LPOPTraceBuilder::iid_map_step_rev(std::vector<int> &iid_map, const Branch &event) const{
   iid_map[event.pid] -= event.size;
 }
 
-VClock<int> SimpTraceBuilder::reconstruct_blocked_clock(IID<IPid> event) const {
+VClock<int> LPOPTraceBuilder::reconstruct_blocked_clock(IID<IPid> event) const {
   VClock<IPid> ret;
   /* Compute the clock of the blocking process (event k in prefix is
    * something unrelated since this is a blocked event) */
@@ -2661,7 +2664,7 @@ VClock<int> SimpTraceBuilder::reconstruct_blocked_clock(IID<IPid> event) const {
   return ret;
 }
 
-SimpTraceBuilder::Event SimpTraceBuilder::
+LPOPTraceBuilder::Event LPOPTraceBuilder::
 reconstruct_blocked_event(const Race &race) const {
   assert(race.is_fail_kind());
   Event ret(race.second_process);
@@ -2680,7 +2683,7 @@ reconstruct_blocked_event(const Race &race) const {
   return ret;
 }
 
-inline std::pair<bool,unsigned> SimpTraceBuilder::
+inline std::pair<bool,unsigned> LPOPTraceBuilder::
 try_find_process_event(IPid pid, int index) const{
   assert(pid >= 0 && pid < int(threads.size()));
   assert(index >= 1);
@@ -2698,7 +2701,7 @@ try_find_process_event(IPid pid, int index) const{
   return {true, k};
 }
 
-inline unsigned SimpTraceBuilder::find_process_event(IPid pid, int index) const{
+inline unsigned LPOPTraceBuilder::find_process_event(IPid pid, int index) const{
   assert(pid >= 0 && pid < int(threads.size()));
   assert(index >= 1 && index <= int(threads[pid].event_indices.size()));
   unsigned k = threads[pid].event_indices[index-1];
@@ -2711,7 +2714,7 @@ inline unsigned SimpTraceBuilder::find_process_event(IPid pid, int index) const{
   return k;
 }
 
-bool SimpTraceBuilder::has_pending_store(IPid pid, SymAddr ml) const {
+bool LPOPTraceBuilder::has_pending_store(IPid pid, SymAddr ml) const {
   const std::vector<PendingStore> &sb = threads[pid].store_buffer;
   for(unsigned i = 0; i < sb.size(); ++i){
     if(sb[i].ml.includes(ml)){
@@ -2727,10 +2730,10 @@ bool SimpTraceBuilder::has_pending_store(IPid pid, SymAddr ml) const {
 #  define IFDEBUG(X) ((void)0)
 #endif
 
-void SimpTraceBuilder::wakeup(Access::Type type, SymAddr ml){
+void LPOPTraceBuilder::wakeup(Access::Type type, SymAddr ml){
 }
 
-bool SimpTraceBuilder::has_cycle(IID<IPid> *loc) const{
+bool LPOPTraceBuilder::has_cycle(IID<IPid> *loc) const{
   int proc_count = threads.size();
   int pfx_size = prefix.size();
 
@@ -2870,11 +2873,11 @@ bool SimpTraceBuilder::has_cycle(IID<IPid> *loc) const{
   }
 }
 
-long double SimpTraceBuilder::estimate_trace_count() const{
+long double LPOPTraceBuilder::estimate_trace_count() const{
   return estimate_trace_count(0);
 }
 
-long double SimpTraceBuilder::estimate_trace_count(int idx) const{
+long double LPOPTraceBuilder::estimate_trace_count(int idx) const{
   if(idx > int(prefix.size())) return 0;
   if(idx == int(prefix.size())) return 1;
 
