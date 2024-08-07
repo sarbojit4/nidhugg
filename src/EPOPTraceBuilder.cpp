@@ -2446,6 +2446,7 @@ bool EPOPTraceBuilder::do_race_detect() {
   
   /* Do race detection */
   sleepseqs_t sleepseqs;
+  unsigned sleepseqs_index=0;
   for (unsigned i = 0; i < prefix.size(); ++i){
     while(!prefix[i].races.empty()) {
       Race race = prefix[i].races.back();
@@ -2458,6 +2459,11 @@ bool EPOPTraceBuilder::do_race_detect() {
       // 	      <<threads[prefix[race.second_event].iid.get_pid()].cpid
       // 	      <<prefix[race.second_event].iid.get_index()<<">)\n";/////////
 
+      while(sleepseqs_index < i){
+	obs_sleep_add(sleepseqs, prefix[sleepseqs_index]);
+	obs_sleep_wake(sleepseqs, prefix[sleepseqs_index]);
+	sleepseqs_index++;
+      }
       /* Do insertion into the wakeup tree */
       if(!blocked_wakeup_sequence(v, sleepseqs)){
 	//prefix[i].reversed_races.push_back(j);
@@ -2476,8 +2482,6 @@ bool EPOPTraceBuilder::do_race_detect() {
       }
       killed_by_sleepset++;
     }
-    obs_sleep_add(sleepseqs, prefix[i]);
-    obs_sleep_wake(sleepseqs, prefix[i]);
   }
   return false;
 }

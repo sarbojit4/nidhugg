@@ -2480,6 +2480,7 @@ void LPOPTraceBuilder::do_race_detect() {
 
   /* Do race detection */
   sleepseqs_t sleepseqs;
+  unsigned sleepseqs_index=0;
   for (unsigned i = 0; i < races.size(); ++i){
     // llvm::dbgs()<<i<<sleepseqs.size()<<":\n";/////////////////
     // for(auto slp : sleepseqs)
@@ -2487,10 +2488,13 @@ void LPOPTraceBuilder::do_race_detect() {
     // 		  <<threads[slp.back().pid].cpid<<"\n";///////////////
     for (const Race *race : races[i]) {
       assert(race->first_event == int(i));
+      while(sleepseqs_index < i){
+	obs_sleep_add(sleepseqs, prefix[sleepseqs_index].event);
+	obs_sleep_wake(sleepseqs, prefix[sleepseqs_index].event);
+	sleepseqs_index++;
+      }
       race_detect_optimal(*race, (const sleepseqs_t&)sleepseqs);
     }
-    obs_sleep_add(sleepseqs, prefix[i].event);
-    obs_sleep_wake(sleepseqs, prefix[i].event);
   }
 
   for (unsigned i = 0; i < prefix.size(); ++i) prefix[i].event.races.clear();
