@@ -373,8 +373,8 @@ bool LPOPTraceBuilder::reset(){
 
     Event evt(IID<IPid>(br.pid,br_idx));
 
-    evt.sym = br.sym; /* For replay sanity assertions only */
-    evt.doneseqs = prev_evt.doneseqs;
+    evt.sym = std::move(br.sym); /* For replay sanity assertions only */
+    evt.doneseqs = std::move(prev_evt.doneseqs);
     if(doneseq.size() && is_schedule){
       evt.doneseqs.push_back(std::move(doneseq));
     }
