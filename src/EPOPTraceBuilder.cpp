@@ -2460,7 +2460,7 @@ bool EPOPTraceBuilder::do_race_detect() {
       // 	      <<prefix[race.second_event].iid.get_index()<<">)\n";/////////
 
       while(sleepseqs_index < i){
-	if(!prefix[sleepseqs_index].schedule && !event_does_store(prefix[sleepseqs_index].sym))
+	if(prefix[sleepseqs_index].schedule)
 	  obs_sleep_add(sleepseqs, prefix[sleepseqs_index]);
 	obs_sleep_wake(sleepseqs, prefix[sleepseqs_index]);
 	sleepseqs_index++;
