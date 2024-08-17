@@ -11,7 +11,7 @@ GENMC       ?= ${HOME_DIR}/genmc/genmc
 
 TIME_LIMIT ?= 7200 # seconds
 STACK_LIMIT ?= 65536 # kB
-MEM_LIMIT ?= 33554432 # kB
+MEM_LIMIT ?= 536870912 # kB
 
 SRCDIR = ../../..
 CLANG = clang
@@ -23,9 +23,9 @@ CLANGFLAGS = -c -emit-llvm -g -Xclang -disable-O0-optnone $(TOOLCLANGFLAGS)
 
 SOURCE    = $(NIDHUGGC) $(1) -- -c11 -sc -source
 OPTIMAL   = $(NIDHUGGC) $(1) -- -sc -optimal --extfun-no-race=pow #-no-assume-await
-POP       = $(NIDHUGGCPOP) $(1) -- -sc -pop   --extfun-no-race=pow
-LPOP       = $(NIDHUGGCPOP) $(1) -- -sc -lpop   --extfun-no-race=pow
-EPOP       = $(NIDHUGGCPOP) $(1) -- -sc -epop   --extfun-no-race=pow
+POP       = $(NIDHUGGCPOP) $(1) -- -sc -pop  --extfun-no-race=pow
+LPOP      = $(NIDHUGGCPOP) $(1) -- -sc -lpop --extfun-no-race=pow
+EPOP      = $(NIDHUGGCPOP) $(1) -- -sc -epop --extfun-no-race=pow
 OBSERVERS = $(NIDHUGGC) $(1) -- -c11 -sc -observers
 RFSC      = $(NIDHUGGC) $(1) -- -c11 -sc -rf
 GENMCSC   = $(GENMC) -sc --disable-instruction-caching --disable-sr --disable-ipr --disable-estimation -- $(1)
@@ -35,7 +35,7 @@ ULIMIT = ulimit -Ss $(STACK_LIMIT) && ulimit -Sv $(MEM_LIMIT) &&
 RUN = -$(ULIMIT) $(TIMEOUT) $(TIME)
 TABULATE = ../../tabulate.sh
 
-TOOLS = optimal pop lpop epop
+TOOLS = optimal lpop epop pop
 
 TABLES = $(TOOLS:%=%.txt) wide.txt
 # Only for wide.txt (not including $(tool)_THREADS
