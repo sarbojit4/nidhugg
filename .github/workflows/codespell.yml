@@ -4,8 +4,8 @@ jobs:
   codespell:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - uses: codespell-project/actions-codespell@master
+    - uses: actions/checkout@v4
+    - uses: codespell-project/actions-codespell@v2
       with:
         path: src
         ignore_words_list: aci,curev,datas,olt,ot,pevent,te
