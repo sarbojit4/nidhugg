@@ -17,6 +17,7 @@ CLANG='%%CLANG%%'
 CLANGXX='%%CLANGXX%%'
 LLVMVERSION='%%LLVMVERSION%%'
 GDB='gdb'
+
 Param = collections.namedtuple("Param",["name","help","param","transform"])
 
 nidhuggcparamslist = [
