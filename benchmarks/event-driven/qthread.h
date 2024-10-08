@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <pthread.h>
+#include <stdio.h>
 
 /* This header implements a compatibility layer, allowing a qthread
  * program to run either on qthreads or on pthreads.
@@ -92,7 +93,7 @@ static void _post_func(void *_msg_arg){
   (void)mutex; // no unlock
   free(msg_arg);
 }
-void qthread_post_event(_actual_qthread_t tid, void (*func)(void *), void *arg);
+void qthread_post_event(_actual_qthread_t tid, void (*func)(void *), void *arg){}
 static void qthread_post_event_internal(qthread_t tid, void (*func)(void *), void *arg){
   pthread_t msg;
   struct _msg_arg *msg_arg = malloc(sizeof(struct _msg_arg));
