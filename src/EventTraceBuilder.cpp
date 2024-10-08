@@ -375,7 +375,7 @@ bool EventTraceBuilder::reset(){
 
   replay_point = i;
 
-  /* Store explored branches of diffrerent messages */
+  /* Store explored branches of different messages */
   for(unsigned k = prefix.len()-1; k >= i ; k--){
     IPid ipid = prefix[k].iid.get_pid();
     done_trees_t &explored_tails = prefix[k].explored_tails;

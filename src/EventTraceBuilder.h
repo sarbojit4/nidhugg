@@ -199,7 +199,7 @@ protected:
      * NULL if !sleeping.
      */
     sym_ty *sleep_sym;
-    /* Each time a handler thread receives a meesage, it creates a new 
+    /* Each time a handler thread receives a message, it creates a new 
      * thread to execute the message. If this thread is solely for 
      * executing message, handler_id contains the id of the handler thread
      * that creates this thread, otherwise contains -1.

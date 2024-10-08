@@ -3654,7 +3654,7 @@ void Interpreter::terminate(Type *RetTy, GenericValue Result){
         return;	
       }
       for(int i = 0; i<Threads.size();i++){
-        //if there is some available thread, don't termiate handler threads
+        //if there is some available thread, don't terminate handler threads
         if(TB.is_available(i)){
           Threads[Threads[CurrentThread].handler_id].ready_to_receive = true;
 	  return;
