@@ -131,7 +131,7 @@ public:
 
 
   /* The current event creates a new qthread. */
-  virtual void create(){};
+  virtual NODISCARD bool create(){ return true; };
   /* The current event starts a new qthread. */
   virtual NODISCARD bool start(int pid){ return true; }
   /* The return instruction of a thread */
