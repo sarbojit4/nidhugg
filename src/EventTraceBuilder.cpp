@@ -2369,6 +2369,7 @@ void EventTraceBuilder::see_events(const VecSet<int> &seen_accesses){
     IPid snd_pid = curev().iid.get_pid();
     if(threads[fst_pid].handler_id != -1 &&
        threads[fst_pid].handler_id == threads[snd_pid].handler_id){
+      if (prefix[i].iid.get_pid() == prefix[prefix_idx].iid.get_pid()) continue;
       add_msgrev_race(i);
     }
     else add_noblock_race(i);
