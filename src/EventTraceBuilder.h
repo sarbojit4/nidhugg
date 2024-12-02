@@ -53,6 +53,8 @@ public:
   bool reset() override;
   IID<CPid> get_iid() const override;
   int get_spid(int pid) override;
+  void report_last_value(void *ptr, uint16_t size) override;
+
 
   void debug_print() const override;
 
@@ -289,6 +291,7 @@ protected:
     } last_read;
   };
   std::map<SymAddr,ByteInfo> mem;
+  
   /* Index into prefix pointing to the latest full memory conflict.
    * -1 if there has been no full memory conflict.
    */
@@ -570,9 +573,16 @@ protected:
      * explored traces.
      */
     uint64_t sleep_branch_trace_count;
+    std::shared_ptr<uint8_t> last_value;
     bool end_of_msg() const{
       for(const SymEv &symev : sym)
 	if(symev.is_return()) return true;
+      return false;
+    }
+    bool access_global() const {
+      for(const auto &ev : sym){
+	if(ev.access_global()) return true;
+      }
       return false;
     }
   };

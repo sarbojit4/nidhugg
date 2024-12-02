@@ -492,6 +492,13 @@ int EventTraceBuilder::get_spid(int pid){
   return threads[pid*2].spid;
 } 
 
+void EventTraceBuilder::report_last_value(void *ptr, uint16_t size) {
+  if(!curev().access_global()) return;
+  curev().last_value =
+    std::shared_ptr<uint8_t>(new uint8_t[size], std::default_delete<uint8_t[]>());
+  memcpy((void*)curev().last_value.get(), ptr, size);
+}
+
 static std::string rpad(std::string s, int n){
   while(int(s.size()) < n) s += " ";
   return s;
@@ -2364,7 +2371,6 @@ void EventTraceBuilder::see_events(const VecSet<int> &seen_accesses){
   for(int i : seen_accesses){
     if(i < 0) continue;
     if (i == prefix_idx) continue;
-  // for(auto i : seen_accesses)
     IPid fst_pid = prefix[i].iid.get_pid();
     IPid snd_pid = curev().iid.get_pid();
     if(threads[fst_pid].handler_id != -1 &&

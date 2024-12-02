@@ -56,6 +56,8 @@ public:
   bool reset() override;
   IID<CPid> get_iid() const override;
   int get_spid(int pid) override;
+  void report_last_value(void *ptr, uint16_t size) {}
+
 
   void debug_print() const override;
 

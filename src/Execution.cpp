@@ -1215,6 +1215,15 @@ void Interpreter::visitStoreInst(StoreInst &I) {
     return;
   }
 
+  GenericValue Result;
+  LoadValueFromMemory(Result, Ptr, I.getOperand(0)->getType());
+#ifdef LLVM_EXECUTIONENGINE_DATALAYOUT_PTR
+  uint64_t alloc_size = getDataLayout()->getTypeAllocSize(I.getOperand(0)->getType());
+#else
+  uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
+#endif
+  TB.report_last_value((void *)&Result, alloc_size);
+
   StoreValueToMemory(Val, Ptr, I.getOperand(0)->getType());
   CheckAwaitWakeup(Val, Ptr, *Ptr_sas);
 }
@@ -1343,6 +1352,16 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
     DryRunMem.emplace_back(std::move(sd));
     return;
   }
+
+  GenericValue Result;
+  LoadValueFromMemory(Result, Ptr, I.getOperand(0)->getType());
+#ifdef LLVM_EXECUTIONENGINE_DATALAYOUT_PTR
+  uint64_t alloc_size = getDataLayout()->getTypeAllocSize(I.getOperand(0)->getType());
+#else
+  uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
+#endif
+  TB.report_last_value((void *)&Result, alloc_size);
+  
   StoreValueToMemory(NewVal,Ptr,I.getType());
   CheckAwaitWakeup(NewVal, Ptr, *Ptr_sas);
 }
