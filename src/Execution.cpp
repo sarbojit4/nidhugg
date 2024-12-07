@@ -348,21 +348,64 @@ void Interpreter::visitICmpInst(ICmpInst &I) {
   GenericValue Src1 = getOperandValue(I.getOperand(0), SF);
   GenericValue Src2 = getOperandValue(I.getOperand(1), SF);
   GenericValue R;   // Result
+  unsigned op;
 
   switch (I.getPredicate()) {
-  case ICmpInst::ICMP_EQ:  R = executeICMP_EQ(Src1,  Src2, Ty); break;
-  case ICmpInst::ICMP_NE:  R = executeICMP_NE(Src1,  Src2, Ty); break;
-  case ICmpInst::ICMP_ULT: R = executeICMP_ULT(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_SLT: R = executeICMP_SLT(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_UGT: R = executeICMP_UGT(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_SGT: R = executeICMP_SGT(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_ULE: R = executeICMP_ULE(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_SLE: R = executeICMP_SLE(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_UGE: R = executeICMP_UGE(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_SGE: R = executeICMP_SGE(Src1, Src2, Ty); break;
+  case ICmpInst::ICMP_EQ:
+    R = executeICMP_EQ(Src1,  Src2, Ty);
+    op = 0;
+    break;
+  case ICmpInst::ICMP_NE:
+    R = executeICMP_NE(Src1,  Src2, Ty);
+    op = 1;
+    break;
+  case ICmpInst::ICMP_ULT:
+    R = executeICMP_ULT(Src1, Src2, Ty);
+    op = 4;
+    break;
+  case ICmpInst::ICMP_SLT:
+    R = executeICMP_SLT(Src1, Src2, Ty);
+    op = 8;
+    break;
+  case ICmpInst::ICMP_UGT:
+    R = executeICMP_UGT(Src1, Src2, Ty);
+    op = 2;
+    break;
+  case ICmpInst::ICMP_SGT:
+    R = executeICMP_SGT(Src1, Src2, Ty);
+    op = 6;
+    break;
+  case ICmpInst::ICMP_ULE:
+    R = executeICMP_ULE(Src1, Src2, Ty);
+    op = 5;
+    break;
+  case ICmpInst::ICMP_SLE:
+    R = executeICMP_SLE(Src1, Src2, Ty);
+    op = 9;
+    break;
+  case ICmpInst::ICMP_UGE:
+    R = executeICMP_UGE(Src1, Src2, Ty);
+    op = 3;
+    break;
+  case ICmpInst::ICMP_SGE:
+    R = executeICMP_SGE(Src1, Src2, Ty);
+    op = 7;
+    break;
   default:
     dbgs() << "Don't know how to handle this ICmp predicate!\n-->" << I;
     llvm_unreachable(0);
+  }
+
+  if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN) {
+#ifdef LLVM_EXECUTIONENGINE_DATALAYOUT_PTR
+    uint64_t alloc_size = getDataLayout()->getTypeAllocSize(I.getOperand(1)->getType());
+#else
+    uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(1)->getType());
+#endif
+    if(reading_from.find(llvm::dyn_cast<llvm::Instruction>(&I)) != reading_from.end())
+      static_cast<EventTraceBuilder*>(&TB)->
+	recompute_races_for_source_load(reading_from[llvm::dyn_cast<llvm::Instruction>(&I)],
+					op, (const void*)&Src2, alloc_size);
   }
 
   SetValue(&I, R, SF);
@@ -1170,6 +1213,26 @@ void Interpreter::DryRunLoadValueFromMemory(GenericValue &Val,
   delete[] buf;
 }
 
+bool Interpreter::analyze_effect(const Instruction &I){
+  // Consider only x cmp k, rmw(x) cmp k
+  std::vector<const Instruction*> Is(1,&I);
+  std::vector<std::pair<unsigned, std::shared_ptr<uint8_t>>> compare_ops;
+  for(unsigned i = 0; i < Is.size(); i++){
+    const Instruction* IPtr = Is[i];
+    if(i == 0 && (IPtr->user_empty() ||
+		  IPtr->isUsedOutsideOfBlock(IPtr->getParent())))
+      return false;
+    else if(i > 0 && !IPtr->users().empty()) return false;
+    for(const auto &UI : IPtr->users()){
+      if(llvm::isa<llvm::ICmpInst>(UI)){
+        reading_from.emplace(llvm::dyn_cast<Instruction>(UI),
+			     static_cast<EventTraceBuilder*>(&TB)->get_prefix_index());
+      }
+    }
+  }
+  return true;
+}
+
 void Interpreter::visitLoadInst(LoadInst &I) {
   ExecutionContext &SF = ECStack()->back();
   GenericValue SRC = getOperandValue(I.getPointerOperand(), SF);
@@ -1193,6 +1256,9 @@ void Interpreter::visitLoadInst(LoadInst &I) {
 
   LoadValueFromMemory(Result, Ptr, I.getType());
   SetValue(&I, Result, SF);
+  if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN && (*Ptr_sas).is_global()){
+    analyze_effect(I);
+  }
 }
 
 void Interpreter::visitStoreInst(StoreInst &I) {
@@ -1215,14 +1281,16 @@ void Interpreter::visitStoreInst(StoreInst &I) {
     return;
   }
 
-  GenericValue Result;
-  LoadValueFromMemory(Result, Ptr, I.getOperand(0)->getType());
-#ifdef LLVM_EXECUTIONENGINE_DATALAYOUT_PTR
-  uint64_t alloc_size = getDataLayout()->getTypeAllocSize(I.getOperand(0)->getType());
-#else
-  uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
-#endif
-  TB.report_last_value((void *)&Result, alloc_size);
+//   if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){  
+//     GenericValue Result;
+//     LoadValueFromMemory(Result, Ptr, I.getOperand(0)->getType());
+// #ifdef LLVM_EXECUTIONENGINE_DATALAYOUT_PTR
+//     uint64_t alloc_size = getDataLayout()->getTypeAllocSize(I.getOperand(0)->getType());
+// #else
+//     uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
+// #endif
+//     static_cast<EventTraceBuilder*>(&TB)->report_last_value((void *)&Result, alloc_size);
+//   }
 
   StoreValueToMemory(Val, Ptr, I.getOperand(0)->getType());
   CheckAwaitWakeup(Val, Ptr, *Ptr_sas);
@@ -1353,14 +1421,17 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
     return;
   }
 
-  GenericValue Result;
-  LoadValueFromMemory(Result, Ptr, I.getOperand(0)->getType());
+  if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
+    GenericValue Result;
+    LoadValueFromMemory(Result, Ptr, I.getOperand(0)->getType());
 #ifdef LLVM_EXECUTIONENGINE_DATALAYOUT_PTR
-  uint64_t alloc_size = getDataLayout()->getTypeAllocSize(I.getOperand(0)->getType());
+    uint64_t alloc_size = getDataLayout()->getTypeAllocSize(I.getOperand(0)->getType());
 #else
-  uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
+    uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
 #endif
-  TB.report_last_value((void *)&Result, alloc_size);
+    static_cast<EventTraceBuilder*>(&TB)->report_last_value((void *)&Result, alloc_size);
+    if((*Ptr_sas).is_global()) analyze_effect(I);
+  }
   
   StoreValueToMemory(NewVal,Ptr,I.getType());
   CheckAwaitWakeup(NewVal, Ptr, *Ptr_sas);

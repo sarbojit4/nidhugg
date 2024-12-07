@@ -54,6 +54,9 @@ public:
   IID<CPid> get_iid() const override;
   int get_spid(int pid) override;
   void report_last_value(void *ptr, uint16_t size) override;
+  unsigned get_prefix_index() const;
+  void recompute_races_for_source_load(unsigned load_event, unsigned compare_op,
+				       const void *valptr, unsigned size);
 
 
   void debug_print() const override;

@@ -499,6 +499,10 @@ void EventTraceBuilder::report_last_value(void *ptr, uint16_t size) {
   memcpy((void*)curev().last_value.get(), ptr, size);
 }
 
+unsigned EventTraceBuilder::get_prefix_index() const {
+  return prefix_idx;
+}
+
 static std::string rpad(std::string s, int n){
   while(int(s.size()) < n) s += " ";
   return s;
@@ -2533,6 +2537,13 @@ void EventTraceBuilder::compute_eom(){
       }
     }
   }
+}
+
+void EventTraceBuilder::
+recompute_races_for_source_load(unsigned load_event, unsigned compare_op,
+				const void *valptr, unsigned size){
+  llvm::dbgs()<<load_event<<events_to_string(prefix[load_event].sym)
+	      <<" "<<*((int*)valptr)<<"\n";
 }
 
 void EventTraceBuilder::clear_vclocks(){

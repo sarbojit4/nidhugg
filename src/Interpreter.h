@@ -43,6 +43,7 @@
 #include "VClock.h"
 #include "Option.h"
 #include "TSOPSOTraceBuilder.h"
+#include "EventTraceBuilder.h"
 #include "DPORInterpreter.h"
 
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
@@ -184,6 +185,9 @@ protected:
   /* The CPid System for all threads in this execution. */
   CPidSystem CPS;
 
+  /* A map from compare instructions x comp_op k to the load event that
+     provides the value of x */
+  std::map<const Instruction *, unsigned> reading_from;
   /* For events which may execute in several nondeterministic ways,
    * CurrentAlt determines which alternative should be executed. A
    * value of 0 indicates the default alternative (the only
@@ -289,6 +293,7 @@ protected:
   // registered with the atexit() library function.
   std::vector<Function*> AtExitHandlers;
 
+  bool analyze_effect(const Instruction &I);
 public:
   explicit Interpreter(Module *M, TSOPSOTraceBuilder &TB,
                        const Configuration &conf = Configuration::default_conf);
