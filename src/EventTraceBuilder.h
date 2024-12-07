@@ -52,8 +52,9 @@ public:
   Trace *get_trace() const override;
   bool reset() override;
   IID<CPid> get_iid() const override;
-  int get_spid(int pid) override;
-  void report_last_value(void *ptr, uint16_t size) override;
+  
+  int get_spid(int pid) const override;
+  void report_last_value(void *ptr, uint16_t size);
   unsigned get_prefix_index() const;
   void recompute_races_for_source_load(unsigned load_event, unsigned compare_op,
 				       const void *valptr, unsigned size);
@@ -495,7 +496,7 @@ protected:
   typedef std::map<IPid,std::set<std::list<Branch>>> done_trees_t;
   typedef std::vector<struct sleep_tree> sleep_trees_t;
   typedef std::map<IPid, std::vector<std::pair<IPid,VClock<IPid>>>> first_of_msgs_t;
-
+  
   /* Information about a (short) sequence of consecutive events by the
    * same thread. At most one event in the sequence may have conflicts
    * with other events, and if the sequence has a conflicting event,
@@ -576,7 +577,15 @@ protected:
      * explored traces.
      */
     uint64_t sleep_branch_trace_count;
+    /* Value of the variable before an update (store or rmw) */
     std::shared_ptr<uint8_t> last_value;
+    struct CompareOp{
+      enum Op {EQ, NE, UGT, UGE, ULT, ULE, SGT, SGE, SLT, SLE} op;
+      std::shared_ptr<uint8_t> value;
+	
+    };
+    /* Compare events that uses the loaded value of a load event */
+    std::vector<CompareOp> compare_ops;
     bool end_of_msg() const{
       for(const SymEv &symev : sym)
 	if(symev.is_return()) return true;
@@ -801,8 +810,8 @@ protected:
    */
   void add_happens_after_thread(unsigned second, IPid thread);
   void add_eom(unsigned second, unsigned first);
-  /* Compute eom */
-  void compute_eom();
+  // /* Compute eom */
+  // void compute_eom();
   /* Clear all vector clocks */
   void clear_vclocks();
   /* Computes the vector clocks of all events in a complete execution

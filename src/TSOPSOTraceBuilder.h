@@ -119,8 +119,7 @@ public:
   /* Associate the currently scheduled event with LLVM "dbg" metadata. */
   virtual void metadata(const llvm::MDNode *md) = 0;
   /* Return the stable pid of the currently scheduled event. */
-  virtual int get_spid(int pid) = 0;
-  virtual void report_last_value(void *ptr, uint16_t size) = 0;
+  virtual int get_spid(int pid) const = 0;
 
   /*******************************************/
   /*           Registration Methods          */

@@ -343,7 +343,7 @@ IID<CPid> PSOTraceBuilder::get_iid() const{
   return IID<CPid>(threads[pid].cpid,idx);
 }
 
-int PSOTraceBuilder::get_spid(int pid){
+int PSOTraceBuilder::get_spid(int pid) const {
   //CPid cpid = threads[pid*2].cpid;
   return pid;//(SPS.get_spid(cpid))/2;
 }

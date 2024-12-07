@@ -303,11 +303,11 @@ IID<CPid> RFSCTraceBuilder::get_iid() const{
   return IID<CPid>(threads[pid].cpid,idx);
 }
 
-int RFSCTraceBuilder::get_spid(int pid){
+int RFSCTraceBuilder::get_spid(int pid) const {
   // CPid cpid = threads[ipid(proc,aux)].cpid;
   // return (SPS.get_spid(cpid));
   return pid;
-} 
+}
 
 static std::string rpad(std::string s, int n){
   while(int(s.size()) < n) s += " ";

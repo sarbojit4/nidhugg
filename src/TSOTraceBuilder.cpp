@@ -411,7 +411,7 @@ IID<CPid> TSOTraceBuilder::get_iid(unsigned i) const{
   return IID<CPid>(threads[pid].cpid,idx);
 }
 
-int TSOTraceBuilder::get_spid(int pid){
+int TSOTraceBuilder::get_spid(int pid) const {
   // CPid cpid = threads[pid*2].cpid;
   // return (SPS.get_spid(cpid))/2;
   return pid;

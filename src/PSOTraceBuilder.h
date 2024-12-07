@@ -46,8 +46,7 @@ public:
   Trace *get_trace() const override;
   bool reset() override;
   IID<CPid> get_iid() const override;
-  int get_spid(int pid) override;
-  void report_last_value(void *ptr, uint16_t size) {}
+  int get_spid(int pid) const override;
 
   void debug_print() const  override;
 

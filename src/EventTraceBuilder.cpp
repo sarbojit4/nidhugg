@@ -488,7 +488,7 @@ IID<CPid> EventTraceBuilder::get_iid(unsigned i) const{
   return IID<CPid>(threads[pid].cpid,idx);
 }
 
-int EventTraceBuilder::get_spid(int pid){
+int EventTraceBuilder::get_spid(int pid) const {
   return threads[pid*2].spid;
 } 
 
@@ -2522,22 +2522,22 @@ static It frontier_filter(It first, It last, LessFn less){
 //           |--------|
 //[aaaaaaa][bbbbbb][ccccccc]   eom is not transitive in this case
 //   |__________|
-void EventTraceBuilder::compute_eom(){
-  for(IPid i = 2; i<threads.size(); i=i+2){//eom order
-    if(threads[i].handler_id == -1) continue;
-    for(IPid j = 2; j<threads.size(); j=j+2){
-      if(threads[i].handler_id != threads[j].handler_id) continue;
-      unsigned fev_i = threads[i].event_indices.front();
-      unsigned lev_i = threads[i].event_indices.back();
-      unsigned fev_j = threads[j].event_indices.front();
-      unsigned lev_j = threads[j].event_indices.back();
-      if(fev_j<=fev_i) continue;
-      if(prefix[fev_i].clock.lt(prefix[lev_j].clock)){
-        add_eom(fev_j,lev_i);
-      }
-    }
-  }
-}
+// void EventTraceBuilder::compute_eom(){
+//   for(IPid i = 2; i<threads.size(); i=i+2){//eom order
+//     if(threads[i].handler_id == -1) continue;
+//     for(IPid j = 2; j<threads.size(); j=j+2){
+//       if(threads[i].handler_id != threads[j].handler_id) continue;
+//       unsigned fev_i = threads[i].event_indices.front();
+//       unsigned lev_i = threads[i].event_indices.back();
+//       unsigned fev_j = threads[j].event_indices.front();
+//       unsigned lev_j = threads[j].event_indices.back();
+//       if(fev_j<=fev_i) continue;
+//       if(prefix[fev_i].clock.lt(prefix[lev_j].clock)){
+//         add_eom(fev_j,lev_i);
+//       }
+//     }
+//   }
+// }
 
 void EventTraceBuilder::
 recompute_races_for_source_load(unsigned load_event, unsigned compare_op,
@@ -2545,6 +2545,7 @@ recompute_races_for_source_load(unsigned load_event, unsigned compare_op,
   llvm::dbgs()<<load_event<<events_to_string(prefix[load_event].sym)
 	      <<" "<<*((int*)valptr)<<"\n";
 }
+
 
 void EventTraceBuilder::clear_vclocks(){
   for(int i=0;i<prefix.len();i++)
