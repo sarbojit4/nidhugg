@@ -1088,12 +1088,6 @@ void TSOTraceBuilder::do_load(const SymAddrSize &ml){
 
   seen_accesses.insert(last_full_memory_conflict);
 
-  //for(int i : seen_accesses){
-    //if(i < 0) continue;
-    //if (i == prefix_idx) continue;
-    //if(prefix[i].iid.get_pid() != curev().iid.get_pid())
-      //currtrace.emplace(prefix[i].iid, curev().iid);
-  //}
   see_events(seen_accesses);
   see_event_pairs(seen_pairs);
 }

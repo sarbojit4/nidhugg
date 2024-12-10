@@ -492,11 +492,11 @@ int EventTraceBuilder::get_spid(int pid) const {
   return threads[pid*2].spid;
 } 
 
-void EventTraceBuilder::report_last_value(void *ptr, uint16_t size) {
+void EventTraceBuilder::report_value_before(void *ptr, uint16_t size) {
   if(!curev().access_global()) return;
-  curev().last_value =
+  curev().value_before =
     std::shared_ptr<uint8_t>(new uint8_t[size], std::default_delete<uint8_t[]>());
-  memcpy((void*)curev().last_value.get(), ptr, size);
+  memcpy((void*)curev().value_before.get(), ptr, size);
 }
 
 unsigned EventTraceBuilder::get_prefix_index() const {
@@ -1028,18 +1028,18 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
 static bool rmwaction_commutes(const Configuration &conf,
                                RmwAction::Kind lhs, bool lhs_used,
                                RmwAction::Kind rhs, bool rhs_used) {
-  // if (!conf.commute_rmws) return false;
-  // if (lhs_used || rhs_used) return false;
-  // using Kind = RmwAction::Kind;
-  // switch(lhs) {
-  // case Kind::ADD: case Kind::SUB:
-  //   return (rhs == Kind::ADD || rhs == Kind::SUB);
-  // case Kind::XCHG:
-  //   return false;
-  // default:
-  //   /* All kinds except for XCHG commutes with themselves */
-  //   return rhs == lhs;
-  // }
+  if (!conf.commute_rmws) return false;
+  if (lhs_used || rhs_used) return false;
+  using Kind = RmwAction::Kind;
+  switch(lhs) {
+  case Kind::ADD: case Kind::SUB:
+    return (rhs == Kind::ADD || rhs == Kind::SUB);
+  case Kind::XCHG:
+    return false;
+  default:
+    /* All kinds except for XCHG commutes with themselves */
+    return rhs == lhs;
+  }
   return false;
 }
 

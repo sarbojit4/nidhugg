@@ -54,7 +54,7 @@ public:
   IID<CPid> get_iid() const override;
   
   int get_spid(int pid) const override;
-  void report_last_value(void *ptr, uint16_t size);
+  void report_value_before(void *ptr, uint16_t size);
   unsigned get_prefix_index() const;
   void recompute_races_for_source_load(unsigned load_event, unsigned compare_op,
 				       const void *valptr, unsigned size);
@@ -578,7 +578,7 @@ protected:
      */
     uint64_t sleep_branch_trace_count;
     /* Value of the variable before an update (store or rmw) */
-    std::shared_ptr<uint8_t> last_value;
+    std::shared_ptr<uint8_t> value_before;
     struct CompareOp{
       enum Op {EQ, NE, UGT, UGE, ULT, ULE, SGT, SGE, SLT, SLE} op;
       std::shared_ptr<uint8_t> value;

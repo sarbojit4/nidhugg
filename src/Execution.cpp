@@ -1289,7 +1289,7 @@ void Interpreter::visitStoreInst(StoreInst &I) {
 // #else
 //     uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
 // #endif
-//     static_cast<EventTraceBuilder*>(&TB)->report_last_value((void *)&Result, alloc_size);
+//     static_cast<EventTraceBuilder*>(&TB)->report_value_before((void *)&Result, alloc_size);
 //   }
 
   StoreValueToMemory(Val, Ptr, I.getOperand(0)->getType());
@@ -1429,7 +1429,7 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
 #else
     uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
 #endif
-    static_cast<EventTraceBuilder*>(&TB)->report_last_value((void *)&Result, alloc_size);
+    static_cast<EventTraceBuilder*>(&TB)->report_value_before((void *)&Result, alloc_size);
     if((*Ptr_sas).is_global()) analyze_effect(I);
   }
   
