@@ -54,7 +54,7 @@ public:
   IID<CPid> get_iid() const override;
   
   int get_spid(int pid) const override;
-  void report_value_before(void *ptr, uint16_t size);
+  void report_old_value(const uint64_t *ptr, uint16_t size);
   unsigned get_prefix_index() const;
   void recompute_races_for_source_load(unsigned load_event, unsigned compare_op,
 				       const void *valptr, unsigned size);
@@ -261,12 +261,8 @@ protected:
      * Either contains last_update or is empty.
      */
     boost::container::flat_map<IPid,unsigned> unordered_updates;
-    /* Set of events that updated this byte since it was last read.
-     * Represented as a map from pid to index since at most one event
-     * per process may be in the set.
-     *
-     * Either contains last_update or is empty.
-     */
+    /* The set of events that is ordered before the current set of
+     * unordered updates. */
     VecSet<int> before_unordered;
     /* last_read[tid] is the index in prefix of the latest (visible)
      * read of thread tid to this memory location, or -1 if thread tid
@@ -578,7 +574,7 @@ protected:
      */
     uint64_t sleep_branch_trace_count;
     /* Value of the variable before an update (store or rmw) */
-    std::shared_ptr<uint8_t> value_before;
+    std::shared_ptr<uint64_t> value_before;
     struct CompareOp{
       enum Op {EQ, NE, UGT, UGE, ULT, ULE, SGT, SGE, SLT, SLE} op;
       std::shared_ptr<uint8_t> value;

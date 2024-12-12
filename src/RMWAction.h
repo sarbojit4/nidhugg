@@ -28,6 +28,7 @@
 
 struct RmwAction {
   SymData::block_type operand;
+  SymData::block_type oldvalue;
   enum Kind : uint8_t {
     XCHG = 1,
     ADD,
@@ -42,9 +43,14 @@ struct RmwAction {
     UMIN,
   } kind;
   bool result_used;
+  /* True if the result is used only in the next compare instruction
+   * e.g. ++x == 2 */
+  bool used_only_in_cmp;
 
-  RmwAction(Kind kind, SymData::block_type operand, bool result_used)
-    : operand(std::move(operand)), kind(kind), result_used(result_used) {}
+  RmwAction(Kind kind, SymData::block_type operand, bool result_used,
+	    SymData::block_type oldvalue, bool used_only_in_cmp)
+    : operand(std::move(operand)), oldvalue(std::move(oldvalue)), kind(kind),
+    result_used(result_used), used_only_in_cmp(used_only_in_cmp) {}
 
   static const char *name(Kind op);
 

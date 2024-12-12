@@ -187,7 +187,7 @@ protected:
 
   /* A map from compare instructions x comp_op k to the load event that
      provides the value of x */
-  std::map<const Instruction *, unsigned> reading_from;
+  std::map<std::pair<const Instruction*, int>, unsigned> reading_from;
   /* For events which may execute in several nondeterministic ways,
    * CurrentAlt determines which alternative should be executed. A
    * value of 0 indicates the default alternative (the only

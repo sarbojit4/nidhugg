@@ -402,10 +402,11 @@ void Interpreter::visitICmpInst(ICmpInst &I) {
 #else
     uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(1)->getType());
 #endif
-    if(reading_from.find(llvm::dyn_cast<llvm::Instruction>(&I)) != reading_from.end())
+    if(reading_from.find(std::make_pair(&I,CurrentThread)) != reading_from.end()){
       static_cast<EventTraceBuilder*>(&TB)->
-	recompute_races_for_source_load(reading_from[llvm::dyn_cast<llvm::Instruction>(&I)],
+	recompute_races_for_source_load(reading_from[std::make_pair((const llvm::Instruction*)&I,CurrentThread)],
 					op, (const void*)&Src2, alloc_size);
+    }
   }
 
   SetValue(&I, R, SF);
@@ -1214,23 +1215,20 @@ void Interpreter::DryRunLoadValueFromMemory(GenericValue &Val,
 }
 
 bool Interpreter::analyze_effect(const Instruction &I){
-  // Consider only x cmp k, rmw(x) cmp k
-  std::vector<const Instruction*> Is(1,&I);
-  std::vector<std::pair<unsigned, std::shared_ptr<uint8_t>>> compare_ops;
-  for(unsigned i = 0; i < Is.size(); i++){
-    const Instruction* IPtr = Is[i];
-    if(i == 0 && (IPtr->user_empty() ||
-		  IPtr->isUsedOutsideOfBlock(IPtr->getParent())))
+  // Consider only x cmp k, rmw(x) cmp k  
+  const Instruction* IPtr = &I;
+  while(1){
+    if(!IPtr->hasOneUser() || IPtr->isUsedOutsideOfBlock(IPtr->getParent()))
       return false;
-    else if(i > 0 && !IPtr->users().empty()) return false;
-    for(const auto &UI : IPtr->users()){
-      if(llvm::isa<llvm::ICmpInst>(UI)){
-        reading_from.emplace(llvm::dyn_cast<Instruction>(UI),
-			     static_cast<EventTraceBuilder*>(&TB)->get_prefix_index());
-      }
+    IPtr = IPtr->user_back();
+    if(llvm::isa<llvm::ICmpInst>(IPtr)){
+      reading_from[std::pair<const llvm::Instruction*,int>(IPtr, CurrentThread)] =
+			   static_cast<EventTraceBuilder*>(&TB)->get_prefix_index();
+      return true;
     }
   }
-  return true;
+  assert(false);
+  return false;
 }
 
 void Interpreter::visitLoadInst(LoadInst &I) {
@@ -1409,8 +1407,10 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
 
   SymData sd = GetSymData(*Ptr_sas,I.getType(),NewVal);
   SymData operand = GetSymData(*Ptr_sas,I.getType(),Val);
+  SymData oldval = GetSymData(*Ptr_sas,I.getType(),OldVal);
   if(!TB.atomic_rmw(sd, RmwAction{kind, std::move(operand.get_shared_block()),
-                                  !I.use_empty()})){
+                                  !I.use_empty(), std::move(oldval.get_shared_block()),
+				  !DryRun && (*Ptr_sas).is_global() && analyze_effect(I)})){
     abort();
     return;
   }
@@ -1420,18 +1420,14 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
     DryRunMem.emplace_back(std::move(sd));
     return;
   }
-
-  if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
-    GenericValue Result;
-    LoadValueFromMemory(Result, Ptr, I.getOperand(0)->getType());
-#ifdef LLVM_EXECUTIONENGINE_DATALAYOUT_PTR
-    uint64_t alloc_size = getDataLayout()->getTypeAllocSize(I.getOperand(0)->getType());
-#else
-    uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
-#endif
-    static_cast<EventTraceBuilder*>(&TB)->report_value_before((void *)&Result, alloc_size);
-    if((*Ptr_sas).is_global()) analyze_effect(I);
-  }
+//   if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
+// #ifdef LLVM_EXECUTIONENGINE_DATALAYOUT_PTR
+//     uint64_t alloc_size = getDataLayout()->getTypeAllocSize(I.getOperand(0)->getType());
+// #else
+//     uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
+// #endif
+//     static_cast<EventTraceBuilder*>(&TB)->report_old_value(OldVal.IntVal.getRawData(), alloc_size);
+//   }
   
   StoreValueToMemory(NewVal,Ptr,I.getType());
   CheckAwaitWakeup(NewVal, Ptr, *Ptr_sas);

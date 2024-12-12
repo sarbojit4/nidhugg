@@ -87,8 +87,8 @@ struct SymEv {
     arg2(RmwAction::Kind kind) : rmw_kind(kind) {}
     arg2(AwaitCond::Op await_op) : await_op(await_op) {}
   } arg2;
-  bool _rmw_result_used;
-  SymData::block_type _expected, _written;
+  bool _rmw_result_used, _rmw_used_only_in_cmp;
+  SymData::block_type _expected, _written, _oldvalue;
 
   SymEv() : kind(NONE) {}
   static SymEv None() { return {NONE, {}}; }
@@ -158,10 +158,15 @@ struct SymEv {
     assert(has_expected());
     return {arg.addr, _expected};
   }
+  SymData oldvalue() const {
+    assert(has_rmwaction());
+    return {arg.addr, _oldvalue};
+  }
+  
   RmwAction rmwaction() const {
     assert(has_rmwaction());
     assert(_expected);
-    return {arg2.rmw_kind, _expected, _rmw_result_used};
+    return {arg2.rmw_kind, _expected, _rmw_result_used, _oldvalue, _rmw_used_only_in_cmp};
   }
   RmwAction::Kind rmw_kind() const {
     assert(has_rmwaction());
@@ -171,6 +176,11 @@ struct SymEv {
     assert(has_rmwaction());
     return _rmw_result_used;
   }
+  bool rmw_used_only_in_cmp() const {
+    assert(has_rmwaction());
+    return _rmw_result_used && _rmw_used_only_in_cmp;
+  }
+
   AwaitCond cond() const {
     assert(has_cond());
     assert(_expected);
@@ -203,7 +213,9 @@ private:
   SymEv(enum kind kind, SymData addr_written, RmwAction action)
     : kind(kind), arg(addr_written.get_ref()), arg2(action.kind),
       _rmw_result_used(action.result_used),
+      _rmw_used_only_in_cmp(action.used_only_in_cmp),
       _expected(std::move(action.operand)),
+      _oldvalue(std::move(action.oldvalue)),
       _written(std::move(addr_written.get_shared_block())) {
       assert(has_data());
     }
