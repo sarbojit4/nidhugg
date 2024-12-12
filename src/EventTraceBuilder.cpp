@@ -492,10 +492,10 @@ int EventTraceBuilder::get_spid(int pid) const {
   return threads[pid*2].spid;
 } 
 
-void EventTraceBuilder::report_value_before(void *ptr, uint16_t size) {
+void EventTraceBuilder::report_old_value(const uint64_t *ptr, uint16_t size) {
   if(!curev().access_global()) return;
   curev().value_before =
-    std::shared_ptr<uint8_t>(new uint8_t[size], std::default_delete<uint8_t[]>());
+    std::shared_ptr<uint64_t>(new uint64_t[size], std::default_delete<uint64_t[]>());
   memcpy((void*)curev().value_before.get(), ptr, size);
 }
 
