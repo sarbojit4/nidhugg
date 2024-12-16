@@ -348,7 +348,7 @@ void Interpreter::visitICmpInst(ICmpInst &I) {
   GenericValue Src1 = getOperandValue(I.getOperand(0), SF);
   GenericValue Src2 = getOperandValue(I.getOperand(1), SF);
   GenericValue R;   // Result
-  unsigned op;
+  uint_fast8_t op;
 
   switch (I.getPredicate()) {
   case ICmpInst::ICMP_EQ:
@@ -361,35 +361,35 @@ void Interpreter::visitICmpInst(ICmpInst &I) {
     break;
   case ICmpInst::ICMP_ULT:
     R = executeICMP_ULT(Src1, Src2, Ty);
-    op = 4;
+    op = 2;
     break;
   case ICmpInst::ICMP_SLT:
     R = executeICMP_SLT(Src1, Src2, Ty);
-    op = 8;
+    op = 3;
     break;
   case ICmpInst::ICMP_UGT:
     R = executeICMP_UGT(Src1, Src2, Ty);
-    op = 2;
+    op = 4;
     break;
   case ICmpInst::ICMP_SGT:
     R = executeICMP_SGT(Src1, Src2, Ty);
-    op = 6;
+    op = 5;
     break;
   case ICmpInst::ICMP_ULE:
     R = executeICMP_ULE(Src1, Src2, Ty);
-    op = 5;
+    op = 6;
     break;
   case ICmpInst::ICMP_SLE:
     R = executeICMP_SLE(Src1, Src2, Ty);
-    op = 9;
+    op = 7;
     break;
   case ICmpInst::ICMP_UGE:
     R = executeICMP_UGE(Src1, Src2, Ty);
-    op = 3;
+    op = 8;
     break;
   case ICmpInst::ICMP_SGE:
     R = executeICMP_SGE(Src1, Src2, Ty);
-    op = 7;
+    op = 9;
     break;
   default:
     dbgs() << "Don't know how to handle this ICmp predicate!\n-->" << I;
@@ -1420,14 +1420,6 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
     DryRunMem.emplace_back(std::move(sd));
     return;
   }
-//   if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN){
-// #ifdef LLVM_EXECUTIONENGINE_DATALAYOUT_PTR
-//     uint64_t alloc_size = getDataLayout()->getTypeAllocSize(I.getOperand(0)->getType());
-// #else
-//     uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(0)->getType());
-// #endif
-//     static_cast<EventTraceBuilder*>(&TB)->report_old_value(OldVal.IntVal.getRawData(), alloc_size);
-//   }
   
   StoreValueToMemory(NewVal,Ptr,I.getType());
   CheckAwaitWakeup(NewVal, Ptr, *Ptr_sas);

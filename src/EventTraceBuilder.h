@@ -524,7 +524,6 @@ protected:
      * this one because of eom.
      */
     std::set<unsigned> eom_before;
-    std::vector<unsigned> rsc_before;
     /* Possibly reversible races found in the current execution
      * involving this event as the main event.
      */
