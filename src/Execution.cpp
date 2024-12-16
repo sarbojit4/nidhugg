@@ -403,9 +403,11 @@ void Interpreter::visitICmpInst(ICmpInst &I) {
     uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(1)->getType());
 #endif
     if(reading_from.find(std::make_pair(&I,CurrentThread)) != reading_from.end()){
+      void *rhs_ptr = malloc(alloc_size);
+      StoreValueToMemory(Src2,static_cast<GenericValue*>(rhs_ptr),Ty);
       static_cast<EventTraceBuilder*>(&TB)->
-	recompute_races_for_source_load(reading_from[std::make_pair((const llvm::Instruction*)&I,CurrentThread)],
-					op, (const void*)&Src2, alloc_size);
+        compute_races_for_source(reading_from[std::make_pair((const llvm::Instruction*)&I,CurrentThread)],
+				 op, rhs_ptr, alloc_size);
     }
   }
 

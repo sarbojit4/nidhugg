@@ -56,8 +56,8 @@ public:
   int get_spid(int pid) const override;
   void report_old_value(const uint64_t *ptr, uint16_t size);
   unsigned get_prefix_index() const;
-  void recompute_races_for_source_load(unsigned load_event, unsigned compare_op,
-				       const void *valptr, unsigned size);
+  void compute_races_for_source(unsigned rmw_event, uint_fast8_t compare_op,
+				const void *rhs_ptr, unsigned size);
 
 
   void debug_print() const override;
@@ -502,7 +502,7 @@ protected:
   public:
     Event(const IID<IPid> &iid, sym_ty sym = {})
       : iid(iid), origin_iid(iid), md(0), clock(), may_conflict(false),
-        sym(std::move(sym)), sleep_branch_trace_count(0) {}
+        sym(std::move(sym)), sleep_branch_trace_count(0), compute_races_later(false) {}
     /* The identifier for the first event in this event sequence. */
     IID<IPid> iid;
     /* The IID of the program instruction which is the origin of this
@@ -574,6 +574,7 @@ protected:
     uint64_t sleep_branch_trace_count;
     /* Value of the variable before an update (store or rmw) */
     std::shared_ptr<uint64_t> value_before;
+    bool compute_races_later;
     struct CompareOp{
       enum Op {EQ, NE, UGT, UGE, ULT, ULE, SGT, SGE, SLT, SLE} op;
       std::shared_ptr<uint8_t> value;
@@ -594,6 +595,7 @@ protected:
     }
   };
 
+  int64_t last_rmw_event;
   /* The fixed prefix of events in the current execution. This may be
    * either the complete sequence of events executed thus far in the
    * execution, or the events executed followed by the subsequent
