@@ -2553,7 +2553,8 @@ static It frontier_filter(It first, It last, LessFn less){
 //   }
 // }
 
-bool eval_cmp(const void *lhs_ptr, const void *rhs_ptr, uint_fast8_t op) {
+static bool eval_cmp(const void *lhs_ptr, uint_fast8_t op, const void *rhs_ptr) {
+  //TODO: Consider float, long ....
   switch(op) {
   case 0: return *(unsigned *)lhs_ptr == *(unsigned *)rhs_ptr;
   case 1: return *(unsigned *)lhs_ptr != *(unsigned *)rhs_ptr;
@@ -2571,14 +2572,41 @@ bool eval_cmp(const void *lhs_ptr, const void *rhs_ptr, uint_fast8_t op) {
   }
 }
 
+static inline void apply_binops(void *value, const EventTraceBuilder::Binops &binops) {
+  //TODO: Consider unsigned, float, 
+  for(const auto &op : binops){
+    switch(op.first){
+    case 13: *(unsigned*)value += *(unsigned*)op.second; break;
+    case 15: *(unsigned*)value -= *(unsigned*)op.second; break;
+    default: assert(false);
+    }
+  }
+}
+
+bool EventTraceBuilder::
+reversing_changes_result(bool old_res, unsigned first, unsigned second,
+			 const EventTraceBuilder::Binops &second_ops,
+			 uint_fast8_t compare_op, const void *rhs_ptr) {
+  assert(prefix[first].sym[0].kind == SymEv::RMW);
+  assert(prefix[second].sym[0].kind == SymEv::RMW);
+  std::unique_ptr<uint8_t> Ptr((uint8_t*)malloc(prefix[first].sym[0].addr().size));
+  memcpy((void*)(Ptr.get()), (void*)(prefix[first].sym[0].oldvalue().get_block()),
+	 prefix[first].sym[0].addr().size);
+  apply_binops((void*)(Ptr.get()), second_ops);
+  return (old_res != eval_cmp((void*)(Ptr.get()), compare_op, rhs_ptr));
+}
+  
+
 void EventTraceBuilder::
-compute_races_for_source(unsigned rmw_event, uint_fast8_t compare_op,
-			 const void *rhs_ptr, unsigned size){
+compute_races_for_source(const std::pair<unsigned, Binops> &operation,
+			 uint_fast8_t compare_op,
+			 const void *rhs_ptr){
+  unsigned rmw_event = operation.first;
   assert(prefix[rmw_event].compute_races_later &&
 	 prefix[rmw_event].sym[0].kind == SymEv::RMW);
-  bool Result =
+  bool curr_res =
     eval_cmp(prefix[rmw_event].sym[0].data().get_block(),
-	     rhs_ptr, compare_op);
+	     compare_op, rhs_ptr);
 
   VecSet<int> seen_accesses;
   const SymAddrSize &ml = prefix[rmw_event].sym[0].addr();
@@ -2593,12 +2621,20 @@ compute_races_for_source(unsigned rmw_event, uint_fast8_t compare_op,
     }
     if(0 <= lu){
       IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
-      if(lu_tipid != ipid) seen_accesses.insert(lu);
-      m.before_unordered = to_vecset_and_clear(m.unordered_updates);
-      if (m.before_unordered.empty() && lu >= 0) {
-	m.before_unordered = {lu};
+      // Assumption: Doing rmw_event before lu changes the result iff doing
+      // lu after rmw_event changes the result.
+      //TODO: Check if doing lu after rmw_event changes the result.
+      if(reversing_changes_result(curr_res, lu, rmw_event,
+				  operation.second, compare_op, rhs_ptr)){
+	if(lu_tipid != ipid) seen_accesses.insert(lu);
+	//TODO: check the above for each unordered updates
+	m.before_unordered = to_vecset_and_clear(m.unordered_updates);
+	if (m.before_unordered.empty() && lu >= 0) {
+	  m.before_unordered = {lu};
+	}
+	seen_accesses.insert(m.before_unordered);
       }
-      seen_accesses.insert(m.before_unordered);
+      else seen_accesses.insert(m.before_unordered);
     }
     assert(m.unordered_updates.size() == 0);
     assert(bi.unordered_updates.empty());
@@ -2642,6 +2678,7 @@ compute_races_for_source(unsigned rmw_event, uint_fast8_t compare_op,
     }
   }
   see_events(seen_accesses);
+  prefix[rmw_event].compute_races_later = false;
 }
 
 
@@ -2788,11 +2825,11 @@ void EventTraceBuilder::compute_vclocks(){
      * accurately less easy to compute) once we add them to the clock.
      */
     std::vector<Race> &races = prefix[i].races;
-    for(Race race : races)
-      llvm::dbgs()<<"Race (<"<<threads[prefix[race.first_event].iid.get_pid()].cpid<<","
-	      <<prefix[race.first_event].iid.get_index()<<">,<"
-	      <<threads[prefix[race.second_event].iid.get_pid()].cpid
-	      <<prefix[race.second_event].iid.get_index()<<">)\n";/////////
+    // for(Race race : races)
+    //   llvm::dbgs()<<"Race (<"<<threads[prefix[race.first_event].iid.get_pid()].cpid<<","
+    // 	      <<prefix[race.first_event].iid.get_index()<<">,<"
+    // 	      <<threads[prefix[race.second_event].iid.get_pid()].cpid
+    // 	      <<prefix[race.second_event].iid.get_index()<<">)\n";/////////
     // /* Generate await races (with stores, races with loads are handled eagerly) */
     // if (std::any_of(prefix[i].sym.begin(), prefix[i].sym.end(),
     //                 [](const SymEv &e) { return e.has_cond(); })) {

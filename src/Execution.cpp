@@ -407,7 +407,7 @@ void Interpreter::visitICmpInst(ICmpInst &I) {
       StoreValueToMemory(Src2,static_cast<GenericValue*>(rhs_ptr),Ty);
       static_cast<EventTraceBuilder*>(&TB)->
         compute_races_for_source(reading_from[std::make_pair((const llvm::Instruction*)&I,CurrentThread)],
-				 op, rhs_ptr, alloc_size);
+				 op, rhs_ptr);
     }
   }
 
@@ -1218,14 +1218,32 @@ void Interpreter::DryRunLoadValueFromMemory(GenericValue &Val,
 
 bool Interpreter::analyze_effect(const Instruction &I){
   // Consider only x cmp k, rmw(x) cmp k  
+  ExecutionContext &SF = ECStack()->back();
   const Instruction* IPtr = &I;
+  Binops binops;
   while(1){
+    //TODO: Make the following condition compatible with LLVM 10 and earlier
     if(!IPtr->hasOneUser() || IPtr->isUsedOutsideOfBlock(IPtr->getParent()))
       return false;
+    const auto &operand1 = IPtr->getOperand(1);
+    if(llvm::isa<llvm::BinaryOperator>(IPtr) && isa<Constant>(operand1)){
+#ifdef LLVM_EXECUTIONENGINE_DATALAYOUT_PTR
+      uint64_t alloc_size = getDataLayout()->getTypeAllocSize(operand1->getType());
+#else
+      uint64_t alloc_size = getDataLayout().getTypeAllocSize(operand1->getType());
+#endif
+      void *op1 = malloc(alloc_size);
+      StoreValueToMemory(getOperandValue(operand1, SF),
+			 static_cast<GenericValue*>(op1),
+			 operand1->getType());
+      unsigned optype = IPtr->getOpcode();
+      if(optype != Instruction::Add && optype != Instruction::Sub) return false;  
+      binops.emplace_back(optype, op1);
+    }
     IPtr = IPtr->user_back();
     if(llvm::isa<llvm::ICmpInst>(IPtr)){
       reading_from[std::pair<const llvm::Instruction*,int>(IPtr, CurrentThread)] =
-			   static_cast<EventTraceBuilder*>(&TB)->get_prefix_index();
+	std::make_pair(static_cast<EventTraceBuilder*>(&TB)->get_prefix_index(), binops);
       return true;
     }
   }
@@ -1412,7 +1430,7 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
   SymData oldval = GetSymData(*Ptr_sas,I.getType(),OldVal);
   if(!TB.atomic_rmw(sd, RmwAction{kind, std::move(operand.get_shared_block()),
                                   !I.use_empty(), std::move(oldval.get_shared_block()),
-				  !DryRun && (*Ptr_sas).is_global() && analyze_effect(I)})){
+				  (*Ptr_sas).is_global() && analyze_effect(I)})){
     abort();
     return;
   }

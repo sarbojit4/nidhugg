@@ -185,9 +185,10 @@ protected:
   /* The CPid System for all threads in this execution. */
   CPidSystem CPS;
 
+  typedef std::vector<std::pair<unsigned, void*>> Binops;
   /* A map from compare instructions x comp_op k to the load event that
      provides the value of x */
-  std::map<std::pair<const Instruction*, int>, unsigned> reading_from;
+  std::map<std::pair<const Instruction*, int>, std::pair<unsigned,Binops>> reading_from;
   /* For events which may execute in several nondeterministic ways,
    * CurrentAlt determines which alternative should be executed. A
    * value of 0 indicates the default alternative (the only
