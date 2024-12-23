@@ -49,7 +49,7 @@ int qthread_create(_actual_qthread_t *tid, void *(*func)(void *), void * arg){
   return _MAGIC_I_AM_NOT_INTERCEPTED;
 }
 static int qthread_create_internal(qthread_t *tid, void *(*func)(void *), void * arg){
-  *tid = malloc(sizeof(**tid));
+  *tid = (qthread_t)malloc(sizeof(**tid));
   int ret = pthread_mutex_init(&(*tid)->mutex,NULL);
   if (ret) return ret;
   ret = qthread_create(&(*tid)->qthread, func, arg);
@@ -96,7 +96,7 @@ static void _post_func(void *_msg_arg){
 void qthread_post_event(_actual_qthread_t tid, void (*func)(void *), void *arg){}
 static void qthread_post_event_internal(qthread_t tid, void (*func)(void *), void *arg){
   pthread_t msg;
-  struct _msg_arg *msg_arg = malloc(sizeof(struct _msg_arg));
+  struct _msg_arg *msg_arg = (struct _msg_arg*)malloc(sizeof(struct _msg_arg));
   msg_arg->func = func;
   msg_arg->arg = arg;
   msg_arg->tid = tid;
