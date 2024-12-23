@@ -1274,9 +1274,9 @@ void Interpreter::visitLoadInst(LoadInst &I) {
 
   LoadValueFromMemory(Result, Ptr, I.getType());
   SetValue(&I, Result, SF);
-  if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN && (*Ptr_sas).is_global()){
-    analyze_effect(I);
-  }
+  // if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN && (*Ptr_sas).is_global()){
+  //   analyze_effect(I);
+  // }
 }
 
 void Interpreter::visitStoreInst(StoreInst &I) {
