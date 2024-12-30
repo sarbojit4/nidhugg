@@ -2532,27 +2532,6 @@ static It frontier_filter(It first, It last, LessFn less){
   return fill;
 }
 
-//eom is not exactly transitive. We don't need the precise transitive ordering
-//           |--------|
-//[aaaaaaa][bbbbbb][ccccccc]   eom is not transitive in this case
-//   |__________|
-// void EventTraceBuilder::compute_eom(){
-//   for(IPid i = 2; i<threads.size(); i=i+2){//eom order
-//     if(threads[i].handler_id == -1) continue;
-//     for(IPid j = 2; j<threads.size(); j=j+2){
-//       if(threads[i].handler_id != threads[j].handler_id) continue;
-//       unsigned fev_i = threads[i].event_indices.front();
-//       unsigned lev_i = threads[i].event_indices.back();
-//       unsigned fev_j = threads[j].event_indices.front();
-//       unsigned lev_j = threads[j].event_indices.back();
-//       if(fev_j<=fev_i) continue;
-//       if(prefix[fev_i].clock.lt(prefix[lev_j].clock)){
-//         add_eom(fev_j,lev_i);
-//       }
-//     }
-//   }
-// }
-
 static bool eval_cmp(const void *lhs_ptr, uint_fast8_t op, const void *rhs_ptr) {
   //TODO: Consider float, long ....
   switch(op) {
@@ -2595,7 +2574,6 @@ reversing_changes_result(bool old_res, unsigned first, unsigned second,
   apply_binops((void*)(Ptr.get()), second_ops);
   return (old_res != eval_cmp((void*)(Ptr.get()), compare_op, rhs_ptr));
 }
-  
 
 void EventTraceBuilder::
 compute_races_for_source(const std::pair<unsigned, Binops> &operation,
@@ -3061,27 +3039,6 @@ bool EventTraceBuilder::do_events_conflict
   for (const SymEv &se : snd) {
     if (symev_has_pid(se) && se.num() == fst_pid) return true;
   }
-  return false;
-}
-
-bool EventTraceBuilder::do_msgs_conflict
-(IPid fst_spid, IPid snd_spid) const{
-  if(fst_spid == snd_spid) return true;
-  IPid fst = SPS.get_pid(fst_spid);
-  IPid snd = SPS.get_pid(snd_spid);
-  for(unsigned ei : threads[fst].event_indices){
-    for(unsigned ej : threads[snd].event_indices){
-      if(do_events_conflict(ei,ej)) {
-	return true;
-      }
-    }
-  }
-  // if(eoms.find(snd) != eoms.end() &&
-  //    std::find(eoms.at(snd).begin(), eoms.at(snd).end(), fst) !=
-  //    eoms.at(snd).end()) return true;
-  // if(eoms.find(fst) != eoms.end() &&
-  //    std::find(eoms.at(fst).begin(), eoms.at(fst).end(), snd) !=
-  //    eoms.at(fst).end()) return true;
   return false;
 }
 

@@ -758,7 +758,6 @@ protected:
                           IPid snd_pid, const sym_ty &snd) const;
   bool do_symevs_conflict(IPid fst_pid, const SymEv &fst,
                           IPid snd_pid, const SymEv &snd) const;
-  bool do_msgs_conflict(IPid fst_spid, IPid snd_spid) const;
   /* Check if events fst and snd are in an observed race with thd as an
    * observer.
    */
@@ -812,8 +811,6 @@ protected:
    */
   void add_happens_after_thread(unsigned second, IPid thread);
   void add_eom(unsigned second, unsigned first);
-  // /* Compute eom */
-  // void compute_eom();
   /* Clear all vector clocks */
   void clear_vclocks();
   /* Computes the vector clocks of all events in a complete execution
