@@ -489,7 +489,7 @@ protected:
     /* Events that might delete it from the sleep trees */
     std::vector<VClock<IPid>> witness_events;
     /* Global accesses done by the message */
-    std::set<std::list<Branch>> msg_trails;
+    std::vector<std::list<Branch>> msg_trails;
     /* The handlers that are executing some message at the point
        where this message is inserted in the sleep_tree */
     std::vector<bool> handler_busy;

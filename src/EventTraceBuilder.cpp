@@ -373,37 +373,39 @@ bool EventTraceBuilder::reset(){
 
   replay_point = i;
 
+  done_trees_t explored_tails;
   /* Store explored branches of different messages */
   for(unsigned k = prefix.len()-1; k >= i ; k--){
     IPid ipid = prefix[k].iid.get_pid();
-    done_trees_t &explored_tails = prefix[k].explored_tails;
-    if(k < prefix.len()-1) explored_tails = std::move(prefix[k+1].explored_tails);
     /* add prefix[k] into sleep tree of same message */
-    if(threads[ipid].handler_id != -1 &&
-       threads[ipid].event_indices.front() <= i){
-      // TODO: Else if prefix[k] is conflicting with last event of
-      // some message in explored_tails, then do same
-      if(k == prefix.len()-1 ||
-	 explored_tails[threads[ipid].spid].empty()){
-	if(prefix.branch(k).access_global()){
-	  //TODO: collect all global events(locks,conds,mutexes,...)
-  	  explored_tails[threads[ipid].spid].emplace(1,prefix.branch(k));
-	}
-	continue;
-      }
+    if(prefix.branch(k).access_global()){
       for(auto slp_tree_it = explored_tails.begin();
 	  slp_tree_it != explored_tails.end(); slp_tree_it++){
-        if(slp_tree_it->first == threads[ipid].spid &&
-	   prefix.branch(k).access_global()){
-	  std::set<std::list<Branch>> tail_set;
-	  for(auto tail : slp_tree_it->second){
+	std::set<std::list<Branch>> tail_set;
+	for(auto &tail : slp_tree_it->second){
+	  if(slp_tree_it->first == threads[ipid].spid ||
+	     prefix[k].clock.lt(tail.back().clock)){
 	    std::list<Branch> new_tail = std::move(tail);
 	    new_tail.push_front(prefix.branch(k));
-	    tail_set.insert(new_tail);
+	    tail_set.insert(std::move(new_tail));
 	  }
-	  slp_tree_it->second = std::move(tail_set);
 	}
+	if(!tail_set.empty()) slp_tree_it->second = std::move(tail_set);
       }
+      /* Add the last event of a message */
+      if(threads[ipid].handler_id != -1 &&
+	 threads[ipid].event_indices.front() <= i &&
+	 explored_tails.find(threads[ipid].spid) == explored_tails.end()){
+	//TODO: collect all global events(locks,conds,mutexes,...)
+	explored_tails.
+	  emplace(threads[ipid].spid,
+		  std::set<std::list<Branch>>{std::list<Branch>(1,prefix.branch(k))});
+	p = threads[ipid].spid;
+      }
+    }
+    /* Add the previous explored tails */
+    for(auto &t : prefix[k].explored_tails){
+      explored_tails[t.first].insert(t.second.begin(), t.second.end());
     }
   }
   /* Setup the new Event at prefix[i] */
@@ -446,12 +448,14 @@ bool EventTraceBuilder::reset(){
     if(prev_evt.iid.get_index() == 1 &&
        threads[prev_evt.iid.get_pid()].handler_id != -1){
       IPid ispid = threads[prev_evt.iid.get_pid()].spid;
-      evt.sleep_trees[ispid] =
-    	std::move(prev_evt.explored_tails[ispid]);
-      prev_evt.explored_tails.erase(ispid);
+      if(explored_tails.find(ispid) != explored_tails.end()){
+	evt.sleep_trees[ispid] =
+	  std::move(explored_tails[ispid]);
+	explored_tails.erase(ispid);
+      }
     }
-    if(!prev_evt.explored_tails.empty())
-      evt.explored_tails = std::move(prev_evt.explored_tails);
+    if(!explored_tails.empty())
+      evt.explored_tails = std::move(explored_tails);
 
     prefix.enter_first_child(std::move(evt));
   }
@@ -1982,9 +1986,9 @@ void EventTraceBuilder::obs_sleep_add(struct obs_sleep &sleep,
     sleep.sleep.push_back({e.sleep[k], &e.sleep_evs[k], nullptr});
   }
   for(auto p : e.sleep_trees){
-    IPid handler = threads[SPS.get_pid(p.first)].handler_id;
-    sleep_trees.push_back(sleep_tree{p.first, 0, std::vector<VClock<IPid>>(),
-				     p.second, handler_busy});
+    std::vector<std::list<Branch>> msg_trails(p.second.begin(), p.second.end());
+    sleep_trees.push_back({p.first, 0, std::vector<VClock<IPid>>(),
+	std::move(msg_trails), handler_busy});
   }
 }
 
@@ -2056,62 +2060,50 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       } else {
         return obs_wake_res::BLOCK;
       }
-    } else if (do_events_conflict(p, sym, s.spid, *s.sym)){
+    } else if (do_events_conflict(p, sym, s.spid, *s.sym)){//Need re-evaluation of values
       unordered_vector_delete(sleep.sleep, i);
     } else {
       ++i;
     }
   }
 
-  for(auto slp_tree_it = sleep_trees.begin(); slp_tree_it != sleep_trees.end();){
-    unsigned handler = threads[SPS.get_pid(slp_tree_it->spid)].handler_id;
-    if(slp_tree_it->spid == p){
-      // TODO: Block according to the definition of the paper
-      // Check till the end of the message(might need to extend the WS
-      bool partial_msg = true;
-      for(const SymEv &symev : sym) if(symev.is_return()) partial_msg = false;
-      if(!slp_tree_it->witness_events.empty() &&
-      	 partial_msg){
-	//TODO: Delete sequences from the sleep tree that are not matching
-	for(const SymEv &symev : sym){
-	  if(symev.access_global()) slp_tree_it->start_index++;
+  bool access_global = false;
+  for(const SymEv &symev : sym){
+    if(symev.access_global()) access_global = true;
+  }
+  if(!access_global) return obs_wake_res::CONTINUE;
+  for(auto slp_tree_it = sleep_trees.begin();
+      slp_tree_it != sleep_trees.end();){
+    for(auto seq_it = slp_tree_it->msg_trails.begin();
+	seq_it != slp_tree_it->msg_trails.end();){
+      if(seq_it->begin()->spid == p){
+	// TODO: Block according to the definition of the paper
+	// Check till the end of the message(might need to extend the WS)
+	if(!slp_tree_it->witness_events.empty() && seq_it->size() > 1){
+	  //TODO: Delete sequences from the sleep tree that are not matching
+	  seq_it->pop_front();
+	  seq_it++;
+	  continue;
 	}
-	slp_tree_it++;
-	continue;
+	// Multiple handler in the WS makes it harder to decide WI
+	else if(!multiple_handlers || seq_it->size() == 1 || reordering_possible()){
+	  return obs_wake_res::BLOCK;
+	}
       }
-      else if(!multiple_handlers || reordering_possible())
-	return obs_wake_res::BLOCK;
-    }
-    Branch first_ev = slp_tree_it->msg_trails.begin()->front();
-    if(slp_tree_it->start_index == 0 && first_ev.index == 1 &&
-       do_events_conflict(p, sym, first_ev.spid, first_ev.sym)){
-      slp_tree_it = sleep_trees.erase(slp_tree_it);
-      continue;
-    }
-    if(slp_tree_it->witness_events.empty()){
-      slp_tree_it++;
-      continue;
-    }
-    for(auto we : slp_tree_it->witness_events){
-      if(we.leq(clock)){
-      	for(auto seq_it = slp_tree_it->msg_trails.begin();
-      	    seq_it != slp_tree_it->msg_trails.end();){
-      	  unsigned ind = 0;
-      	  bool conflict = false;
-      	  for(auto br_it = seq_it->begin();
-      	      br_it != seq_it->end(); br_it++, ind++){
-      	    if(slp_tree_it->start_index <= ind){
-      	      if(do_events_conflict(p, sym, br_it->spid, br_it->sym)){
-      	        conflict = true;
-      	        break;
-      	      }
-      	    }
-      	  }
-      	  if(conflict) seq_it = slp_tree_it->msg_trails.erase(seq_it);
-      	  else seq_it++;
-      	}
-      	break;
+      bool conflict = false;
+      for(auto we : slp_tree_it->witness_events){
+	if(we.leq(clock)){
+      	  for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
+      	    if(do_events_conflict(p, sym, br_it->spid, br_it->sym)){//Need re-evaluation of values
+	      conflict = true;
+	      break;
+	    }
+	  }
+	  break;
+	}
       }
+      if(conflict) seq_it = slp_tree_it->msg_trails.erase(seq_it);
+      else seq_it++;
     }
     if(slp_tree_it->msg_trails.empty()) slp_tree_it = sleep_trees.erase(slp_tree_it);
     else slp_tree_it++;
@@ -2392,6 +2384,7 @@ void EventTraceBuilder::see_events(const VecSet<int> &seen_accesses){
     if (i == prefix_idx) continue;
     IPid fst_pid = prefix[i].iid.get_pid();
     IPid snd_pid = curev().iid.get_pid();
+    currtrace.emplace(prefix[i].iid, curev().iid);
     if(fst_pid != snd_pid && threads[fst_pid].handler_id != -1 &&
        threads[fst_pid].handler_id == threads[snd_pid].handler_id){
       add_msgrev_race(i);
@@ -3101,10 +3094,10 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
       const auto &s = sleep.sleep[j];
       if (s.spid == v[i].spid) {
 	unordered_vector_delete(sleep.sleep, j);
-      } else if (do_events_conflict(v[i].spid, v[i].sym, s.spid, *s.sym)){
+      } else if (do_events_conflict(v[i].spid, v[i].sym, s.spid, *s.sym)){//Need re-evaluation of values
 	bool skip = false;
 	for(unsigned ei : clear_set[s.spid]){
-	  if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
+	  if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))//Need re-evaluation of values
 	    skip = true; 
 	}
 	if(!skip) clear_set[s.spid].emplace_back(i);
@@ -3113,67 +3106,41 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
     }
 
     for(auto slp_tree_it = sleep_trees.begin();
-    	slp_tree_it != sleep_trees.end();){
-      unsigned handler = threads[SPS.get_pid(slp_tree_it->spid)].handler_id;
-      if(slp_tree_it->spid == v[i].spid){
-    	// TODO: Block according to the definition of the paper
-    	slp_tree_it = sleep_trees.erase(slp_tree_it);
-	continue;
-	bool partial_msg = v[i].is_ret_stmt()? true : false;
-	if(!slp_tree_it->witness_events.empty() && partial_msg){
-	  for(const SymEv &symev : v[i].sym){
-	    if(symev.access_global()) slp_tree_it->start_index++;
+    	slp_tree_it != sleep_trees.end(); slp_tree_it++){
+      for(auto seq_it = slp_tree_it->msg_trails.begin();
+	  seq_it != slp_tree_it->msg_trails.end();){
+	if(seq_it->begin()->spid == v[i].spid){
+	  //TODO: Delete sequences from the sleep tree that are not matching
+	  if(seq_it->size() == 1) seq_it = slp_tree_it->msg_trails.erase(seq_it);
+	  else {
+	    seq_it->pop_front();
+	    seq_it++;
 	  }
-	  slp_tree_it++;
+	  continue;
 	}
-	continue;
-      }
-      Branch first_ev = slp_tree_it->msg_trails.begin()->front();
-      if(slp_tree_it->start_index == 0 && first_ev.index == 1 &&
-	 do_events_conflict(v[i].spid, v[i].sym, first_ev.spid, first_ev.sym)){
-    	bool skip = false;
-    	for(unsigned ei : clear_set[slp_tree_it->spid]){
-    	  if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
-	    skip = true; 
-    	}
-    	if(!skip) clear_set[slp_tree_it->spid].emplace_back(i);
-	slp_tree_it++;
-    	continue;
-      }
-      if(slp_tree_it->witness_events.empty()){
-    	slp_tree_it++;
-    	continue;
-      }
-      for(auto we : slp_tree_it->witness_events){
-	if(we.leq(v[i].clock)){
-	  for(auto seq_it = slp_tree_it->msg_trails.begin();
-	      seq_it != slp_tree_it->msg_trails.end(); seq_it++){
-	    unsigned ind = 0;
-	    bool conflict = false;
-	    for(auto br_it = seq_it->begin();
-		br_it != seq_it->end(); br_it++, ind++){
-	      if(slp_tree_it->start_index <= ind){
-		if(do_events_conflict(v[i].spid, v[i].sym,
-				      br_it->spid, br_it->sym)){
-		  conflict = true;
-		  break;
-		}
+	bool conflict = false;
+	for(auto we : slp_tree_it->witness_events){
+	  if(we.leq(v[i].clock)){
+	    for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
+	      if(do_events_conflict(v[i].spid, v[i].sym, br_it->spid, br_it->sym)){//Need re-evaluation of values
+		conflict = true;
+		break;
 	      }
 	    }
-	    if(conflict){
-	      bool skip = false;
-    	      for(unsigned ei : clear_set[slp_tree_it->spid]){
-    		if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))
-    		  skip = true; 
-    	      }
-    	      if(!skip)
-    		clear_set[slp_tree_it->spid].emplace_back(i);
-	    }
+	    break;
 	  }
-	  break;
 	}
+	if(conflict){
+	  bool skip = false;
+	  for(unsigned ei : clear_set[slp_tree_it->spid]){
+	    if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))//Need re-evaluation of values
+	      skip = true; 
+	  }
+	  if(!skip)
+	    clear_set[slp_tree_it->spid].emplace_back(i);
+	}
+	seq_it++;
       }
-      slp_tree_it++;
     }
   }
   return clear_set;
@@ -3482,7 +3449,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	      /* Check if all the events of the message in WS is non-conflicting */
 	      for(unsigned ei : threads[child_pid].event_indices){
 		if(do_events_conflict(ve.spid, ve.sym,
-				      child_it.branch().spid, prefix[ei].sym)){
+				      child_it.branch().spid, prefix[ei].sym)){//Need re-evaluation of values
 		  //put the message in the sleep trees
 		  std::list<Branch> explored_trail;
 		  for(auto eit = threads[SPS.get_pid(child_it.branch().spid)].
@@ -3512,7 +3479,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 				 last_index);
 	    if(vei->clock.lt(prefix[last_ev].clock)) u.push_back(j);
 	    if(do_events_conflict(ve.spid, ve.sym,
-				  child_it.branch().spid, child_sym)){
+				  child_it.branch().spid, child_sym)){//Need re-evaluation of values
 	      leftmost_branch = false;
 	      skip = NEXT;
 	      break;
@@ -3522,7 +3489,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 		IPid child_pid = SPS.get_pid(child_it.branch().spid);
 	        for(unsigned ei : threads[child_pid].event_indices){
 		  if(do_events_conflict(ve.spid, ve.sym,
-				        child_it.branch().spid, prefix[ei].sym)){
+				        child_it.branch().spid, prefix[ei].sym)){//Need re-evaluation of values
 		    leftmost_branch = false;
 		    skip = NEXT;
 		    break;
@@ -3534,7 +3501,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	  }
 	} else if (do_events_conflict(ve.spid, ve.sym,
 				      child_it.branch().spid,
-				      child_sym)) {
+				      child_sym)) {//Need re-evaluation of values
           /* This branch is incompatible, try the next */
 	  leftmost_branch = false;
           skip = NEXT;
@@ -3556,8 +3523,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
 	  }
 	  sleep_trees.push_back({child_it.branch().spid, 0,
 	      std::vector<VClock<IPid>>(),
-	      std::set<std::list<Branch>>
-	      {std::move(explored_trail)},
+	      std::vector<std::list<Branch>>(1,explored_trail),
 	      handler_busy});
 	} else
 	  sleep.sleep.push_back({child_it.branch().spid, &child_sym, nullptr});
@@ -3723,7 +3689,7 @@ conflict_with_rest_of_msg(unsigned j, const Branch &child,
 	      threads[SPS.get_pid(child.spid)].event_indices;
 	    for(unsigned ei = last_index+1; ei < event_indices.size(); ei++){
 	      if(do_events_conflict(v[k].spid, v[k].sym,
-				    child.spid, prefix[event_indices[ei]].sym)){
+				    child.spid, prefix[event_indices[ei]].sym)){//Need re-evaluation of values
 		return true;
 	      }
 	    }
@@ -4274,7 +4240,7 @@ recompute_vclock(const std::vector<bool> &in_v,
 	       do_events_conflict(threads[prefix[rr_fst].iid.get_pid()].spid,
 				  prefix[rr_fst].sym,
 				  threads[prefix[r.snd_conflict].iid.get_pid()].spid,
-				  prefix[r.snd_conflict].sym)){
+				  prefix[r.snd_conflict].sym)){//Need re-evaluation of values
 	      unsigned rr_bef = (rr.kind == Race::MSG_REV)?
 		threads[prefix[rr.first_event].iid.get_pid()].
 		event_indices.back() : rr.first_event;
@@ -4293,7 +4259,7 @@ recompute_vclock(const std::vector<bool> &in_v,
 	     do_events_conflict(threads[prefix[rr_fst].iid.get_pid()].spid,
 				prefix[rr_fst].sym,
 				threads[prefix[i].iid.get_pid()].spid,
-				prefix[i].sym)){
+				prefix[i].sym)){//Need re-evaluation of values
 	    bool msg_rev = r.kind != Race::MSG_REV &&
 	      threads[prefix[i].iid.get_pid()].handler_id != -1 &&
 	      threads[prefix[i].iid.get_pid()].handler_id ==
