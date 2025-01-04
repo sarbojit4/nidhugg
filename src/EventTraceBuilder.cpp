@@ -400,7 +400,6 @@ bool EventTraceBuilder::reset(){
 	explored_tails.
 	  emplace(threads[ipid].spid,
 		  std::set<std::list<Branch>>{std::list<Branch>(1,prefix.branch(k))});
-	p = threads[ipid].spid;
       }
     }
     /* Add the previous explored tails */
