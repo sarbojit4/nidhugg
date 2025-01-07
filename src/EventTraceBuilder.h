@@ -56,11 +56,11 @@ public:
   int get_spid(int pid) const override;
   void report_old_value(const uint64_t *ptr, uint16_t size);
   unsigned get_prefix_index() const;
-  typedef std::vector<std::pair<unsigned, void*>> Binops;
-  bool reversing_changes_result(bool old_res, unsigned first, unsigned second,
-				const EventTraceBuilder::Binops &second_ops,
+  typedef std::vector<std::pair<uint_fast8_t, unsigned>> Binops;
+  bool reversal_changes_result(bool old_res, unsigned first, unsigned second,
+				const Binops &second_ops,
 				uint_fast8_t compare_op, const void *rhs_ptr);
-  void compute_races_for_source(const std::pair<unsigned, Binops> &operation,
+  void compute_races_for_source(unsigned rmw_event,
 				uint_fast8_t compare_op,
 				const void *rhs_ptr);
 

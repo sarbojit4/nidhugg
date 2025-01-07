@@ -1030,9 +1030,12 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
 /* This predicate has to be transitive. */
 static bool rmwaction_commutes(const Configuration &conf,
                                RmwAction::Kind lhs, bool lhs_used,
-                               RmwAction::Kind rhs, bool rhs_used) {
+			       bool lhs_used_only_by_cmp,
+                               RmwAction::Kind rhs, bool rhs_used,
+			       bool rhs_used_only_by_cmp) {
   if (!conf.commute_rmws) return false;
-  if (lhs_used || rhs_used) return false;
+  if ((lhs_used && !lhs_used_only_by_cmp) ||
+      (rhs_used && !rhs_used_only_by_cmp)) return false;
   using Kind = RmwAction::Kind;
   switch(lhs) {
   case Kind::ADD: case Kind::SUB:
@@ -1108,10 +1111,10 @@ bool EventTraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
       if (lu_sym.size() != 1
 	  || lu_sym[0].kind != SymEv::RMW
 	  || !rmwaction_commutes(conf, lu_sym[0].rmw_kind(),
-				 lu_sym[0].rmw_result_used() &&
-				 !lu_sym[0].rmw_used_only_in_cmp(),
-				 action.kind, action.result_used &&
-				 !action.used_only_in_cmp)
+				 lu_sym[0].rmw_result_used(),
+				 lu_sym[0].rmw_used_only_in_cmp(),
+				 action.kind, action.result_used,
+				 action.used_only_in_cmp)
 	  || lu_sym[0].addr() != ml
 	  || !same_unordered_updates_ml) {
 	conflicts_with_lu = true;
@@ -2546,17 +2549,17 @@ static bool eval_cmp(const void *lhs_ptr, uint_fast8_t op, const void *rhs_ptr) 
 static inline void apply_binops(void *value, const EventTraceBuilder::Binops &binops) {
   //TODO: Consider unsigned, float, 
   for(const auto &op : binops){
-    switch(op.first){
-    case 13: *(unsigned*)value += *(unsigned*)op.second; break;
-    case 15: *(unsigned*)value -= *(unsigned*)op.second; break;
+    switch(unsigned(op.first)){
+    case 0: *(unsigned*)value += op.second; break;
+    case 1: *(unsigned*)value -= op.second; break;
     default: assert(false);
     }
   }
 }
 
 bool EventTraceBuilder::
-reversing_changes_result(bool old_res, unsigned first, unsigned second,
-			 const EventTraceBuilder::Binops &second_ops,
+reversal_changes_result(bool old_res, unsigned first, unsigned second,
+			 const Binops &second_ops,
 			 uint_fast8_t compare_op, const void *rhs_ptr) {
   assert(prefix[first].sym[0].kind == SymEv::RMW);
   assert(prefix[second].sym[0].kind == SymEv::RMW);
@@ -2568,10 +2571,9 @@ reversing_changes_result(bool old_res, unsigned first, unsigned second,
 }
 
 void EventTraceBuilder::
-compute_races_for_source(const std::pair<unsigned, Binops> &operation,
+compute_races_for_source(unsigned rmw_event,
 			 uint_fast8_t compare_op,
 			 const void *rhs_ptr){
-  unsigned rmw_event = operation.first;
   assert(prefix[rmw_event].compute_races_later &&
 	 prefix[rmw_event].sym[0].kind == SymEv::RMW);
   bool curr_res =
@@ -2580,6 +2582,9 @@ compute_races_for_source(const std::pair<unsigned, Binops> &operation,
 
   VecSet<int> seen_accesses;
   const SymAddrSize &ml = prefix[rmw_event].sym[0].addr();
+  //TODO: Fix the race computation: Check if reversal with last rmw changes the result.
+  //Add race with the last rmw and other unordered rmws,
+  //otherwise, add race with before unordered
   //TODO: Make sure that there are no other updates on the same memory location after rmw_event
   for(SymAddr b : ml){
     ByteInfo &m = mem[b];
@@ -2594,8 +2599,8 @@ compute_races_for_source(const std::pair<unsigned, Binops> &operation,
       // Assumption: Doing rmw_event before lu changes the result iff doing
       // lu after rmw_event changes the result.
       //TODO: Check if doing lu after rmw_event changes the result.
-      if(reversing_changes_result(curr_res, lu, rmw_event,
-				  operation.second, compare_op, rhs_ptr)){
+      if(reversal_changes_result(curr_res, lu, rmw_event,
+				 prefix[rmw_event].sym[0].rmw_binops(), compare_op, rhs_ptr)){
 	if(lu_tipid != ipid) seen_accesses.insert(lu);
 	//TODO: check the above for each unordered updates
 	m.before_unordered = to_vecset_and_clear(m.unordered_updates);
@@ -2995,8 +3000,8 @@ bool EventTraceBuilder::do_symevs_conflict
       && fst.addr() == snd.addr()) return false;
   if (fst.kind == SymEv::RMW && snd.kind == SymEv::RMW
       && fst.addr() == snd.addr()
-      && rmwaction_commutes(conf, fst.rmw_kind(), fst.rmw_result_used(),
-                            snd.rmw_kind(), snd.rmw_result_used())) {
+      && rmwaction_commutes(conf, fst.rmw_kind(), fst.rmw_result_used(), false,
+                            snd.rmw_kind(), snd.rmw_result_used(), false)) {
     return false;
   }
 

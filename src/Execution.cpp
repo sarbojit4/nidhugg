@@ -1216,11 +1216,10 @@ void Interpreter::DryRunLoadValueFromMemory(GenericValue &Val,
   delete[] buf;
 }
 
-bool Interpreter::analyze_effect(const Instruction &I){
+bool Interpreter::analyze_effect(const Instruction &I, Binops &binops){
   // Consider only x cmp k, rmw(x) cmp k  
   ExecutionContext &SF = ECStack()->back();
   const Instruction* IPtr = &I;
-  Binops binops;
   while(1){
     //TODO: Make the following condition compatible with LLVM 10 and earlier
     if(!IPtr->hasOneUser() || IPtr->isUsedOutsideOfBlock(IPtr->getParent()))
@@ -1237,13 +1236,13 @@ bool Interpreter::analyze_effect(const Instruction &I){
 			 static_cast<GenericValue*>(op1),
 			 operand1->getType());
       unsigned optype = IPtr->getOpcode();
-      if(optype != Instruction::Add && optype != Instruction::Sub) return false;  
-      binops.emplace_back(optype, op1);
+      if(optype != Instruction::Add && optype != Instruction::Sub) return false;
+      binops.emplace_back((optype == Instruction::Sub), *(unsigned*)op1);
     }
     IPtr = IPtr->user_back();
     if(llvm::isa<llvm::ICmpInst>(IPtr)){
       reading_from[std::pair<const llvm::Instruction*,int>(IPtr, CurrentThread)] =
-	std::make_pair(static_cast<EventTraceBuilder*>(&TB)->get_prefix_index(), binops);
+	static_cast<EventTraceBuilder*>(&TB)->get_prefix_index();
       return true;
     }
   }
@@ -1428,9 +1427,13 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
   SymData sd = GetSymData(*Ptr_sas,I.getType(),NewVal);
   SymData operand = GetSymData(*Ptr_sas,I.getType(),Val);
   SymData oldval = GetSymData(*Ptr_sas,I.getType(),OldVal);
+  Binops binops;
+  bool compute_races_later = ((*Ptr_sas).is_global() &&
+			      analyze_effect(I, binops));
   if(!TB.atomic_rmw(sd, RmwAction{kind, std::move(operand.get_shared_block()),
-                                  !I.use_empty(), std::move(oldval.get_shared_block()),
-				  (*Ptr_sas).is_global() && analyze_effect(I)})){
+                                  !I.use_empty(),
+				  std::move(oldval.get_shared_block()),
+				  compute_races_later, std::move(binops)})){
     abort();
     return;
   }
