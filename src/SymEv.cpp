@@ -249,3 +249,8 @@ void SymEv::set_observed(bool observed) {
     }
   }
 }
+
+void SymEv::set_cmp_op_after(uint_fast8_t op) {
+  assert(kind == RMW);
+  _rmw_cmp_op_after = op;
+}

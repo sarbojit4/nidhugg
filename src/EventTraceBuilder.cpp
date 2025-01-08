@@ -2540,6 +2540,10 @@ static bool eval_cmp(const void *lhs_ptr, uint_fast8_t op, const void *rhs_ptr) 
   case 7: return *(int *)lhs_ptr <= *(int *)rhs_ptr;
   case 8: return *(unsigned *)lhs_ptr >= *(unsigned *)rhs_ptr;
   case 9: return *(int *)lhs_ptr >= *(int *)rhs_ptr;
+  case 100:
+    llvm::dbgs() << "Uninitialized RMW action\n";
+    assert(false);
+    return true;
   default:
     assert(false);
     return true;
@@ -2558,16 +2562,15 @@ static inline void apply_binops(void *value, const EventTraceBuilder::Binops &bi
 }
 
 bool EventTraceBuilder::
-reversal_changes_result(bool old_res, unsigned first, unsigned second,
-			 const Binops &second_ops,
-			 uint_fast8_t compare_op, const void *rhs_ptr) {
+reversal_changes_result(unsigned first, unsigned second, const void *rhs_ptr) {
   assert(prefix[first].sym[0].kind == SymEv::RMW);
   assert(prefix[second].sym[0].kind == SymEv::RMW);
   std::unique_ptr<uint8_t> Ptr((uint8_t*)malloc(prefix[first].sym[0].addr().size));
   memcpy((void*)(Ptr.get()), (void*)(prefix[first].sym[0].oldvalue().get_block()),
 	 prefix[first].sym[0].addr().size);
-  apply_binops((void*)(Ptr.get()), second_ops);
-  return (old_res != eval_cmp((void*)(Ptr.get()), compare_op, rhs_ptr));
+  apply_binops((void*)(Ptr.get()), prefix[second].sym[0].rmw_binops());
+  return (eval_cmp(prefix[second].sym[0].data().get_block(), prefix[second].sym[0].cmp_op_after(), rhs_ptr)
+	  != eval_cmp((void*)(Ptr.get()), prefix[second].sym[0].cmp_op_after(), rhs_ptr));
 }
 
 void EventTraceBuilder::
@@ -2576,9 +2579,6 @@ compute_races_for_source(unsigned rmw_event,
 			 const void *rhs_ptr){
   assert(prefix[rmw_event].compute_races_later &&
 	 prefix[rmw_event].sym[0].kind == SymEv::RMW);
-  bool curr_res =
-    eval_cmp(prefix[rmw_event].sym[0].data().get_block(),
-	     compare_op, rhs_ptr);
 
   VecSet<int> seen_accesses;
   const SymAddrSize &ml = prefix[rmw_event].sym[0].addr();
@@ -2596,11 +2596,11 @@ compute_races_for_source(unsigned rmw_event,
     }
     if(0 <= lu){
       IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
+      prefix[rmw_event].sym[0].set_cmp_op_after(compare_op);
       // Assumption: Doing rmw_event before lu changes the result iff doing
       // lu after rmw_event changes the result.
       //TODO: Check if doing lu after rmw_event changes the result.
-      if(reversal_changes_result(curr_res, lu, rmw_event,
-				 prefix[rmw_event].sym[0].rmw_binops(), compare_op, rhs_ptr)){
+      if(reversal_changes_result(lu, rmw_event, rhs_ptr)){
 	if(lu_tipid != ipid) seen_accesses.insert(lu);
 	//TODO: check the above for each unordered updates
 	m.before_unordered = to_vecset_and_clear(m.unordered_updates);
@@ -4119,8 +4119,37 @@ linearize_sequence(unsigned br_point, Branch second_br,
     }
   }
 
+  bool first_event_rmw = (race.kind == Race::MSG_REV ?
+			  prefix[race.fst_conflict].sym[0].kind == SymEv::RMW :
+			  race.kind == Race::NONBLOCK ?
+			  prefix[race.first_event].sym[0].kind == SymEv::RMW :
+			  false);
   for(unsigned i : sorted_seq){
     Branch br = branch_with_symbolic_data(i);
+    /* Update values in symbolic events of RMWS */
+    //TODO: Generalize for any MSG_REV race
+    unsigned fst_conflict =
+      (race.kind == Race::MSG_REV ? race.fst_conflict : race.first_event);
+    if(prefix[i].sym[0].kind == SymEv::RMW &&
+       prefix[i].sym[0].rmw_used_only_in_cmp() &&
+       prefix[fst_conflict].sym[0].kind == SymEv::RMW &&
+       prefix[fst_conflict].sym[0].rmw_used_only_in_cmp()){
+      void *ioldval = prefix[i].sym[0].oldvalue().get_block();
+      void *inewval = prefix[i].sym[0].data().get_block();
+      for(const auto &op : prefix[race.fst_conflict].sym[0].rmw_binops()){
+	switch(unsigned(op.first)){
+	case 0:
+	  *(unsigned*)ioldval -= op.second;
+	  *(unsigned*)inewval -= op.second;
+	  break;
+	case 1:
+	  *(unsigned*)ioldval += op.second;
+	  *(unsigned*)inewval += op.second;
+	  break;
+	default: assert(false);
+	}
+      }
+    }
     br.clock = clock_WS[i];
     linearized_ws.push_back(br);
   }
@@ -4244,7 +4273,7 @@ recompute_vclock(const std::vector<bool> &in_v,
 	       do_events_conflict(threads[prefix[rr_fst].iid.get_pid()].spid,
 				  prefix[rr_fst].sym,
 				  threads[prefix[r.snd_conflict].iid.get_pid()].spid,
-				  prefix[r.snd_conflict].sym)){//Need re-evaluation of values
+				  prefix[r.snd_conflict].sym)){//Need re-evaluation of values (maybe change not needed)
 	      unsigned rr_bef = (rr.kind == Race::MSG_REV)?
 		threads[prefix[rr.first_event].iid.get_pid()].
 		event_indices.back() : rr.first_event;
@@ -4263,7 +4292,7 @@ recompute_vclock(const std::vector<bool> &in_v,
 	     do_events_conflict(threads[prefix[rr_fst].iid.get_pid()].spid,
 				prefix[rr_fst].sym,
 				threads[prefix[i].iid.get_pid()].spid,
-				prefix[i].sym)){//Need re-evaluation of values
+				prefix[i].sym)){//Need re-evaluation of values (maybe change not needed)
 	    bool msg_rev = r.kind != Race::MSG_REV &&
 	      threads[prefix[i].iid.get_pid()].handler_id != -1 &&
 	      threads[prefix[i].iid.get_pid()].handler_id ==

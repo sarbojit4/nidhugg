@@ -90,6 +90,7 @@ struct SymEv {
   bool _rmw_result_used, _rmw_used_only_in_cmp;
   SymData::block_type _expected, _written, _oldvalue;
   RmwAction::Binops _rmw_binops;
+  uint_fast8_t _rmw_cmp_op_after;
 
   SymEv() : kind(NONE) {}
   static SymEv None() { return {NONE, {}}; }
@@ -162,8 +163,7 @@ struct SymEv {
   SymData oldvalue() const {
     assert(has_rmwaction());
     return {arg.addr, _oldvalue};
-  }
-  
+  }  
   RmwAction rmwaction() const {
     assert(has_rmwaction());
     assert(_expected);
@@ -185,6 +185,11 @@ struct SymEv {
     assert(has_rmwaction());
     return _rmw_binops;
   }
+  uint_fast8_t cmp_op_after() const {
+    assert(has_rmwaction);
+    assert(_rmw_cmp_op_after != 100);
+    return _rmw_cmp_op_after;
+  }
 
   AwaitCond cond() const {
     assert(has_cond());
@@ -194,6 +199,7 @@ struct SymEv {
 
   void purge_data();
   void set_observed(bool observed);
+  void set_cmp_op_after(uint_fast8_t op);
   bool access_global() const{
     if(has_addr()){
       return arg.addr.is_global();
@@ -222,9 +228,8 @@ private:
       _rmw_binops(std::move(action.binops)),
       _expected(std::move(action.operand)),
       _oldvalue(std::move(action.oldvalue)),
-      _written(std::move(addr_written.get_shared_block())) {
-      assert(has_data());
-    }
+      _written(std::move(addr_written.get_shared_block())),
+      _rmw_cmp_op_after(100) { assert(has_data()); }
   SymEv(enum kind kind, SymData addr_written, AwaitCond cond)
     : kind(kind), arg(addr_written.get_ref()), arg2(cond.op),
       _expected(std::move(cond.operand)),
