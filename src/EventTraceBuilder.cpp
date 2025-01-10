@@ -2544,7 +2544,8 @@ static bool eval_cmp(const void *lhs_ptr, uint_fast8_t op, const uint8_t *rhs_pt
 }
 
 static inline void apply_binops(void *value, const EventTraceBuilder::Binops &binops) {
-  //TODO: Consider unsigned, float, 
+  //TODO: Consider unsigned, float,
+  //TODO: Consider operations other than add and sub
   for(const auto &op : binops){
     switch(unsigned(op.first)){
     case 0: *(unsigned*)value += op.second; break;
@@ -2555,16 +2556,41 @@ static inline void apply_binops(void *value, const EventTraceBuilder::Binops &bi
 }
 
 bool EventTraceBuilder::
-reversal_changes_result(unsigned first, unsigned second) {
+reversal_changes_effect(unsigned first, unsigned second) {
   assert(prefix[first].sym[0].kind == SymEv::RMW);
   assert(prefix[second].sym[0].kind == SymEv::RMW);
-  std::unique_ptr<uint8_t> Ptr((uint8_t*)malloc(prefix[first].sym[0].addr().size));
+  unsigned *fst_ptr((unsigned*)malloc(prefix[first].sym[0].addr().size));
+  unsigned *snd_ptr((unsigned*)malloc(prefix[second].sym[0].addr().size));
   const uint8_t *rhs_ptr = prefix[second].sym[0].cmp_rhs();
-  memcpy((void*)(Ptr.get()), (void*)(prefix[first].sym[0].oldvalue().get_block()),
+  memcpy((void*)fst_ptr, (void*)(prefix[first].sym[0].oldvalue().get_block()),
 	 prefix[first].sym[0].addr().size);
-  apply_binops((void*)(Ptr.get()), prefix[second].sym[0].rmw_binops());
-  return (eval_cmp(prefix[second].sym[0].data().get_block(), prefix[second].sym[0].cmp_op_after(), rhs_ptr)
-	  != eval_cmp((void*)(Ptr.get()), prefix[second].sym[0].cmp_op_after(), rhs_ptr));
+  memcpy((void*)snd_ptr, (void*)(prefix[second].sym[0].oldvalue().get_block()),
+	 prefix[second].sym[0].addr().size);
+  apply_binops(fst_ptr, prefix[first].sym[0].rmw_binops());
+  bool fst_cmp_res = eval_cmp(fst_ptr, prefix[first].sym[0].cmp_op_after(),
+			      prefix[first].sym[0].cmp_rhs());
+  apply_binops(snd_ptr, prefix[second].sym[0].rmw_binops());
+  bool snd_cmp_res = eval_cmp(snd_ptr, prefix[second].sym[0].cmp_op_after(),
+			      prefix[second].sym[0].cmp_rhs());
+  /* Calculate the value of the second rmw variable when it occurs in reverse order */
+  /* There are other rmws happen before the current one */
+  if(prefix[first].sym[0].rmw_kind() == RmwAction::ADD)
+    *(unsigned*)snd_ptr -= *(unsigned*)(prefix[first].sym[0].expected().get_block());
+  else
+    *(unsigned*)snd_ptr += *(unsigned*)(prefix[first].sym[0].expected().get_block());
+  bool snd_cmp_res_rev = eval_cmp(snd_ptr, prefix[second].sym[0].cmp_op_after(),
+				  prefix[second].sym[0].cmp_rhs());
+
+  memcpy((void*)fst_ptr, (void*)(prefix[second].sym[0].oldvalue().get_block()),
+    prefix[second].sym[0].addr().size);
+  /* Calculate the value of the first rmw variable when it occurs in reverse order */
+  if(prefix[second].sym[0].rmw_kind() == RmwAction::ADD)
+    *(unsigned*)fst_ptr += *(unsigned*)(prefix[second].sym[0].expected().get_block());
+  else
+    *(unsigned*)fst_ptr -= *(unsigned*)(prefix[second].sym[0].expected().get_block());  
+  bool fst_cmp_res_rev = eval_cmp(fst_ptr, prefix[first].sym[0].cmp_op_after(),
+				  prefix[first].sym[0].cmp_rhs());
+  return (fst_cmp_res != fst_cmp_res_rev || snd_cmp_res != snd_cmp_res_rev);
 }
 
 void EventTraceBuilder::
@@ -2590,12 +2616,9 @@ compute_races_for_source(unsigned rmw_event,
       if (i < 0) continue;
       if(prefix[i].iid.get_pid() != ipid) seen_accesses.insert(i);
     }
-    if(0 <= lu){
+    if(0 <= lu && lu < rmw_event){
       IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
-      // Assumption: Doing rmw_event before lu changes the result iff doing
-      // lu after rmw_event changes the result.
-      //TODO: Check if doing lu after rmw_event changes the result.
-      if(reversal_changes_result(lu, rmw_event)){
+      if(reversal_changes_effect(lu, rmw_event)){
 	if(lu_tipid != ipid) seen_accesses.insert(lu);
 	//TODO: check the above for each unordered updates
 	m.before_unordered = to_vecset_and_clear(m.unordered_updates);
