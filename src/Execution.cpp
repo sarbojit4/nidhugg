@@ -403,8 +403,8 @@ void Interpreter::visitICmpInst(ICmpInst &I) {
     uint64_t alloc_size = getDataLayout().getTypeAllocSize(I.getOperand(1)->getType());
 #endif
     if(reading_from.find(std::make_pair(&I,CurrentThread)) != reading_from.end()){
-      void *rhs_ptr = malloc(alloc_size);
-      StoreValueToMemory(Src2,static_cast<GenericValue*>(rhs_ptr),Ty);
+      std::shared_ptr<uint8_t> rhs_ptr(new uint8_t[alloc_size], std::default_delete<uint8_t[]>());
+      StoreValueToMemory(Src2, static_cast<GenericValue*>((void*)(rhs_ptr.get())),Ty);
       static_cast<EventTraceBuilder*>(&TB)->
         compute_races_for_source(reading_from[std::make_pair((const llvm::Instruction*)&I,CurrentThread)],
 				 op, rhs_ptr);
@@ -1216,7 +1216,8 @@ void Interpreter::DryRunLoadValueFromMemory(GenericValue &Val,
   delete[] buf;
 }
 
-bool Interpreter::analyze_effect(const Instruction &I, Binops &binops){
+ bool Interpreter::analyze_effect(const Instruction &I, Binops &binops,
+				  uint_fast8_t &cmp_op_after){
   // Consider only x cmp k, rmw(x) cmp k  
   ExecutionContext &SF = ECStack()->back();
   const Instruction* IPtr = &I;
@@ -1243,6 +1244,21 @@ bool Interpreter::analyze_effect(const Instruction &I, Binops &binops){
     if(llvm::isa<llvm::ICmpInst>(IPtr)){
       reading_from[std::pair<const llvm::Instruction*,int>(IPtr, CurrentThread)] =
 	static_cast<EventTraceBuilder*>(&TB)->get_prefix_index();
+      switch (llvm::dyn_cast<llvm::ICmpInst>(IPtr)->getPredicate()) {
+      case ICmpInst::ICMP_EQ: cmp_op_after = 0; break;
+      case ICmpInst::ICMP_NE: cmp_op_after = 1; break;
+      case ICmpInst::ICMP_ULT: cmp_op_after = 2; break;
+      case ICmpInst::ICMP_SLT: cmp_op_after = 3; break;
+      case ICmpInst::ICMP_UGT: cmp_op_after = 4; break;
+      case ICmpInst::ICMP_SGT: cmp_op_after = 5; break;
+      case ICmpInst::ICMP_ULE: cmp_op_after = 6; break;
+      case ICmpInst::ICMP_SLE: cmp_op_after = 7; break;
+      case ICmpInst::ICMP_UGE: cmp_op_after = 8; break;
+      case ICmpInst::ICMP_SGE: cmp_op_after = 9; break;
+      default:
+	dbgs() << "Don't know how to handle this ICmp predicate!\n-->" << I;
+	llvm_unreachable(0);
+      }
       return true;
     }
   }
@@ -1428,12 +1444,14 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
   SymData operand = GetSymData(*Ptr_sas,I.getType(),Val);
   SymData oldval = GetSymData(*Ptr_sas,I.getType(),OldVal);
   Binops binops;
+  uint_fast8_t cmp_op_after;
   bool compute_races_later = ((*Ptr_sas).is_global() &&
-			      analyze_effect(I, binops));
+			      analyze_effect(I, binops, cmp_op_after));
   if(!TB.atomic_rmw(sd, RmwAction{kind, std::move(operand.get_shared_block()),
                                   !I.use_empty(),
 				  std::move(oldval.get_shared_block()),
-				  compute_races_later, std::move(binops)})){
+				  compute_races_later, std::move(binops),
+				  cmp_op_after, std::shared_ptr<uint8_t>(nullptr)})){
     abort();
     return;
   }

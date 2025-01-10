@@ -254,3 +254,9 @@ void SymEv::set_cmp_op_after(uint_fast8_t op) {
   assert(kind == RMW);
   _rmw_cmp_op_after = op;
 }
+
+void SymEv::set_cmp_rhs(std::shared_ptr<uint8_t> rhs_ptr) {
+  assert(kind == RMW);
+  _rmw_cmp_rhs = rhs_ptr;
+}
+

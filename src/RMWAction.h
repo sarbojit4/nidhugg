@@ -46,15 +46,19 @@ struct RmwAction {
   bool result_used;
   /* True if the result is used only in the next compare instruction
    * e.g. ++x == 2 */
-  bool used_only_in_cmp;
+  bool used_only_by_cmp;
+  /* Information to recompute the result of the only comparison afterwards */
   typedef std::vector<std::pair<uint_fast8_t, unsigned>> Binops;
   Binops binops;
+  uint_fast8_t cmp_op;
+  std::shared_ptr<uint8_t> cmp_rhs;
 
   RmwAction(Kind kind, SymData::block_type operand, bool result_used,
-	    SymData::block_type oldvalue, bool used_only_in_cmp, Binops binops)
+	    SymData::block_type oldvalue, bool used_only_by_cmp, Binops binops,
+	    uint_fast8_t cmp_op, std::shared_ptr<uint8_t> cmp_rhs)
     : operand(std::move(operand)), oldvalue(std::move(oldvalue)), kind(kind),
-    result_used(result_used), used_only_in_cmp(used_only_in_cmp),
-    binops(std::move(binops)) {}
+    result_used(result_used), used_only_by_cmp(used_only_by_cmp),
+    binops(std::move(binops)), cmp_op(cmp_op), cmp_rhs(cmp_rhs) {}
 
   static const char *name(Kind op);
 

@@ -292,7 +292,7 @@ protected:
   // registered with the atexit() library function.
   std::vector<Function*> AtExitHandlers;
 
-  bool analyze_effect(const Instruction &I, Binops &binops);
+  bool analyze_effect(const Instruction &I, Binops &binops, uint_fast8_t &cmp_op_after);
 public:
   explicit Interpreter(Module *M, TSOPSOTraceBuilder &TB,
                        const Configuration &conf = Configuration::default_conf);

@@ -1029,22 +1029,19 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
 
 /* This predicate has to be transitive. */
 static bool rmwaction_commutes(const Configuration &conf,
-                               RmwAction::Kind lhs, bool lhs_used,
-			       bool lhs_used_only_by_cmp,
-                               RmwAction::Kind rhs, bool rhs_used,
-			       bool rhs_used_only_by_cmp) {
+                               const RmwAction &lhs,
+                               const RmwAction &rhs) {
   if (!conf.commute_rmws) return false;
-  if ((lhs_used && !lhs_used_only_by_cmp) ||
-      (rhs_used && !rhs_used_only_by_cmp)) return false;
+  if (lhs.result_used || rhs.result_used) return false;
   using Kind = RmwAction::Kind;
-  switch(lhs) {
+  switch(lhs.kind) {
   case Kind::ADD: case Kind::SUB:
-    return (rhs == Kind::ADD || rhs == Kind::SUB);
+    return (rhs.kind == Kind::ADD || rhs.kind == Kind::SUB);
   case Kind::XCHG:
     return false;
   default:
     /* All kinds except for XCHG commutes with themselves */
-    return rhs == lhs;
+    return rhs.kind == lhs.kind;
   }
   return false;
 }
@@ -1110,21 +1107,17 @@ bool EventTraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
       sym_ty &lu_sym = prefix[lu].sym;
       if (lu_sym.size() != 1
 	  || lu_sym[0].kind != SymEv::RMW
-	  || !rmwaction_commutes(conf, lu_sym[0].rmw_kind(),
-				 lu_sym[0].rmw_result_used(),
-				 lu_sym[0].rmw_used_only_in_cmp(),
-				 action.kind, action.result_used,
-				 action.used_only_in_cmp)
+	  || (!rmwaction_commutes(conf, lu_sym[0].rmwaction(), action) && !action.used_only_by_cmp)
 	  || lu_sym[0].addr() != ml
 	  || !same_unordered_updates_ml) {
 	conflicts_with_lu = true;
 	observe_memory(b, bi, seen_accesses, seen_pairs, true);
-	} else if(action.used_only_in_cmp) {
-	  // ASSUME: one henadler, meaning the compare instruction that uses the
-	  // result of RMW is executed before any other later RMW.
-	  /* Skip adding the races */
-	  curev().compute_races_later = true;
-	  return true;
+      } else if(action.used_only_by_cmp) {
+	// ASSUME: one henadler, meaning the compare instruction that uses the
+	// result of RMW is executed before any other later RMW.
+	/* Skip adding the races */
+	curev().compute_races_later = true;
+	return true;
       } else {
 	seen_accesses.insert(bi.before_unordered);
       }
@@ -2527,7 +2520,7 @@ static It frontier_filter(It first, It last, LessFn less){
   return fill;
 }
 
-static bool eval_cmp(const void *lhs_ptr, uint_fast8_t op, const void *rhs_ptr) {
+static bool eval_cmp(const void *lhs_ptr, uint_fast8_t op, const uint8_t *rhs_ptr) {
   //TODO: Consider float, long ....
   switch(op) {
   case 0: return *(unsigned *)lhs_ptr == *(unsigned *)rhs_ptr;
@@ -2562,10 +2555,11 @@ static inline void apply_binops(void *value, const EventTraceBuilder::Binops &bi
 }
 
 bool EventTraceBuilder::
-reversal_changes_result(unsigned first, unsigned second, const void *rhs_ptr) {
+reversal_changes_result(unsigned first, unsigned second) {
   assert(prefix[first].sym[0].kind == SymEv::RMW);
   assert(prefix[second].sym[0].kind == SymEv::RMW);
   std::unique_ptr<uint8_t> Ptr((uint8_t*)malloc(prefix[first].sym[0].addr().size));
+  const uint8_t *rhs_ptr = prefix[second].sym[0].cmp_rhs();
   memcpy((void*)(Ptr.get()), (void*)(prefix[first].sym[0].oldvalue().get_block()),
 	 prefix[first].sym[0].addr().size);
   apply_binops((void*)(Ptr.get()), prefix[second].sym[0].rmw_binops());
@@ -2576,9 +2570,11 @@ reversal_changes_result(unsigned first, unsigned second, const void *rhs_ptr) {
 void EventTraceBuilder::
 compute_races_for_source(unsigned rmw_event,
 			 uint_fast8_t compare_op,
-			 const void *rhs_ptr){
+			 std::shared_ptr<uint8_t> rhs_ptr){
   assert(prefix[rmw_event].compute_races_later &&
 	 prefix[rmw_event].sym[0].kind == SymEv::RMW);
+  prefix[rmw_event].sym[0].set_cmp_op_after(compare_op);
+  prefix[rmw_event].sym[0].set_cmp_rhs(rhs_ptr);
 
   VecSet<int> seen_accesses;
   const SymAddrSize &ml = prefix[rmw_event].sym[0].addr();
@@ -2596,11 +2592,10 @@ compute_races_for_source(unsigned rmw_event,
     }
     if(0 <= lu){
       IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
-      prefix[rmw_event].sym[0].set_cmp_op_after(compare_op);
       // Assumption: Doing rmw_event before lu changes the result iff doing
       // lu after rmw_event changes the result.
       //TODO: Check if doing lu after rmw_event changes the result.
-      if(reversal_changes_result(lu, rmw_event, rhs_ptr)){
+      if(reversal_changes_result(lu, rmw_event)){
 	if(lu_tipid != ipid) seen_accesses.insert(lu);
 	//TODO: check the above for each unordered updates
 	m.before_unordered = to_vecset_and_clear(m.unordered_updates);
@@ -2846,7 +2841,7 @@ void EventTraceBuilder::compute_vclocks(){
         } else{
 	  for (const SymEv &fe : prefix[it->first_event].sym)
 	    for (const SymEv &se : prefix[it->second_event].sym)
-	      if(do_symevs_conflict(it->first_event, fe, it->second_event, se))
+	      if(do_symevs_conflict(it->first_event, fe, it->second_event, se))//Need re-evaluation of values
 		add_happens_after(it->second_event, it->first_event);
 	}
       }
@@ -2896,7 +2891,7 @@ void EventTraceBuilder::compute_vclocks(){
     for(auto it = fill; it != end; ++it){
       for (const SymEv &fe : prefix[it->first_event].sym)
 	for (const SymEv &se : prefix[it->second_event].sym)
-	  if(do_symevs_conflict(it->first_event, fe, it->second_event, se))
+	  if(do_symevs_conflict(it->first_event, fe, it->second_event, se))//Need re-evaluation of values
 	    add_happens_after(it->second_event, it->first_event);	      
     }
     /* Add clocks of remaining (reversible) races */
@@ -3000,8 +2995,8 @@ bool EventTraceBuilder::do_symevs_conflict
       && fst.addr() == snd.addr()) return false;
   if (fst.kind == SymEv::RMW && snd.kind == SymEv::RMW
       && fst.addr() == snd.addr()
-      && rmwaction_commutes(conf, fst.rmw_kind(), fst.rmw_result_used(), false,
-                            snd.rmw_kind(), snd.rmw_result_used(), false)) {
+      && rmwaction_commutes(conf, fst.rmwaction(),
+                            snd.rmwaction())) {
     return false;
   }
 
@@ -4131,9 +4126,9 @@ linearize_sequence(unsigned br_point, Branch second_br,
     unsigned fst_conflict =
       (race.kind == Race::MSG_REV ? race.fst_conflict : race.first_event);
     if(prefix[i].sym[0].kind == SymEv::RMW &&
-       prefix[i].sym[0].rmw_used_only_in_cmp() &&
+       prefix[i].sym[0].rmw_used_only_by_cmp() &&
        prefix[fst_conflict].sym[0].kind == SymEv::RMW &&
-       prefix[fst_conflict].sym[0].rmw_used_only_in_cmp()){
+       prefix[fst_conflict].sym[0].rmw_used_only_by_cmp()){
       void *ioldval = prefix[i].sym[0].oldvalue().get_block();
       void *inewval = prefix[i].sym[0].data().get_block();
       for(const auto &op : prefix[race.fst_conflict].sym[0].rmw_binops()){
