@@ -386,7 +386,7 @@ bool EventTraceBuilder::reset(){
 	  if(slp_tree_it->first == threads[ipid].spid ||
 	     prefix[k].clock.lt(tail.back().clock)){
 	    std::list<Branch> new_tail = std::move(tail);
-	    new_tail.push_front(prefix.branch(k));
+	    new_tail.push_front(branch_with_symbolic_data(k));
 	    tail_set.insert(std::move(new_tail));
 	  }
 	}
@@ -399,7 +399,7 @@ bool EventTraceBuilder::reset(){
 	//TODO: collect all global events(locks,conds,mutexes,...)
 	explored_tails.
 	  emplace(threads[ipid].spid,
-		  std::set<std::list<Branch>>{std::list<Branch>(1,prefix.branch(k))});
+		  std::set<std::list<Branch>>{std::list<Branch>(1,branch_with_symbolic_data(k))});
       }
     }
     /* Add the previous explored tails */
@@ -1028,20 +1028,22 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
 }
 
 /* This predicate has to be transitive. */
-static bool rmwaction_commutes(const Configuration &conf,
-                               const RmwAction &lhs,
-                               const RmwAction &rhs) {
+static bool rmw_symevs_commutes(const Configuration &conf,
+                               const SymEv &lhs,
+                               const SymEv &rhs) {
   if (!conf.commute_rmws) return false;
-  if (lhs.result_used || rhs.result_used) return false;
+  if ((lhs.rmw_result_used() && !lhs.rmw_used_only_by_cmp()) ||
+      (rhs.rmw_result_used() && !rhs.rmw_used_only_by_cmp())) return false;
   using Kind = RmwAction::Kind;
-  switch(lhs.kind) {
+  switch(lhs.rmw_kind()) {
   case Kind::ADD: case Kind::SUB:
-    return (rhs.kind == Kind::ADD || rhs.kind == Kind::SUB);
+    return ((rhs.rmw_kind() == Kind::ADD || rhs.rmw_kind() == Kind::SUB) &&
+	    rhs.cmp_rhs() == nullptr);
   case Kind::XCHG:
     return false;
   default:
     /* All kinds except for XCHG commutes with themselves */
-    return rhs.kind == lhs.kind;
+    return rhs.rmw_kind() == lhs.rmw_kind();
   }
   return false;
 }
@@ -1107,7 +1109,7 @@ bool EventTraceBuilder::atomic_rmw(const SymData &sd, RmwAction action) {
       sym_ty &lu_sym = prefix[lu].sym;
       if (lu_sym.size() != 1
 	  || lu_sym[0].kind != SymEv::RMW
-	  || (!rmwaction_commutes(conf, lu_sym[0].rmwaction(), action) && !action.used_only_by_cmp)
+	  || !rmw_symevs_commutes(conf, lu_sym[0], curev().sym[0])
 	  || lu_sym[0].addr() != ml
 	  || !same_unordered_updates_ml) {
 	conflicts_with_lu = true;
@@ -2555,42 +2557,39 @@ static inline void apply_binops(void *value, const EventTraceBuilder::Binops &bi
   }
 }
 
-bool EventTraceBuilder::
-reversal_changes_effect(unsigned first, unsigned second) {
-  assert(prefix[first].sym[0].kind == SymEv::RMW);
-  assert(prefix[second].sym[0].kind == SymEv::RMW);
-  unsigned *fst_ptr((unsigned*)malloc(prefix[first].sym[0].addr().size));
-  unsigned *snd_ptr((unsigned*)malloc(prefix[second].sym[0].addr().size));
-  const uint8_t *rhs_ptr = prefix[second].sym[0].cmp_rhs();
-  memcpy((void*)fst_ptr, (void*)(prefix[first].sym[0].oldvalue().get_block()),
-	 prefix[first].sym[0].addr().size);
-  memcpy((void*)snd_ptr, (void*)(prefix[second].sym[0].oldvalue().get_block()),
-	 prefix[second].sym[0].addr().size);
-  apply_binops(fst_ptr, prefix[first].sym[0].rmw_binops());
-  bool fst_cmp_res = eval_cmp(fst_ptr, prefix[first].sym[0].cmp_op_after(),
-			      prefix[first].sym[0].cmp_rhs());
-  apply_binops(snd_ptr, prefix[second].sym[0].rmw_binops());
-  bool snd_cmp_res = eval_cmp(snd_ptr, prefix[second].sym[0].cmp_op_after(),
-			      prefix[second].sym[0].cmp_rhs());
+static bool symev_reversal_changes_effect(const SymEv &first, const SymEv &second) {
+  assert(first.kind == SymEv::RMW);
+  assert(second.kind == SymEv::RMW);
+  unsigned *fst_ptr((unsigned*)malloc(first.addr().size));
+  unsigned *snd_ptr((unsigned*)malloc(second.addr().size));
+  const uint8_t *rhs_ptr = second.cmp_rhs();
+  memcpy((void*)fst_ptr, (void*)(first.oldvalue().get_block()), first.addr().size);
+  memcpy((void*)snd_ptr, (void*)(second.oldvalue().get_block()), second.addr().size);
+  apply_binops(fst_ptr, first.rmw_binops());
+  bool fst_cmp_res = eval_cmp(fst_ptr, first.cmp_op_after(), first.cmp_rhs());
+  apply_binops(snd_ptr, second.rmw_binops());
+  bool snd_cmp_res = eval_cmp(snd_ptr, second.cmp_op_after(),second.cmp_rhs());
+
   /* Calculate the value of the second rmw variable when it occurs in reverse order */
   /* There are other rmws happen before the current one */
-  if(prefix[first].sym[0].rmw_kind() == RmwAction::ADD)
-    *(unsigned*)snd_ptr -= *(unsigned*)(prefix[first].sym[0].expected().get_block());
+  if(first.rmw_kind() == RmwAction::ADD)
+    *(unsigned*)snd_ptr -= *(unsigned*)(first.expected().get_block());
   else
-    *(unsigned*)snd_ptr += *(unsigned*)(prefix[first].sym[0].expected().get_block());
-  bool snd_cmp_res_rev = eval_cmp(snd_ptr, prefix[second].sym[0].cmp_op_after(),
-				  prefix[second].sym[0].cmp_rhs());
+    *(unsigned*)snd_ptr += *(unsigned*)(first.expected().get_block());
+  bool snd_cmp_res_rev = eval_cmp(snd_ptr, second.cmp_op_after(), second.cmp_rhs());
 
-  memcpy((void*)fst_ptr, (void*)(prefix[second].sym[0].oldvalue().get_block()),
-    prefix[second].sym[0].addr().size);
   /* Calculate the value of the first rmw variable when it occurs in reverse order */
-  if(prefix[second].sym[0].rmw_kind() == RmwAction::ADD)
-    *(unsigned*)fst_ptr += *(unsigned*)(prefix[second].sym[0].expected().get_block());
+  memcpy((void*)fst_ptr, (void*)(second.oldvalue().get_block()), second.addr().size);
+  if(second.rmw_kind() == RmwAction::ADD)
+    *(unsigned*)fst_ptr += *(unsigned*)(second.expected().get_block());
   else
-    *(unsigned*)fst_ptr -= *(unsigned*)(prefix[second].sym[0].expected().get_block());  
-  bool fst_cmp_res_rev = eval_cmp(fst_ptr, prefix[first].sym[0].cmp_op_after(),
-				  prefix[first].sym[0].cmp_rhs());
+    *(unsigned*)fst_ptr -= *(unsigned*)(second.expected().get_block());  
+  bool fst_cmp_res_rev = eval_cmp(fst_ptr, first.cmp_op_after(), first.cmp_rhs());
   return (fst_cmp_res != fst_cmp_res_rev || snd_cmp_res != snd_cmp_res_rev);
+}
+
+bool EventTraceBuilder::reversal_changes_effect(unsigned first, unsigned second) {
+  return symev_reversal_changes_effect(prefix[first].sym[0], prefix[second].sym[0]);
 }
 
 void EventTraceBuilder::
@@ -3018,8 +3017,7 @@ bool EventTraceBuilder::do_symevs_conflict
       && fst.addr() == snd.addr()) return false;
   if (fst.kind == SymEv::RMW && snd.kind == SymEv::RMW
       && fst.addr() == snd.addr()
-      && rmwaction_commutes(conf, fst.rmwaction(),
-                            snd.rmwaction())) {
+      && rmw_symevs_commutes(conf, fst, snd)) {
     return false;
   }
 
@@ -3946,7 +3944,6 @@ bool EventTraceBuilder::
 remove_partial_msgs(std::vector<Branch> &v, const VClock<IPid> &second_br_clock,
 		    std::map<IPid, std::vector<unsigned>> clear_set,
 		    std::vector<IPid> &ongoing_msg) const{
-  //llvm::dbgs()<<"Hello1\n";/////////////
   unsigned old_size = v.size();
   /* partial_msg[k] = true iff k is partial in v */ 
   bool partial_msg[SPS.num_of_threads()];
