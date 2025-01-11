@@ -57,7 +57,6 @@ public:
   void report_old_value(const uint64_t *ptr, uint16_t size);
   unsigned get_prefix_index() const;
   typedef std::vector<std::pair<uint_fast8_t, unsigned>> Binops;
-  bool reversal_changes_effect(unsigned first, unsigned second);
   void compute_races_for_source(unsigned rmw_event,
 				uint_fast8_t compare_op,
 			        std::shared_ptr<uint8_t> rhs_ptr);

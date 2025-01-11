@@ -1027,6 +1027,72 @@ void EventTraceBuilder::do_atomic_store(const SymData &sd){
   see_event_pairs(seen_pairs);
 }
 
+static bool eval_cmp(const void *lhs_ptr, uint_fast8_t op, const uint8_t *rhs_ptr) {
+  //TODO: Consider float, long ....
+  switch(op) {
+  case 0: return *(unsigned *)lhs_ptr == *(unsigned *)rhs_ptr;
+  case 1: return *(unsigned *)lhs_ptr != *(unsigned *)rhs_ptr;
+  case 2: return *(unsigned *)lhs_ptr < *(unsigned *)rhs_ptr;
+  case 3: return *(int *)lhs_ptr < *(int *)rhs_ptr;
+  case 4: return *(unsigned *)lhs_ptr > *(unsigned *)rhs_ptr;
+  case 5: return *(int *)lhs_ptr > *(int *)rhs_ptr;
+  case 6: return *(unsigned *)lhs_ptr <= *(unsigned *)rhs_ptr;
+  case 7: return *(int *)lhs_ptr <= *(int *)rhs_ptr;
+  case 8: return *(unsigned *)lhs_ptr >= *(unsigned *)rhs_ptr;
+  case 9: return *(int *)lhs_ptr >= *(int *)rhs_ptr;
+  case 100:
+    llvm::dbgs() << "Uninitialized RMW action\n";
+    assert(false);
+    return true;
+  default:
+    assert(false);
+    return true;
+  }
+}
+
+static inline void apply_binops(void *value, const EventTraceBuilder::Binops &binops) {
+  //TODO: Consider unsigned, float,
+  //TODO: Consider operations other than add and sub
+  for(const auto &op : binops){
+    switch(unsigned(op.first)){
+    case 0: *(unsigned*)value += op.second; break;
+    case 1: *(unsigned*)value -= op.second; break;
+    default: assert(false);
+    }
+  }
+}
+
+static bool rmw_reversal_changes_effect(const SymEv &first, const SymEv &second) {
+  assert(first.kind == SymEv::RMW);
+  assert(second.kind == SymEv::RMW);
+  unsigned *fst_ptr((unsigned*)malloc(first.addr().size));
+  unsigned *snd_ptr((unsigned*)malloc(second.addr().size));
+  const uint8_t *rhs_ptr = second.cmp_rhs();
+  memcpy((void*)fst_ptr, (void*)(first.oldvalue().get_block()), first.addr().size);
+  memcpy((void*)snd_ptr, (void*)(second.oldvalue().get_block()), second.addr().size);
+  apply_binops(fst_ptr, first.rmw_binops());
+  bool fst_cmp_res = eval_cmp(fst_ptr, first.cmp_op_after(), first.cmp_rhs());
+  apply_binops(snd_ptr, second.rmw_binops());
+  bool snd_cmp_res = eval_cmp(snd_ptr, second.cmp_op_after(),second.cmp_rhs());
+
+  /* Calculate the value of the second rmw variable when it occurs in reverse order */
+  /* There are other rmws happen before the current one */
+  if(first.rmw_kind() == RmwAction::ADD)
+    *(unsigned*)snd_ptr -= *(unsigned*)(first.expected().get_block());
+  else
+    *(unsigned*)snd_ptr += *(unsigned*)(first.expected().get_block());
+  bool snd_cmp_res_rev = eval_cmp(snd_ptr, second.cmp_op_after(), second.cmp_rhs());
+
+  /* Calculate the value of the first rmw variable when it occurs in reverse order */
+  memcpy((void*)fst_ptr, (void*)(second.oldvalue().get_block()), second.addr().size);
+  if(second.rmw_kind() == RmwAction::ADD)
+    *(unsigned*)fst_ptr += *(unsigned*)(second.expected().get_block());
+  else
+    *(unsigned*)fst_ptr -= *(unsigned*)(second.expected().get_block());  
+  bool fst_cmp_res_rev = eval_cmp(fst_ptr, first.cmp_op_after(), first.cmp_rhs());
+  return (fst_cmp_res != fst_cmp_res_rev || snd_cmp_res != snd_cmp_res_rev);
+}
+
 /* This predicate has to be transitive. */
 static bool rmw_symevs_commutes(const Configuration &conf,
                                const SymEv &lhs,
@@ -1038,7 +1104,7 @@ static bool rmw_symevs_commutes(const Configuration &conf,
   switch(lhs.rmw_kind()) {
   case Kind::ADD: case Kind::SUB:
     return ((rhs.rmw_kind() == Kind::ADD || rhs.rmw_kind() == Kind::SUB) &&
-	    rhs.cmp_rhs() == nullptr);
+	    (rhs.cmp_rhs() == nullptr || !rmw_reversal_changes_effect(lhs, rhs)));
   case Kind::XCHG:
     return false;
   default:
@@ -2522,76 +2588,6 @@ static It frontier_filter(It first, It last, LessFn less){
   return fill;
 }
 
-static bool eval_cmp(const void *lhs_ptr, uint_fast8_t op, const uint8_t *rhs_ptr) {
-  //TODO: Consider float, long ....
-  switch(op) {
-  case 0: return *(unsigned *)lhs_ptr == *(unsigned *)rhs_ptr;
-  case 1: return *(unsigned *)lhs_ptr != *(unsigned *)rhs_ptr;
-  case 2: return *(unsigned *)lhs_ptr < *(unsigned *)rhs_ptr;
-  case 3: return *(int *)lhs_ptr < *(int *)rhs_ptr;
-  case 4: return *(unsigned *)lhs_ptr > *(unsigned *)rhs_ptr;
-  case 5: return *(int *)lhs_ptr > *(int *)rhs_ptr;
-  case 6: return *(unsigned *)lhs_ptr <= *(unsigned *)rhs_ptr;
-  case 7: return *(int *)lhs_ptr <= *(int *)rhs_ptr;
-  case 8: return *(unsigned *)lhs_ptr >= *(unsigned *)rhs_ptr;
-  case 9: return *(int *)lhs_ptr >= *(int *)rhs_ptr;
-  case 100:
-    llvm::dbgs() << "Uninitialized RMW action\n";
-    assert(false);
-    return true;
-  default:
-    assert(false);
-    return true;
-  }
-}
-
-static inline void apply_binops(void *value, const EventTraceBuilder::Binops &binops) {
-  //TODO: Consider unsigned, float,
-  //TODO: Consider operations other than add and sub
-  for(const auto &op : binops){
-    switch(unsigned(op.first)){
-    case 0: *(unsigned*)value += op.second; break;
-    case 1: *(unsigned*)value -= op.second; break;
-    default: assert(false);
-    }
-  }
-}
-
-static bool symev_reversal_changes_effect(const SymEv &first, const SymEv &second) {
-  assert(first.kind == SymEv::RMW);
-  assert(second.kind == SymEv::RMW);
-  unsigned *fst_ptr((unsigned*)malloc(first.addr().size));
-  unsigned *snd_ptr((unsigned*)malloc(second.addr().size));
-  const uint8_t *rhs_ptr = second.cmp_rhs();
-  memcpy((void*)fst_ptr, (void*)(first.oldvalue().get_block()), first.addr().size);
-  memcpy((void*)snd_ptr, (void*)(second.oldvalue().get_block()), second.addr().size);
-  apply_binops(fst_ptr, first.rmw_binops());
-  bool fst_cmp_res = eval_cmp(fst_ptr, first.cmp_op_after(), first.cmp_rhs());
-  apply_binops(snd_ptr, second.rmw_binops());
-  bool snd_cmp_res = eval_cmp(snd_ptr, second.cmp_op_after(),second.cmp_rhs());
-
-  /* Calculate the value of the second rmw variable when it occurs in reverse order */
-  /* There are other rmws happen before the current one */
-  if(first.rmw_kind() == RmwAction::ADD)
-    *(unsigned*)snd_ptr -= *(unsigned*)(first.expected().get_block());
-  else
-    *(unsigned*)snd_ptr += *(unsigned*)(first.expected().get_block());
-  bool snd_cmp_res_rev = eval_cmp(snd_ptr, second.cmp_op_after(), second.cmp_rhs());
-
-  /* Calculate the value of the first rmw variable when it occurs in reverse order */
-  memcpy((void*)fst_ptr, (void*)(second.oldvalue().get_block()), second.addr().size);
-  if(second.rmw_kind() == RmwAction::ADD)
-    *(unsigned*)fst_ptr += *(unsigned*)(second.expected().get_block());
-  else
-    *(unsigned*)fst_ptr -= *(unsigned*)(second.expected().get_block());  
-  bool fst_cmp_res_rev = eval_cmp(fst_ptr, first.cmp_op_after(), first.cmp_rhs());
-  return (fst_cmp_res != fst_cmp_res_rev || snd_cmp_res != snd_cmp_res_rev);
-}
-
-bool EventTraceBuilder::reversal_changes_effect(unsigned first, unsigned second) {
-  return symev_reversal_changes_effect(prefix[first].sym[0], prefix[second].sym[0]);
-}
-
 void EventTraceBuilder::
 compute_races_for_source(unsigned rmw_event,
 			 uint_fast8_t compare_op,
@@ -2617,7 +2613,7 @@ compute_races_for_source(unsigned rmw_event,
     }
     if(0 <= lu && lu < rmw_event){
       IPid lu_tipid = prefix[lu].iid.get_pid() & ~0x1;
-      if(reversal_changes_effect(lu, rmw_event)){
+      if(rmw_reversal_changes_effect(prefix[lu].sym[0], prefix[rmw_event].sym[0])){
 	if(lu_tipid != ipid) seen_accesses.insert(lu);
 	//TODO: check the above for each unordered updates
 	m.before_unordered = to_vecset_and_clear(m.unordered_updates);
