@@ -407,7 +407,7 @@ void Interpreter::visitICmpInst(ICmpInst &I) {
       StoreValueToMemory(Src2, static_cast<GenericValue*>((void*)(rhs_ptr.get())),Ty);
       static_cast<EventTraceBuilder*>(&TB)->
         compute_races_for_source(reading_from[std::make_pair((const llvm::Instruction*)&I,CurrentThread)],
-				 op, rhs_ptr);
+                                 op, rhs_ptr);
     }
   }
 
@@ -1217,7 +1217,7 @@ void Interpreter::DryRunLoadValueFromMemory(GenericValue &Val,
 }
 
  bool Interpreter::analyze_effect(const Instruction &I, Binops &binops,
-				  uint_fast8_t &cmp_op_after){
+                                  uint_fast8_t &cmp_op_after){
   // Consider only x cmp k, rmw(x) cmp k  
   ExecutionContext &SF = ECStack()->back();
   const Instruction* IPtr = &I;
@@ -1234,8 +1234,8 @@ void Interpreter::DryRunLoadValueFromMemory(GenericValue &Val,
 #endif
       void *op1 = malloc(alloc_size);
       StoreValueToMemory(getOperandValue(operand1, SF),
-			 static_cast<GenericValue*>(op1),
-			 operand1->getType());
+                         static_cast<GenericValue*>(op1),
+                         operand1->getType());
       unsigned optype = IPtr->getOpcode();
       if(optype != Instruction::Add && optype != Instruction::Sub) return false;
       binops.emplace_back((optype == Instruction::Sub), *(unsigned*)op1);
@@ -1243,7 +1243,7 @@ void Interpreter::DryRunLoadValueFromMemory(GenericValue &Val,
     IPtr = IPtr->user_back();
     if(llvm::isa<llvm::ICmpInst>(IPtr)){
       reading_from[std::pair<const llvm::Instruction*,int>(IPtr, CurrentThread)] =
-	static_cast<EventTraceBuilder*>(&TB)->get_prefix_index();
+        static_cast<EventTraceBuilder*>(&TB)->get_prefix_index();
       switch (llvm::dyn_cast<llvm::ICmpInst>(IPtr)->getPredicate()) {
       case ICmpInst::ICMP_EQ: cmp_op_after = 0; break;
       case ICmpInst::ICMP_NE: cmp_op_after = 1; break;
@@ -1256,8 +1256,8 @@ void Interpreter::DryRunLoadValueFromMemory(GenericValue &Val,
       case ICmpInst::ICMP_UGE: cmp_op_after = 8; break;
       case ICmpInst::ICMP_SGE: cmp_op_after = 9; break;
       default:
-	dbgs() << "Don't know how to handle this ICmp predicate!\n-->" << I;
-	llvm_unreachable(0);
+        dbgs() << "Don't know how to handle this ICmp predicate!\n-->" << I;
+        llvm_unreachable(0);
       }
       return true;
     }
@@ -1446,12 +1446,12 @@ void Interpreter::visitAtomicRMWInst(AtomicRMWInst &I){
   Binops binops;
   uint_fast8_t cmp_op_after;
   bool compute_races_later = ((*Ptr_sas).is_global() &&
-			      analyze_effect(I, binops, cmp_op_after));
+                              analyze_effect(I, binops, cmp_op_after));
   if(!TB.atomic_rmw(sd, RmwAction{kind, std::move(operand.get_shared_block()),
                                   !I.use_empty(),
-				  std::move(oldval.get_shared_block()),
-				  compute_races_later, std::move(binops),
-				  cmp_op_after, std::shared_ptr<uint8_t>(nullptr)})){
+                                  std::move(oldval.get_shared_block()),
+                                  compute_races_later, std::move(binops),
+                                  cmp_op_after, std::shared_ptr<uint8_t>(nullptr)})){
     abort();
     return;
   }
@@ -3274,7 +3274,7 @@ void Interpreter::CheckAwaitWakeup(const GenericValue &Val, const void *ptr,
 /*...................Qt functions.......................*/
 //TODO: reuse code of pthread_create to do qthread_create
 void Interpreter::callQThreadCreate(Function *F,
-				    const std::vector<GenericValue> &ArgVals) {
+                                    const std::vector<GenericValue> &ArgVals) {
   bool res = TB.create();
   // Return 0 (success)
   GenericValue Result;
@@ -3287,7 +3287,7 @@ void Interpreter::callQThreadCreate(Function *F,
     GenericValue *Ptr = (GenericValue*)GVTOP(ArgVals[0]);
     if(Ptr){
       Type *ity = static_cast<PointerType*>(F->arg_begin()->getType())
-	->getPointerElementType();
+        ->getPointerElementType();
       GenericValue TIDVal = tid_to_pthread_t(ity,new_tid);
       StoreValueToMemory(TIDVal,Ptr,ity);
     }else{
@@ -3317,7 +3317,7 @@ void Interpreter::callQThreadCreate(Function *F,
 }
 
 void Interpreter::callQThreadStart(Function *F,
-				   const std::vector<GenericValue> &ArgVals) {
+                                   const std::vector<GenericValue> &ArgVals) {
   // Memory fence
   int caller_thread = CurrentThread;
   CurrentThread = pthread_t_to_tid(F->arg_begin()->getType(), ArgVals[0]);
@@ -3326,18 +3326,18 @@ void Interpreter::callQThreadStart(Function *F,
     return;
   }
   callFunction(Threads[CurrentThread].F_inner,
-	       Threads[CurrentThread].ArgVals_inner);
+               Threads[CurrentThread].ArgVals_inner);
   // Return to caller
   CurrentThread = caller_thread;
 }
 
 void Interpreter::callQThreadWait(Function *F,
-				  const std::vector<GenericValue> &ArgVals) {
+                                  const std::vector<GenericValue> &ArgVals) {
   callPthreadJoin(F,ArgVals);
 }
 
 void Interpreter::callQThreadPostMsg(Function *F,
-				     const std::vector<GenericValue> &ArgVals) {
+                                     const std::vector<GenericValue> &ArgVals) {
   int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
   if(!TB.post(tid)){
     abort();
@@ -3361,7 +3361,7 @@ void Interpreter::callQThreadPostMsg(Function *F,
 }
 
 void Interpreter::callQThreadQuit(Function *F,
-				  const std::vector<GenericValue> &ArgVals) {
+                                  const std::vector<GenericValue> &ArgVals) {
   int tid = pthread_t_to_tid(F->arg_begin()->getType(),ArgVals[0]);
   Threads[tid].quitQ=true;
   TB.mark_available(tid);
@@ -3369,7 +3369,7 @@ void Interpreter::callQThreadQuit(Function *F,
 }
 
 void Interpreter::callQThreadExec(Function *F,
-				  const std::vector<GenericValue> &ArgVals) {
+                                  const std::vector<GenericValue> &ArgVals) {
   inactive_handlers.push_back(CurrentThread);
   TB.mark_unavailable(CurrentThread);
   if(Threads[CurrentThread].msgs.empty() || TB.is_following_WS()){
@@ -3760,22 +3760,22 @@ bool Interpreter::checkRefuse(Instruction &I){
 void Interpreter::terminate(Type *RetTy, GenericValue Result){
   if(CurrentThread != 0){
     assert(Threads[CurrentThread].handler_id != -1 ||
-	   RetTy == Type::getInt8PtrTy(RetTy->getContext()));
+           RetTy == Type::getInt8PtrTy(RetTy->getContext()));
     Threads[CurrentThread].RetVal = Result;
     if(0 <= Threads[CurrentThread].handler_id){
       if(!Threads[Threads[CurrentThread].handler_id].msgs.empty()){//consume next message
-	if(!TB.is_following_WS()){
+        if(!TB.is_following_WS()){
           int next_msg = Threads[Threads[CurrentThread].handler_id].msgs.front();
           Threads[Threads[CurrentThread].handler_id].msgs.pop_front();
           TB.mark_available(next_msg);
-	} else Threads[Threads[CurrentThread].handler_id].ready_to_receive = true;
-        return;	
+        } else Threads[Threads[CurrentThread].handler_id].ready_to_receive = true;
+        return; 
       }
       for(int i = 0; i<Threads.size();i++){
         //if there is some available thread, don't terminate handler threads
         if(TB.is_available(i)){
           Threads[Threads[CurrentThread].handler_id].ready_to_receive = true;
-	  return;
+          return;
         }
       }
     }
@@ -3844,32 +3844,32 @@ void Interpreter::run() {
     if(!TB.is_available(CurrentThread)){
       int handler_id = Threads[CurrentThread].handler_id;
       if(handler_id != -1){
-	if(Threads[handler_id].ready_to_receive){
-	  Threads[handler_id].ready_to_receive = false;
-	  TB.mark_available(CurrentThread);
-	  auto it = std::find(Threads[handler_id].msgs.begin(),
-			      Threads[handler_id].msgs.end(),
-			      CurrentThread);
-	  if(it != Threads[handler_id].msgs.end())
-	    Threads[handler_id].msgs.erase(it);
-	  else{
-	    llvm::dbgs() << "Error: Trying to execute message "
-		         << CurrentThread
-		         << " which is not posted.\n";
-	    abort();
-	  }
+        if(Threads[handler_id].ready_to_receive){
+          Threads[handler_id].ready_to_receive = false;
+          TB.mark_available(CurrentThread);
+          auto it = std::find(Threads[handler_id].msgs.begin(),
+                              Threads[handler_id].msgs.end(),
+                              CurrentThread);
+          if(it != Threads[handler_id].msgs.end())
+            Threads[handler_id].msgs.erase(it);
+          else{
+            llvm::dbgs() << "Error: Trying to execute message "
+                         << CurrentThread
+                         << " which is not posted.\n";
+            abort();
+          }
         }
-	else{
-	  llvm::dbgs() << "Error: Cannot execute message "
-		       << CurrentThread
-		       << ", handler is busy.\n";
-	  abort();
-	}
+        else{
+          llvm::dbgs() << "Error: Cannot execute message "
+                       << CurrentThread
+                       << ", handler is busy.\n";
+          abort();
+        }
       } else{
-	llvm::dbgs() << "Error: Trying to execute thread "
-		     << CurrentThread
-		     << " which is unavailable.\n";
-	abort();
+        llvm::dbgs() << "Error: Trying to execute thread "
+                     << CurrentThread
+                     << " which is unavailable.\n";
+        abort();
       }
     }
     rerun = false;
@@ -3947,13 +3947,13 @@ void Interpreter::run() {
     if(conf.dpor_algorithm == Configuration::EVENT_DRIVEN &&
        was_following_WS && !TB.is_following_WS()){
       for(int i = 0; i < Threads.size(); ++i){
-	if(Threads[i].msgs.size() > 0 &&
-	   Threads[i].ready_to_receive == true){
-	  int next_msg = Threads[i].msgs.front();
+        if(Threads[i].msgs.size() > 0 &&
+           Threads[i].ready_to_receive == true){
+          int next_msg = Threads[i].msgs.front();
           Threads[i].msgs.pop_front();
           TB.mark_available(next_msg);
-	  Threads[i].ready_to_receive = false;
-	}
+          Threads[i].ready_to_receive = false;
+        }
       }
     }
     was_following_WS = TB.is_following_WS();

@@ -58,8 +58,8 @@ public:
   unsigned get_prefix_index() const;
   typedef std::vector<std::pair<uint_fast8_t, unsigned>> Binops;
   void compute_races_for_source(unsigned rmw_event,
-				uint_fast8_t compare_op,
-			        std::shared_ptr<uint8_t> rhs_ptr);
+                                uint_fast8_t compare_op,
+                                std::shared_ptr<uint8_t> rhs_ptr);
 
 
   void debug_print() const override;
@@ -162,8 +162,8 @@ protected:
   public:
     Thread(const CPid &cpid, int spawn_event, IPid handler_id = -1)
       : cpid(cpid), available(true), spawn_event(spawn_event),
-	sleeping(false), sleep_full_memory_conflict(false),
-	sleep_sym(nullptr), handler_id(handler_id) {}
+        sleeping(false), sleep_full_memory_conflict(false),
+        sleep_sym(nullptr), handler_id(handler_id) {}
     CPid cpid;
     IPid spid;
     /* Is the thread available for scheduling? */
@@ -351,7 +351,7 @@ protected:
       : sym(std::move(sym)), spid(spid), index(index), alt(alt), size(1) {}
     Branch (const Branch &base, sym_ty sym)
       : sym(std::move(sym)), spid(base.spid), index(base.index),
-	alt(base.alt), size(base.size) {}
+        alt(base.alt), size(base.size) {}
     /* Symbolic representation of the globally visible operation of this event.
      */
     sym_ty sym;
@@ -380,12 +380,12 @@ protected:
     };
     bool access_global() const{
       for(const SymEv &symev : sym)
-	if(symev.access_global()) return true;
+        if(symev.access_global()) return true;
       return false;
     }
     bool is_ret_stmt() const{
       for(const SymEv &symev : sym)
-	if(symev.is_return()) return true;
+        if(symev.is_return()) return true;
       return false;
     }
   };
@@ -441,9 +441,9 @@ protected:
       return Race(NONDET, event, -1, -1, -1, {-1,0}, alt);
     }
     static Race MsgRev(int first, int second,
-		       int fst_conflict, int snd_conflict) {
+                       int fst_conflict, int snd_conflict) {
       return Race(MSG_REV, first, second, fst_conflict,
-		  snd_conflict, {-1,0}, -1);
+                  snd_conflict, {-1,0}, -1);
     }
     static Race Sequence(int first, int second, IID<IPid> process, SymEv ev,
                          std::vector<unsigned> exclude) {
@@ -580,18 +580,18 @@ protected:
     struct CompareOp{
       enum Op {EQ, NE, UGT, UGE, ULT, ULE, SGT, SGE, SLT, SLE} op;
       std::shared_ptr<uint8_t> value;
-	
+        
     };
     /* Compare events that uses the loaded value of a load event */
     std::vector<CompareOp> compare_ops;
     bool end_of_msg() const{
       for(const SymEv &symev : sym)
-	if(symev.is_return()) return true;
+        if(symev.is_return()) return true;
       return false;
     }
     bool access_global() const {
       for(const auto &ev : sym){
-	if(ev.access_global()) return true;
+        if(ev.access_global()) return true;
       }
       return false;
     }
@@ -784,10 +784,10 @@ protected:
   std::vector<int> iid_map_at(int event) const;
   /* Plays an iid_map forward by one event. */
   void iid_map_step(std::vector<int> &iid_map,
-		    const Branch &event) const;
+                    const Branch &event) const;
   /* Reverses an iid_map by one event. */
   void iid_map_step_rev(std::vector<int> &iid_map,
-			const Branch &event) const;
+                        const Branch &event) const;
   /* Add clocks and branches.
    *
    * All elements e in seen should either be indices into prefix, or
@@ -867,9 +867,9 @@ protected:
    * from e.
    */
   void obs_sleep_add(struct obs_sleep &sleep,
-		     sleep_trees_t &sleep_trees,
-		     const Event &e,
-		     const std::vector<bool> &handler_busy) const;
+                     sleep_trees_t &sleep_trees,
+                     const Event &e,
+                     const std::vector<bool> &handler_busy) const;
   enum class obs_wake_res {
     CLEAR,
     CONTINUE,
@@ -882,12 +882,12 @@ protected:
    * blocked.
    */
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
-			      sleep_trees_t &sleep_trees, IPid p,
-			      unsigned index, VClock<IPid> clock,
-			      const sym_ty &sym, bool multiple_handlers) const;
+                              sleep_trees_t &sleep_trees, IPid p,
+                              unsigned index, VClock<IPid> clock,
+                              const sym_ty &sym, bool multiple_handlers) const;
   void update_witness_sets(unsigned, bool, IPid, const VClock<IPid> &,
-			   sleep_trees_t &,
-			   std::vector<std::vector<bool>> &) const;
+                           sleep_trees_t &,
+                           std::vector<std::vector<bool>> &) const;
   /* Performs the second half of a sleep set step, removing sleepers that
    * were identified as waking after event e.
    *
@@ -900,23 +900,23 @@ protected:
    * executed, it will never block, and thus has no return value.
    */
   void obs_sleep_wake(struct obs_sleep &sleep,
-		      sleep_trees_t &sleep_trees,
-		      const Event &e,
-		      bool multiple_handlers) const;
+                      sleep_trees_t &sleep_trees,
+                      const Event &e,
+                      bool multiple_handlers) const;
   std::map<IPid, std::vector<unsigned>>
   mark_sleepset_clearing_events(std::vector<Branch> &v,
-				struct obs_sleep sleep,
-				sleep_trees_t sleep_trees);
+                                struct obs_sleep sleep,
+                                sleep_trees_t sleep_trees);
   void race_detect_optimal(unsigned, const Race&,
-			   const struct obs_sleep&,
-			   const sleep_trees_t &,
-			   std::vector<std::vector<bool>>);
+                           const struct obs_sleep&,
+                           const sleep_trees_t &,
+                           std::vector<std::vector<bool>>);
   void delete_matching_events(std::vector<Branch> &v, unsigned child_size,
-			      std::vector<Branch>::iterator vei);
+                              std::vector<Branch>::iterator vei);
 
   void insert_WS(std::vector<Branch> &v, unsigned i, struct obs_sleep sleep,
-		 sleep_trees_t sleep_trees, std::vector<std::vector<bool>>
-		 busy_n_hap_aft_witness, std::vector<IPid> ongoing_msg);
+                 sleep_trees_t sleep_trees, std::vector<std::vector<bool>>
+                 busy_n_hap_aft_witness, std::vector<IPid> ongoing_msg);
   bool reordering_possible() const;
   bool conflict_with_rest_of_msg(unsigned j, const Branch &child,
                                  const std::vector<Branch> &v,
@@ -925,31 +925,31 @@ protected:
                                  bool &partial_msg) const;
   /* Compute the wakeup sequence for reversing a race. */
   bool wakeup_sequence(const Race &race, unsigned &br_point,
-		       std::vector<bool> &unfiltered_notdep,
-		       Branch &second_br) const;
+                       std::vector<bool> &unfiltered_notdep,
+                       Branch &second_br) const;
   std::vector<Branch> linearize_sequence(unsigned br_point, Branch second_br,
-					 const Race &race, std::vector<bool> &in_v) const;
+                                         const Race &race, std::vector<bool> &in_v) const;
   bool remove_partial_msgs(std::vector<Branch> &v,
-			   const VClock<IPid> &second_br_clock,
-			   std::map<IPid, std::vector<unsigned>> clear_set,
-			   std::vector<IPid> &ongoing_msg) const;
+                           const VClock<IPid> &second_br_clock,
+                           std::map<IPid, std::vector<unsigned>> clear_set,
+                           std::vector<IPid> &ongoing_msg) const;
   bool visit_event(unsigned br_point, unsigned i, std::vector<bool> &in_v,
-		   std::vector<std::set<unsigned>> &trace,
-		   std::vector<bool> &visiting, std::vector<bool> &visited,
-		   std::vector<unsigned> &sorted_seq,
-		   std::vector<unsigned> &curr_msg) const;
+                   std::vector<std::set<unsigned>> &trace,
+                   std::vector<bool> &visiting, std::vector<bool> &visited,
+                   std::vector<unsigned> &sorted_seq,
+                   std::vector<unsigned> &curr_msg) const;
   void recompute_vclock(const std::vector<bool> &in_v,
-			std::vector<VClock<IPid>> &clock_WS,
-			std::vector<std::set<unsigned>> &trace,
-		        const Race &race) const;
+                        std::vector<VClock<IPid>> &clock_WS,
+                        std::vector<std::set<unsigned>> &trace,
+                        const Race &race) const;
   /* recompute branch for second event involved in a race */ 
   void recompute_second(const Race&, Branch &second_br, Event &second) const;
   /* Checks if a sequence of events will clear a sleep set. */
   bool sequence_clears_sleep(const std::vector<Branch> &seq,
                              const struct obs_sleep &sleep,
-			     const sleep_trees_t &sleep_tree,
-			     std::vector<std::vector<bool>>
-			     busy_n_hap_aft_witness) const;
+                             const sleep_trees_t &sleep_tree,
+                             std::vector<std::vector<bool>>
+                             busy_n_hap_aft_witness) const;
   /* Wake up all threads which are sleeping, waiting for an access
    * (type,ml). */
   void wakeup(Access::Type type, SymAddr ml);
