@@ -387,6 +387,7 @@ bool EventTraceBuilder::reset(){
              prefix[k].clock.lt(tail.back().clock)){
             std::list<Branch> new_tail = std::move(tail);
             new_tail.push_front(branch_with_symbolic_data(k));
+            new_tail.front().clock = prefix[k].clock;
             tail_set.insert(std::move(new_tail));
           }
         }
@@ -397,9 +398,11 @@ bool EventTraceBuilder::reset(){
          threads[ipid].event_indices.front() <= i &&
          explored_tails.find(threads[ipid].spid) == explored_tails.end()){
         //TODO: collect all global events(locks,conds,mutexes,...)
+        Branch last = branch_with_symbolic_data(k);
+        last.clock = prefix[k].clock;
         explored_tails.
           emplace(threads[ipid].spid,
-                  std::set<std::list<Branch>>{std::list<Branch>(1,branch_with_symbolic_data(k))});
+                  std::set<std::list<Branch>>{std::list<Branch>(1,last)});
       }
     }
     /* Add the previous explored tails */
@@ -1084,6 +1087,7 @@ static bool rmw_reversal_changes_effect(const SymEv &first, const SymEv &second)
   bool snd_cmp_res_rev = eval_cmp(snd_ptr, second.cmp_op_after(), second.cmp_rhs());
 
   /* Calculate the value of the first rmw variable when it occurs in reverse order */
+  // TODO: support different operations for first and second
   memcpy((void*)fst_ptr, (void*)(second.oldvalue().get_block()), second.addr().size);
   if(second.rmw_kind() == RmwAction::ADD)
     *(unsigned*)fst_ptr += *(unsigned*)(second.expected().get_block());
@@ -3611,7 +3615,10 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
     for (Branch &ve : v) {
       if (conf.dpor_algorithm == Configuration::OBSERVERS)
         clear_observed(ve.sym);
-      for (SymEv &e : ve.sym) e.purge_data();
+      if(!ve.sym[0].kind == SymEv::RMW ||
+         !ve.sym[0].rmw_used_only_by_cmp()){
+        for (SymEv &e : ve.sym) e.purge_data();
+      }
       node = node.put_child(std::move(ve));
     }
 #ifndef NDEBUG

@@ -24,6 +24,7 @@
 #include "SymAddr.h"
 #include "RMWAction.h"
 #include "AwaitCond.h"
+#include "CPid.h"
 
 #include <llvm/Support/raw_ostream.h>
 
