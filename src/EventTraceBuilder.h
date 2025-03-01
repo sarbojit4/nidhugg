@@ -485,6 +485,7 @@ protected:
     unsigned start_index;
     /* Events that might delete it from the sleep trees */
     std::vector<VClock<IPid>> witness_events;
+    std::vector<VClock<IPid>> conflict_with_seq;
     /* Global accesses done by the message */
     std::vector<std::list<Branch>> msg_trails;
     /* The handlers that are executing some message at the point

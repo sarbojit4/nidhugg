@@ -2055,7 +2055,7 @@ void EventTraceBuilder::obs_sleep_add(struct obs_sleep &sleep,
   for(auto p : e.sleep_trees){
     std::vector<std::list<Branch>> msg_trails(p.second.begin(), p.second.end());
     sleep_trees.push_back({p.first, 0, std::vector<VClock<IPid>>(),
-        std::move(msg_trails), handler_busy});
+        std::vector<VClock<IPid>>(), std::move(msg_trails), handler_busy});
   }
 }
 
@@ -2171,6 +2171,28 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
             }
           }
           break;
+        }
+      }
+      if(!conflict){
+        for(auto clk : slp_tree_it->conflict_with_seq){
+          if(clk.lt(clock) && threads[SPS.get_pid(p)].handler_id != -1 &&
+             threads[SPS.get_pid(p)].handler_id ==
+             threads[SPS.get_pid(slp_tree_it->spid)].handler_id){
+            conflict = true;
+            break;
+          }
+        }
+      }
+      if(!conflict){
+        for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
+          if((update_sleep_set && do_events_conflict(br_it->spid, br_it->sym, p, sym)) ||
+             (!update_sleep_set && do_events_conflict(p, sym, br_it->spid, br_it->sym))){//Need re-evaluation of values
+            if(threads[SPS.get_pid(p)].handler_id != -1 &&
+               threads[SPS.get_pid(p)].handler_id ==
+               threads[SPS.get_pid(br_it->spid)].handler_id) conflict = true;
+            else slp_tree_it->conflict_with_seq.push_back(clock);
+              break;
+          }
         }
       }
       if(conflict) seq_it = slp_tree_it->msg_trails.erase(seq_it);
@@ -3545,9 +3567,8 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
             eit += prefix.branch(*eit).size;
           }
           sleep_trees.push_back({child_it.branch().spid, 0,
-              std::vector<VClock<IPid>>(),
-              std::vector<std::list<Branch>>(1,explored_trail),
-              handler_busy});
+              std::vector<VClock<IPid>>(), std::vector<VClock<IPid>>(),
+              std::vector<std::list<Branch>>(1,explored_trail), handler_busy});
         } else
           sleep.sleep.push_back({child_it.branch().spid, &child_sym, nullptr});
         skip = NO; continue;
