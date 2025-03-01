@@ -884,7 +884,8 @@ protected:
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
                               sleep_trees_t &sleep_trees, IPid p,
                               unsigned index, VClock<IPid> clock,
-                              const sym_ty &sym, bool multiple_handlers) const;
+                              const sym_ty &sym, bool multiple_handlers,
+                              bool update_sleep_set) const;
   void update_witness_sets(unsigned, bool, IPid, const VClock<IPid> &,
                            sleep_trees_t &,
                            std::vector<std::vector<bool>> &) const;
@@ -902,7 +903,7 @@ protected:
   void obs_sleep_wake(struct obs_sleep &sleep,
                       sleep_trees_t &sleep_trees,
                       const Event &e,
-                      bool multiple_handlers) const;
+                      bool multiple_handlers, bool update_sleep_set) const;
   std::map<IPid, std::vector<unsigned>>
   mark_sleepset_clearing_events(std::vector<Branch> &v,
                                 struct obs_sleep sleep,

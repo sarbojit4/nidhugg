@@ -748,7 +748,7 @@ void EventTraceBuilder::debug_print() const {
     }
     obs_sleep_wake(sleep_set, sleep_trees, threads[ipid].spid,
                    prefix[i].iid.get_index(),
-                   prefix[i].clock, prefix[i].sym, multiple_handlers);
+                   prefix[i].clock, prefix[i].sym, multiple_handlers, true);
   }
 
   for(const auto &ab : blocked_awaits) {
@@ -2072,12 +2072,14 @@ void
 EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
                                   sleep_trees_t &sleep_trees,
                                   const Event &e,
-                                  bool multiple_handlers) const{
+                                  bool multiple_handlers,
+                                  bool update_sleep_set) const{
 #ifndef NDEBUG
   obs_wake_res res =
 #endif
     obs_sleep_wake(sleep, sleep_trees, threads[e.iid.get_pid()].spid,
-                   e.iid.get_index(), e.clock, e.sym, multiple_handlers);
+                   e.iid.get_index(), e.clock, e.sym, multiple_handlers,
+                   update_sleep_set);
   assert(res != obs_wake_res::BLOCK);
 }
 
@@ -2117,7 +2119,7 @@ update_witness_sets(unsigned index, bool end_of_msg, IPid handler,
 EventTraceBuilder::obs_wake_res EventTraceBuilder::
 obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
                unsigned index, VClock<IPid> clock, const sym_ty &sym,
-               bool multiple_handlers) const{
+               bool multiple_handlers, bool update_sleep_set) const{
   for (unsigned i = 0; i < sleep.sleep.size();) {
     const auto &s = sleep.sleep[i];
     if (s.spid == p) {
@@ -2127,7 +2129,8 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       } else {
         return obs_wake_res::BLOCK;
       }
-    } else if (do_events_conflict(p, sym, s.spid, *s.sym)){//Need re-evaluation of values
+    } else if ((update_sleep_set && do_events_conflict(s.spid, *s.sym, p, sym)) ||
+               (!update_sleep_set && do_events_conflict(p, sym, s.spid, *s.sym))){//Need re-evaluation of values
       unordered_vector_delete(sleep.sleep, i);
     } else {
       ++i;
@@ -2161,7 +2164,8 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       for(auto we : slp_tree_it->witness_events){
         if(we.leq(clock)){
           for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
-            if(do_events_conflict(p, sym, br_it->spid, br_it->sym)){//Need re-evaluation of values
+            if((update_sleep_set && do_events_conflict(br_it->spid, br_it->sym, p, sym)) ||
+               (!update_sleep_set && do_events_conflict(p, sym, br_it->spid, br_it->sym))){//Need re-evaluation of values
               conflict = true;
               break;
             }
@@ -2225,7 +2229,7 @@ sequence_clears_sleep(const std::vector<Branch> &seq,
                         it->clock, slp_trees, busy_n_hap_aft_witness);
 
     state = obs_sleep_wake(isleep, slp_trees, it->spid, it->index,
-                           it->clock, it->sym, multiple_handlers);
+                           it->clock, it->sym, multiple_handlers, false);
   }
   /* Redundant */
   return (state == obs_wake_res::CLEAR);
@@ -2862,7 +2866,7 @@ void EventTraceBuilder::compute_vclocks(){
         } else{
           for (const SymEv &fe : prefix[it->first_event].sym)
             for (const SymEv &se : prefix[it->second_event].sym)
-              if(do_symevs_conflict(it->first_event, fe, it->second_event, se))//Need re-evaluation of values
+              if(do_symevs_conflict(it->first_event, fe, it->second_event, se))
                 add_happens_after(it->second_event, it->first_event);
         }
       }
@@ -2912,7 +2916,7 @@ void EventTraceBuilder::compute_vclocks(){
     for(auto it = fill; it != end; ++it){
       for (const SymEv &fe : prefix[it->first_event].sym)
         for (const SymEv &se : prefix[it->second_event].sym)
-          if(do_symevs_conflict(it->first_event, fe, it->second_event, se))//Need re-evaluation of values
+          if(do_symevs_conflict(it->first_event, fe, it->second_event, se))
             add_happens_after(it->second_event, it->first_event);             
     }
     /* Add clocks of remaining (reversible) races */
@@ -3113,7 +3117,7 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
       const auto &s = sleep.sleep[j];
       if (s.spid == v[i].spid) {
         unordered_vector_delete(sleep.sleep, j);
-      } else if (do_events_conflict(v[i].spid, v[i].sym, s.spid, *s.sym)){//Need re-evaluation of values
+      } else if (do_events_conflict(s.spid, *s.sym, v[i].spid, v[i].sym)){//Need re-evaluation of values
         bool skip = false;
         for(unsigned ei : clear_set[s.spid]){
           if(do_events_conflict(v[ei].spid, v[ei].sym, v[i].spid, v[i].sym))//Need re-evaluation of values
@@ -3141,7 +3145,7 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
         for(auto we : slp_tree_it->witness_events){
           if(we.leq(v[i].clock)){
             for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
-              if(do_events_conflict(v[i].spid, v[i].sym, br_it->spid, br_it->sym)){//Need re-evaluation of values
+              if(do_events_conflict(br_it->spid, br_it->sym, v[i].spid, v[i].sym)){//Need re-evaluation of values
                 conflict = true;
                 break;
               }
@@ -3322,7 +3326,7 @@ void EventTraceBuilder::do_race_detect() {
         handler_busy[handler] = false;
       }
     }
-    obs_sleep_wake(sleep, sleep_trees, prefix[i], multiple_handlers);
+    obs_sleep_wake(sleep, sleep_trees, prefix[i], multiple_handlers, true);
   }
 
   for (unsigned i = 0; i < prefix.len(); ++i) prefix[i].races.clear();
@@ -3565,7 +3569,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
                           sleep_trees, busy_n_hap_aft_witness);
       obs_sleep_wake(sleep, sleep_trees, child_it.branch().spid,
                      child_it.branch().index, child_it.branch().clock,
-                     child_it.branch().sym, multiple_handlers);
+                     child_it.branch().sym, multiple_handlers, true);
       node = child_it.node();
       if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1){
         if(ongoing_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] != 0){
