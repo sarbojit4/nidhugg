@@ -485,12 +485,22 @@ protected:
     unsigned start_index;
     /* Events that might delete it from the sleep trees */
     std::vector<VClock<IPid>> witness_events;
-    std::vector<VClock<IPid>> conflict_with_seq;
+    struct msg_trails_t{
+      std::list<Branch> seq;
+      std::vector<VClock<IPid>> conflict_with_seq;      
+    };
     /* Global accesses done by the message */
-    std::vector<std::list<Branch>> msg_trails;
+    std::vector<msg_trails_t> msg_trails;
     /* The handlers that are executing some message at the point
        where this message is inserted in the sleep_tree */
     std::vector<bool> handler_busy;
+    sleep_tree(IPid spid, unsigned start_index,
+               const std::vector<std::list<Branch>> &trails,
+               std::vector<bool> handler_busy) :
+      spid(spid), start_index(start_index), handler_busy(handler_busy) {
+      for(const auto &seq : trails)
+        msg_trails.push_back({seq, std::vector<VClock<IPid>>()});
+    }
   };
   typedef std::map<IPid,std::set<std::list<Branch>>> done_trees_t;
   typedef std::vector<struct sleep_tree> sleep_trees_t;

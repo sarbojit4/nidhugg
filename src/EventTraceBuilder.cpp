@@ -2054,8 +2054,7 @@ void EventTraceBuilder::obs_sleep_add(struct obs_sleep &sleep,
   }
   for(auto p : e.sleep_trees){
     std::vector<std::list<Branch>> msg_trails(p.second.begin(), p.second.end());
-    sleep_trees.push_back({p.first, 0, std::vector<VClock<IPid>>(),
-        std::vector<VClock<IPid>>(), std::move(msg_trails), handler_busy});
+    sleep_trees.push_back({p.first, 0, std::move(msg_trails), handler_busy});
   }
 }
 
@@ -2144,61 +2143,66 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
   if(!access_global) return obs_wake_res::CONTINUE;
   for(auto slp_tree_it = sleep_trees.begin();
       slp_tree_it != sleep_trees.end();){
-    for(auto seq_it = slp_tree_it->msg_trails.begin();
-        seq_it != slp_tree_it->msg_trails.end();){
-      if(seq_it->begin()->spid == p){
-        // TODO: Block according to the definition of the paper
-        // Check till the end of the message(might need to extend the WS)
-        if(!slp_tree_it->witness_events.empty() && seq_it->size() > 1){
-          //TODO: Delete sequences from the sleep tree that are not matching
-          seq_it->pop_front();
-          seq_it++;
-          continue;
-        }
-        // Multiple handler in the WS makes it harder to decide WI
-        else if(!multiple_handlers || seq_it->size() == 1 || reordering_possible()){
-          return obs_wake_res::BLOCK;
-        }
-      }
+    for(auto mt_it = slp_tree_it->msg_trails.begin();
+        mt_it != slp_tree_it->msg_trails.end();){
       bool conflict = false;
-      for(auto we : slp_tree_it->witness_events){
-        if(we.leq(clock)){
-          for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
+      for(auto br_it = mt_it->seq.begin(); br_it != mt_it->seq.end() && !conflict; br_it++){
+        if(br_it->spid == p){
+          // TODO: Block according to the definition of the paper
+          // Check till the end of the message(might need to extend the WS)
+          if(/*!slp_tree_it->witness_events.empty() && */mt_it->seq.size() > 1){
+            //TODO: Delete sequences from the sleep tree that are not matching
+            // seq_it->pop_front();
+            // seq_it++;
+            // continue;
+            mt_it->seq.erase(br_it);
+            break;
+          }
+          // Multiple handler in the WS makes it harder to decide WI
+          else if(!multiple_handlers || mt_it->seq.size() == 1 || reordering_possible()){
+            return obs_wake_res::BLOCK;
+          }
+        }
+        for(auto we : slp_tree_it->witness_events){
+          if(we.leq(clock)){
+            // for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
             if((update_sleep_set && do_events_conflict(br_it->spid, br_it->sym, p, sym)) ||
                (!update_sleep_set && do_events_conflict(p, sym, br_it->spid, br_it->sym))){//Need re-evaluation of values
               conflict = true;
               break;
             }
+            // break;
           }
-          break;
+          // }
         }
-      }
-      if(!conflict){
-        for(auto clk : slp_tree_it->conflict_with_seq){
-          if(clk.lt(clock) && threads[SPS.get_pid(p)].handler_id != -1 &&
-             threads[SPS.get_pid(p)].handler_id ==
-             threads[SPS.get_pid(slp_tree_it->spid)].handler_id){
-            conflict = true;
-            break;
+        if(!conflict){
+          for(auto clk : mt_it->conflict_with_seq){
+            if(clk.lt(clock) && threads[SPS.get_pid(p)].handler_id != -1 &&
+               threads[SPS.get_pid(p)].handler_id ==
+               threads[SPS.get_pid(slp_tree_it->spid)].handler_id){
+              conflict = true;
+              break;
+            }
           }
         }
-      }
-      if(!conflict){
-        for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
+        if(!conflict){
+          // for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
           if((update_sleep_set && do_events_conflict(br_it->spid, br_it->sym, p, sym)) ||
              (!update_sleep_set && do_events_conflict(p, sym, br_it->spid, br_it->sym))){//Need re-evaluation of values
             if(threads[SPS.get_pid(p)].handler_id != -1 &&
                threads[SPS.get_pid(p)].handler_id ==
                threads[SPS.get_pid(br_it->spid)].handler_id) conflict = true;
-            else slp_tree_it->conflict_with_seq.push_back(clock);
-              break;
+            else mt_it->conflict_with_seq.push_back(clock);
+            break;
           }
+          // }
         }
       }
-      if(conflict) seq_it = slp_tree_it->msg_trails.erase(seq_it);
-      else seq_it++;
+      if(conflict) mt_it = slp_tree_it->msg_trails.erase(mt_it);
+      else mt_it++;
     }
-    if(slp_tree_it->msg_trails.empty()) slp_tree_it = sleep_trees.erase(slp_tree_it);
+    if(slp_tree_it->msg_trails.empty())
+      slp_tree_it = sleep_trees.erase(slp_tree_it);
     else slp_tree_it++;
   }
 
@@ -3152,21 +3156,21 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
 
     for(auto slp_tree_it = sleep_trees.begin();
         slp_tree_it != sleep_trees.end(); slp_tree_it++){
-      for(auto seq_it = slp_tree_it->msg_trails.begin();
-          seq_it != slp_tree_it->msg_trails.end();){
-        if(seq_it->begin()->spid == v[i].spid){
+      for(auto mt_it = slp_tree_it->msg_trails.begin();
+          mt_it != slp_tree_it->msg_trails.end();){
+        if(mt_it->seq.begin()->spid == v[i].spid){
           //TODO: Delete sequences from the sleep tree that are not matching
-          if(seq_it->size() == 1) seq_it = slp_tree_it->msg_trails.erase(seq_it);
+          if(mt_it->seq.size() == 1) mt_it = slp_tree_it->msg_trails.erase(mt_it);
           else {
-            seq_it->pop_front();
-            seq_it++;
+            mt_it->seq.pop_front();
+            mt_it++;
           }
           continue;
         }
         bool conflict = false;
         for(auto we : slp_tree_it->witness_events){
           if(we.leq(v[i].clock)){
-            for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
+            for(auto br_it = mt_it->seq.begin(); br_it != mt_it->seq.end(); br_it++){
               if(do_events_conflict(br_it->spid, br_it->sym, v[i].spid, v[i].sym)){//Need re-evaluation of values
                 conflict = true;
                 break;
@@ -3184,7 +3188,7 @@ mark_sleepset_clearing_events(std::vector<Branch> &v,
           if(!skip)
             clear_set[slp_tree_it->spid].emplace_back(i);
         }
-        seq_it++;
+        mt_it++;
       }
     }
   }
@@ -3567,7 +3571,6 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
             eit += prefix.branch(*eit).size;
           }
           sleep_trees.push_back({child_it.branch().spid, 0,
-              std::vector<VClock<IPid>>(), std::vector<VClock<IPid>>(),
               std::vector<std::list<Branch>>(1,explored_trail), handler_busy});
         } else
           sleep.sleep.push_back({child_it.branch().spid, &child_sym, nullptr});
