@@ -4197,7 +4197,6 @@ linearize_sequence(unsigned br_point, Branch second_br,
       default: assert(false);
       }
       *(unsigned*)(br.sym[0].data().get_block()) = var_value;
-      llvm::dbgs()<<var_value<<"\n";////////////////
     }
   }
   return linearized_ws;
