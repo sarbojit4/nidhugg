@@ -95,6 +95,33 @@ struct SymEv {
   std::shared_ptr<uint8_t> _rmw_cmp_rhs;
 
   SymEv() : kind(NONE) {}
+  SymEv(const SymEv &ev) :
+    kind(ev.kind), arg(ev.arg), arg2(ev.arg2),
+    _rmw_result_used(ev._rmw_result_used),
+    _rmw_used_only_by_cmp(ev._rmw_used_only_by_cmp),
+    _rmw_binops(ev._rmw_binops),
+    _rmw_cmp_op_after(ev._rmw_cmp_op_after), _rmw_cmp_rhs(ev._rmw_cmp_rhs)
+  {
+    if(ev.kind == RMW && _rmw_result_used && _rmw_used_only_by_cmp){
+      if(ev._expected != nullptr){
+        _expected = std::shared_ptr<uint8_t>(new uint8_t[ev.arg.addr.size]);
+        memcpy((void*)_expected.get(), (void *)ev._expected.get(), ev.arg.addr.size);
+      }
+      if(ev._written != nullptr){
+      _written = std::shared_ptr<uint8_t>(new uint8_t[ev.arg.addr.size]);
+      memcpy((void*)_written.get(), (void *)ev._written.get(), ev.arg.addr.size);
+      }
+      if(ev._oldvalue != nullptr){
+      _oldvalue = std::shared_ptr<uint8_t>(new uint8_t[ev.arg.addr.size]);
+      memcpy((void*)_oldvalue.get(), (void *)ev._oldvalue.get(), ev.arg.addr.size);
+      }
+    }
+    else{
+      _expected = nullptr;
+      _written = nullptr;
+      _oldvalue = nullptr;
+    }
+  }
   static SymEv None() { return {NONE, {}}; }
   static SymEv Nondet(int count) { return {NONDET, count}; }
 
