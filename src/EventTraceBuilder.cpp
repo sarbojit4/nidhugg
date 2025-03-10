@@ -4168,33 +4168,38 @@ linearize_sequence(unsigned br_point, Branch second_br,
     Branch br = branch_with_symbolic_data(i);
     /* Update values in symbolic events of RMWS */
     //TODO: Generalize for any MSG_REV race
-    unsigned fst_conflict =
-      (race.kind == Race::MSG_REV ? race.fst_conflict : race.first_event);
-    if(prefix[i].sym[0].kind == SymEv::RMW &&
-       prefix[i].sym[0].rmw_used_only_by_cmp() &&
-       prefix[fst_conflict].sym[0].kind == SymEv::RMW &&
-       prefix[fst_conflict].sym[0].rmw_used_only_by_cmp()){
-      void *ioldval = prefix[i].sym[0].oldvalue().get_block();
-      void *inewval = prefix[i].sym[0].data().get_block();
-      for(const auto &op : prefix[race.fst_conflict].sym[0].rmw_binops()){
-        switch(unsigned(op.first)){
-        case 0:
-          *(unsigned*)ioldval -= op.second;
-          *(unsigned*)inewval -= op.second;
-          break;
-        case 1:
-          *(unsigned*)ioldval += op.second;
-          *(unsigned*)inewval += op.second;
-          break;
-        default: assert(false);
-        }
-      }
-    }
     br.clock = clock_WS[i];
     linearized_ws.push_back(br);
   }
   second_br.clock = clock_WS[k];
   linearized_ws.push_back(second_br);
+
+  unsigned var_value;
+  unsigned fst_conflict =
+    (race.kind == Race::MSG_REV ? race.fst_conflict : race.first_event);
+  if(prefix[fst_conflict].sym[0].kind == SymEv::RMW &&
+     prefix[fst_conflict].sym[0].rmw_used_only_by_cmp()){
+    var_value = *(unsigned*)(prefix[race.fst_conflict].sym[0].oldvalue().get_block());
+  }
+  for(auto &br : linearized_ws){
+    if(br.sym[0].kind == SymEv::RMW &&
+       br.sym[0].rmw_used_only_by_cmp() &&
+       prefix[fst_conflict].sym[0].kind == SymEv::RMW &&
+       prefix[fst_conflict].sym[0].rmw_used_only_by_cmp()){
+      *(unsigned*)(br.sym[0].oldvalue().get_block()) = var_value;
+      switch(br.sym[0].rmw_kind()){
+      case RmwAction::ADD:
+        var_value += *(unsigned*)(br.sym[0].expected().get_block());
+        break;
+      case 1:
+        var_value -= *(unsigned*)(br.sym[0].expected().get_block());
+        break;
+      default: assert(false);
+      }
+      *(unsigned*)(br.sym[0].data().get_block()) = var_value;
+      llvm::dbgs()<<var_value<<"\n";////////////////
+    }
+  }
   return linearized_ws;
 }
 
