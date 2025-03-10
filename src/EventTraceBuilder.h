@@ -895,8 +895,7 @@ protected:
   obs_wake_res obs_sleep_wake(struct obs_sleep &osleep,
                               sleep_trees_t &sleep_trees, IPid p,
                               unsigned index, VClock<IPid> clock,
-                              const sym_ty &sym, bool multiple_handlers,
-                              bool update_sleep_set) const;
+                              const sym_ty &sym, bool multiple_handlers) const;
   void update_witness_sets(unsigned, bool, IPid, const VClock<IPid> &,
                            sleep_trees_t &,
                            std::vector<std::vector<bool>> &) const;
@@ -911,10 +910,8 @@ protected:
    * As this overload is only used on events that have already been
    * executed, it will never block, and thus has no return value.
    */
-  void obs_sleep_wake(struct obs_sleep &sleep,
-                      sleep_trees_t &sleep_trees,
-                      const Event &e,
-                      bool multiple_handlers, bool update_sleep_set) const;
+  void obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees,
+                      const Event &e, bool multiple_handlers) const;
   std::map<IPid, std::vector<unsigned>>
   mark_sleepset_clearing_events(std::vector<Branch> &v,
                                 struct obs_sleep sleep,

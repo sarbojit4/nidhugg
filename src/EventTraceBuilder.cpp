@@ -748,7 +748,7 @@ void EventTraceBuilder::debug_print() const {
     }
     obs_sleep_wake(sleep_set, sleep_trees, threads[ipid].spid,
                    prefix[i].iid.get_index(),
-                   prefix[i].clock, prefix[i].sym, multiple_handlers, true);
+                   prefix[i].clock, prefix[i].sym, multiple_handlers);
   }
 
   for(const auto &ab : blocked_awaits) {
@@ -2071,14 +2071,12 @@ void
 EventTraceBuilder::obs_sleep_wake(struct obs_sleep &sleep,
                                   sleep_trees_t &sleep_trees,
                                   const Event &e,
-                                  bool multiple_handlers,
-                                  bool update_sleep_set) const{
+                                  bool multiple_handlers) const{
 #ifndef NDEBUG
   obs_wake_res res =
 #endif
     obs_sleep_wake(sleep, sleep_trees, threads[e.iid.get_pid()].spid,
-                   e.iid.get_index(), e.clock, e.sym, multiple_handlers,
-                   update_sleep_set);
+                   e.iid.get_index(), e.clock, e.sym, multiple_handlers);
   assert(res != obs_wake_res::BLOCK);
 }
 
@@ -2118,7 +2116,7 @@ update_witness_sets(unsigned index, bool end_of_msg, IPid handler,
 EventTraceBuilder::obs_wake_res EventTraceBuilder::
 obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
                unsigned index, VClock<IPid> clock, const sym_ty &sym,
-               bool multiple_handlers, bool update_sleep_set) const{
+               bool multiple_handlers) const{
   for (unsigned i = 0; i < sleep.sleep.size();) {
     const auto &s = sleep.sleep[i];
     if (s.spid == p) {
@@ -2128,8 +2126,7 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
       } else {
         return obs_wake_res::BLOCK;
       }
-    } else if ((update_sleep_set && do_events_conflict(s.spid, *s.sym, p, sym)) ||
-               (!update_sleep_set && do_events_conflict(p, sym, s.spid, *s.sym))){//Need re-evaluation of values
+    } else if (do_events_conflict(p, sym, s.spid, *s.sym)){//Need re-evaluation of values
       unordered_vector_delete(sleep.sleep, i);
     } else {
       ++i;
@@ -2166,8 +2163,7 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
         for(auto we : slp_tree_it->witness_events){
           if(we.leq(clock)){
             // for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
-            if((update_sleep_set && do_events_conflict(br_it->spid, br_it->sym, p, sym)) ||
-               (!update_sleep_set && do_events_conflict(p, sym, br_it->spid, br_it->sym))){//Need re-evaluation of values
+            if(do_events_conflict(p, sym, br_it->spid, br_it->sym)){//Need re-evaluation of values
               conflict = true;
               break;
             }
@@ -2187,8 +2183,7 @@ obs_sleep_wake(struct obs_sleep &sleep, sleep_trees_t &sleep_trees, IPid p,
         }
         if(!conflict){
           // for(auto br_it = seq_it->begin(); br_it != seq_it->end(); br_it++){
-          if((update_sleep_set && do_events_conflict(br_it->spid, br_it->sym, p, sym)) ||
-             (!update_sleep_set && do_events_conflict(p, sym, br_it->spid, br_it->sym))){//Need re-evaluation of values
+          if(do_events_conflict(p, sym, br_it->spid, br_it->sym)){//Need re-evaluation of values
             if(threads[SPS.get_pid(p)].handler_id != -1 &&
                threads[SPS.get_pid(p)].handler_id ==
                threads[SPS.get_pid(br_it->spid)].handler_id) conflict = true;
@@ -2255,7 +2250,7 @@ sequence_clears_sleep(const std::vector<Branch> &seq,
                         it->clock, slp_trees, busy_n_hap_aft_witness);
 
     state = obs_sleep_wake(isleep, slp_trees, it->spid, it->index,
-                           it->clock, it->sym, multiple_handlers, false);
+                           it->clock, it->sym, multiple_handlers);
   }
   /* Redundant */
   return (state == obs_wake_res::CLEAR);
@@ -3352,7 +3347,7 @@ void EventTraceBuilder::do_race_detect() {
         handler_busy[handler] = false;
       }
     }
-    obs_sleep_wake(sleep, sleep_trees, prefix[i], multiple_handlers, true);
+    obs_sleep_wake(sleep, sleep_trees, prefix[i], multiple_handlers);
   }
 
   for (unsigned i = 0; i < prefix.len(); ++i) prefix[i].races.clear();
@@ -3549,8 +3544,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
             }
           }
         } else if (do_events_conflict(ve.spid, ve.sym,
-                                      child_it.branch().spid,
-                                      child_sym)) {//Need re-evaluation of values
+                                      child_it.branch().spid, child_sym)) {//Need re-evaluation of values
           /* This branch is incompatible, try the next */
           leftmost_branch = false;
           skip = NEXT;
@@ -3593,7 +3587,7 @@ void EventTraceBuilder::insert_WS(std::vector<Branch> &v, unsigned i,
                           sleep_trees, busy_n_hap_aft_witness);
       obs_sleep_wake(sleep, sleep_trees, child_it.branch().spid,
                      child_it.branch().index, child_it.branch().clock,
-                     child_it.branch().sym, multiple_handlers, true);
+                     child_it.branch().sym, multiple_handlers);
       node = child_it.node();
       if(threads[SPS.get_pid(child_it.branch().spid)].handler_id != -1){
         if(ongoing_msg[threads[SPS.get_pid(child_it.branch().spid)].handler_id] != 0){
@@ -3780,7 +3774,6 @@ bool EventTraceBuilder::wakeup_sequence(const Race &race, unsigned &br_point,
   std::vector<Branch> v;
   std::vector<const Event*> observers;
   std::vector<Branch> notobs;
-  //std::vector<bool> in_notdep(prefix.len());
   std::vector<unsigned> fst_partial_msgs;
   /* w is sequence of partial messages and events */
 
@@ -3938,7 +3931,6 @@ bool EventTraceBuilder::wakeup_sequence(const Race &race, unsigned &br_point,
     }
     for(unsigned k = 0; k < prefix.len(); ++k){
       if(prefix[k].iid.get_pid() == spid && !in_notdep[k] && k < j) return false;
-      //unfiltered_notdep.push_back(in_notdep[k]);
     }
   }
 #ifndef NDEBUG
