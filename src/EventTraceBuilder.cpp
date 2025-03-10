@@ -1065,19 +1065,20 @@ static inline void apply_binops(void *value, const EventTraceBuilder::Binops &bi
   }
 }
 
-static bool rmw_reversal_changes_effect(const SymEv &first, const SymEv &second) {
+static bool rmw_reversal_changes_effect(const SymEv &first, const SymEv &second,
+                                        bool events_ordered = false) {
   assert(first.kind == SymEv::RMW);
   assert(second.kind == SymEv::RMW);
   unsigned *fst_ptr((unsigned*)malloc(first.addr().size));
   unsigned *snd_ptr((unsigned*)malloc(second.addr().size));
-  const uint8_t *rhs_ptr = second.cmp_rhs();
   memcpy((void*)fst_ptr, (void*)(first.oldvalue().get_block()), first.addr().size);
-  memcpy((void*)snd_ptr, (void*)(second.oldvalue().get_block()), second.addr().size);
+  if(events_ordered) memcpy((void*)snd_ptr, (void*)(second.oldvalue().get_block()), second.addr().size);
+  else memcpy((void*)snd_ptr, (void*)(first.data().get_block()), second.addr().size);
   apply_binops(fst_ptr, first.rmw_binops());
   bool fst_cmp_res = eval_cmp(fst_ptr, first.cmp_op_after(), first.cmp_rhs());
   apply_binops(snd_ptr, second.rmw_binops());
   bool snd_cmp_res = eval_cmp(snd_ptr, second.cmp_op_after(),second.cmp_rhs());
-
+  
   /* Calculate the value of the second rmw variable when it occurs in reverse order */
   /* There are other rmws happen before the current one */
   if(first.rmw_kind() == RmwAction::ADD)
@@ -1088,19 +1089,19 @@ static bool rmw_reversal_changes_effect(const SymEv &first, const SymEv &second)
 
   /* Calculate the value of the first rmw variable when it occurs in reverse order */
   // TODO: support different operations for first and second
-  memcpy((void*)fst_ptr, (void*)(second.oldvalue().get_block()), second.addr().size);
   if(second.rmw_kind() == RmwAction::ADD)
     *(unsigned*)fst_ptr += *(unsigned*)(second.expected().get_block());
   else
-    *(unsigned*)fst_ptr -= *(unsigned*)(second.expected().get_block());  
+    *(unsigned*)fst_ptr -= *(unsigned*)(second.expected().get_block());
   bool fst_cmp_res_rev = eval_cmp(fst_ptr, first.cmp_op_after(), first.cmp_rhs());
+  free(fst_ptr);
+  free(snd_ptr);
   return (fst_cmp_res != fst_cmp_res_rev || snd_cmp_res != snd_cmp_res_rev);
 }
 
 /* This predicate has to be transitive. */
-static bool rmw_symevs_commutes(const Configuration &conf,
-                               const SymEv &lhs,
-                               const SymEv &rhs) {
+static bool rmw_symevs_commutes(const Configuration &conf, const SymEv &lhs,
+                                const SymEv &rhs, bool events_ordered = false) {
   if (!conf.commute_rmws) return false;
   if ((lhs.rmw_result_used() && !lhs.rmw_used_only_by_cmp()) ||
       (rhs.rmw_result_used() && !rhs.rmw_used_only_by_cmp())) return false;
@@ -1108,7 +1109,8 @@ static bool rmw_symevs_commutes(const Configuration &conf,
   switch(lhs.rmw_kind()) {
   case Kind::ADD: case Kind::SUB:
     return ((rhs.rmw_kind() == Kind::ADD || rhs.rmw_kind() == Kind::SUB) &&
-            (rhs.cmp_rhs() == nullptr || !rmw_reversal_changes_effect(lhs, rhs)));
+            (rhs.cmp_rhs() == nullptr ||
+             !rmw_reversal_changes_effect(lhs, rhs, events_ordered)));
   case Kind::XCHG:
     return false;
   default:
@@ -3008,14 +3010,15 @@ bool EventTraceBuilder::record_symbolic(SymEv event){
 }
 
 bool EventTraceBuilder::do_events_conflict(int i, int j) const{
-  return do_events_conflict(prefix[i], prefix[j]);
+  return do_events_conflict(threads[prefix[i].iid.get_pid()].spid, prefix[i].sym,
+                            threads[prefix[j].iid.get_pid()].spid, prefix[j].sym, true);
 }
 
-bool EventTraceBuilder::do_events_conflict(const Event &fst,
-                                           const Event &snd) const{
-  return do_events_conflict(threads[fst.iid.get_pid()].spid, fst.sym,
-                            threads[snd.iid.get_pid()].spid, snd.sym);
-}
+// bool EventTraceBuilder::do_events_conflict(const Event &fst,
+//                                            const Event &snd) const{
+//   return do_events_conflict(threads[fst.iid.get_pid()].spid, fst.sym,
+//                             threads[snd.iid.get_pid()].spid, snd.sym);
+// }
 
 static bool symev_has_pid(const SymEv &e) {
   return e.kind == SymEv::SPAWN || e.kind == SymEv::JOIN || e.kind == SymEv::POST;
@@ -3032,7 +3035,7 @@ static bool symev_is_unobs_store(const SymEv &e) {
 
 bool EventTraceBuilder::do_symevs_conflict
 (IPid fst_pid, const SymEv &fst,
- IPid snd_pid, const SymEv &snd) const {
+ IPid snd_pid, const SymEv &snd, bool events_ordered) const {
   if (fst.kind == SymEv::NONDET || snd.kind == SymEv::NONDET) return false;
   if (fst.kind == SymEv::FULLMEM || snd.kind == SymEv::FULLMEM) return true;
   if (fst.kind == SymEv::POST && snd.kind == SymEv::POST) return false;
@@ -3041,7 +3044,7 @@ bool EventTraceBuilder::do_symevs_conflict
       && fst.addr() == snd.addr()) return false;
   if (fst.kind == SymEv::RMW && snd.kind == SymEv::RMW
       && fst.addr() == snd.addr()
-      && rmw_symevs_commutes(conf, fst, snd)) {
+      && rmw_symevs_commutes(conf, fst, snd, events_ordered)) {
     return false;
   }
 
@@ -3059,7 +3062,7 @@ bool EventTraceBuilder::do_symevs_conflict
 
 bool EventTraceBuilder::do_events_conflict
 (IPid fst_pid, const sym_ty &fst,
- IPid snd_pid, const sym_ty &snd) const{
+ IPid snd_pid, const sym_ty &snd, bool events_ordered) const{
   IPid f_ipid = SPS.get_pid(fst_pid);
   IPid s_ipid = SPS.get_pid(snd_pid);
   if (fst_pid == snd_pid) return true;
@@ -3068,7 +3071,7 @@ bool EventTraceBuilder::do_events_conflict
   for (const SymEv &fe : fst) {
     if (symev_has_pid(fe) && fe.num() == snd_pid) return true;
     for (const SymEv &se : snd) {
-      if (do_symevs_conflict(fst_pid, fe, snd_pid, se)) {
+      if (do_symevs_conflict(fst_pid, fe, snd_pid, se, events_ordered)) {
         return true;
       }
     }

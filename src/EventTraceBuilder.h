@@ -760,12 +760,14 @@ protected:
   void add_lock_fail_race(const Mutex &m, int event);
   /* Check if two events in the current prefix are in conflict. */
   bool do_events_conflict(int i, int j) const;
-  bool do_events_conflict(const Event &fst, const Event &snd) const;
-  /* Check if two symbolic events conflict. */
+  // bool do_events_conflict(const Event &fst, const Event &snd) const;
   bool do_events_conflict(IPid fst_pid, const sym_ty &fst,
-                          IPid snd_pid, const sym_ty &snd) const;
+                          IPid snd_pid, const sym_ty &snd,
+                          bool events_ordered = false) const;
+  /* Check if two symbolic events conflict. */
   bool do_symevs_conflict(IPid fst_pid, const SymEv &fst,
-                          IPid snd_pid, const SymEv &snd) const;
+                          IPid snd_pid, const SymEv &snd,
+                          bool events_ordered = false) const;
   /* Check if events fst and snd are in an observed race with thd as an
    * observer.
    */
