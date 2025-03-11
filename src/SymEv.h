@@ -104,22 +104,22 @@ struct SymEv {
   {
     if(ev.kind == RMW && _rmw_result_used && _rmw_used_only_by_cmp){
       if(ev._expected != nullptr){
-        _expected = std::shared_ptr<uint8_t>(new uint8_t[ev.arg.addr.size]);
+        _expected = std::shared_ptr<uint8_t>(new uint8_t[ev.arg.addr.size], std::default_delete<uint8_t[]>());
         memcpy((void*)_expected.get(), (void *)ev._expected.get(), ev.arg.addr.size);
       }
       if(ev._written != nullptr){
-      _written = std::shared_ptr<uint8_t>(new uint8_t[ev.arg.addr.size]);
+      _written = std::shared_ptr<uint8_t>(new uint8_t[ev.arg.addr.size], std::default_delete<uint8_t[]>());
       memcpy((void*)_written.get(), (void *)ev._written.get(), ev.arg.addr.size);
       }
       if(ev._oldvalue != nullptr){
-      _oldvalue = std::shared_ptr<uint8_t>(new uint8_t[ev.arg.addr.size]);
+      _oldvalue = std::shared_ptr<uint8_t>(new uint8_t[ev.arg.addr.size], std::default_delete<uint8_t[]>());
       memcpy((void*)_oldvalue.get(), (void *)ev._oldvalue.get(), ev.arg.addr.size);
       }
     }
     else{
-      _expected = nullptr;
-      _written = nullptr;
-      _oldvalue = nullptr;
+      _expected = ev._expected;
+      _written = ev._written;
+      _oldvalue = ev._oldvalue;
     }
   }
   static SymEv None() { return {NONE, {}}; }
