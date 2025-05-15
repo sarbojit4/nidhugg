@@ -229,6 +229,35 @@ bool SymEv::operator==(const SymEv &s) const{
   return true;
 }
 
+void SymEv::duplicate_data() {
+  // SymData e(arg.addr, arg.addr.size);
+  // memcpy((void*)e.get_block(), (void *)_expected.get(), arg.addr.size);
+  // _expected = std::move(e.get_shared_block());
+  // SymData w(arg.addr, arg.addr.size);
+  // memcpy((void*)w.get_block(), (void *)_written.get(), arg.addr.size);
+  // _written = std::move(w.get_shared_block());
+  // SymData o(arg.addr, arg.addr.size);
+  // memcpy((void*)o.get_block(), (void *)_oldvalue.get(), arg.addr.size);
+  // _oldvalue = std::move(o.get_shared_block());
+  SymData::block_type expected_ptr(new uint8_t[arg.addr.size],
+                                   std::default_delete<uint8_t[]>());
+  memcpy((void*)expected_ptr.get(), (void *)_expected.get(), arg.addr.size);
+  //_expected.reset();
+  _expected = expected_ptr;
+  
+  SymData::block_type written_ptr(new uint8_t[arg.addr.size],
+                       std::default_delete<uint8_t[]>());
+  memcpy((void*)written_ptr.get(), (void *)_written.get(), arg.addr.size);
+  //_written.reset();
+  _written = written_ptr;
+  
+  SymData::block_type oldvalue_ptr(new uint8_t[arg.addr.size],
+                        std::default_delete<uint8_t[]>());
+  memcpy((void*)oldvalue_ptr.get(), (void *)_oldvalue.get(), arg.addr.size);
+  //_oldvalue.reset();
+  _oldvalue = oldvalue_ptr;
+}
+
 void SymEv::purge_data() {
   _written.reset();
   _expected.reset();

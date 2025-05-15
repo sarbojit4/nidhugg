@@ -4174,14 +4174,15 @@ linearize_sequence(unsigned br_point, Branch second_br,
   second_br.clock = clock_WS[k];
   linearized_ws.push_back(second_br);
 
-  std::unique_ptr<uint8_t>
-    var_value(new uint8_t[prefix[race.fst_conflict].sym[0].addr().size]);
   unsigned fst_conflict =
     (race.kind == Race::MSG_REV ? race.fst_conflict : race.first_event);
+  std::unique_ptr<uint8_t>
+    var_value(new uint8_t[prefix[fst_conflict].sym[0].addr().size]);
   if(prefix[fst_conflict].sym[0].kind == SymEv::RMW &&
      prefix[fst_conflict].sym[0].rmw_used_only_by_cmp()){
     memcpy((void*)(var_value.get()),
-           (void*)prefix[race.fst_conflict].sym[0].oldvalue().get_block(), prefix[race.fst_conflict].sym[0].addr().size);
+           (void*)prefix[fst_conflict].sym[0].oldvalue().get_block(),
+           prefix[fst_conflict].sym[0].addr().size);
   }
   for(auto &br : linearized_ws){
     if(br.sym[0].kind == SymEv::RMW &&
@@ -4189,7 +4190,8 @@ linearize_sequence(unsigned br_point, Branch second_br,
        prefix[fst_conflict].sym[0].kind == SymEv::RMW &&
        prefix[fst_conflict].sym[0].rmw_used_only_by_cmp() &&
        prefix[fst_conflict].sym[0].addr() == br.sym[0].addr()){
-      memcpy((void*)(br.sym[0].oldvalue().get_block()), (void*)(var_value.get()), prefix[race.fst_conflict].sym[0].addr().size);
+      memcpy((void*)(br.sym[0].oldvalue().get_block()),
+             (void*)(var_value.get()), prefix[fst_conflict].sym[0].addr().size);
       switch(br.sym[0].rmw_kind()){
       case RmwAction::ADD:
         *var_value += *(unsigned*)(br.sym[0].expected().get_block());
@@ -4199,7 +4201,8 @@ linearize_sequence(unsigned br_point, Branch second_br,
         break;
       default: assert(false);
       }
-      memcpy((void*)(br.sym[0].data().get_block()), (void*)(var_value.get()), prefix[race.fst_conflict].sym[0].addr().size);
+      memcpy((void*)(br.sym[0].data().get_block()), (void*)(var_value.get()),
+             prefix[fst_conflict].sym[0].addr().size);
     }
   }
   return linearized_ws;

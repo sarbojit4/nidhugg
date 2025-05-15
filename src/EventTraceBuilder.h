@@ -688,7 +688,15 @@ protected:
    * with data of memory accesses in the symbolic events.
    */
   Branch branch_with_symbolic_data(unsigned index) const {
-    return Branch(prefix.branch(index), prefix[index].sym);
+    Branch br = Branch(prefix.branch(index), prefix[index].sym);
+    if(br.sym[0].kind == SymEv::RMW && br.sym[0].rmw_result_used() &&
+       br.sym[0].rmw_used_only_by_cmp()){
+      // br.sym[0].duplicate_data();
+      // llvm::dbgs()<<*(unsigned*)br.sym[0].data().get_block()
+      //             <<*(unsigned*)br.sym[0].expected().get_block()
+      //             <<*(unsigned*)br.sym[0].oldvalue().get_block()<<"\n";/////////////
+    }
+    return br;
   }
 
   IID<CPid> get_iid(unsigned i) const;
